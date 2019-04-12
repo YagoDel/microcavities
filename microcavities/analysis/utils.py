@@ -26,3 +26,11 @@ def SortingKey(pattern):
             val = ast.literal_eval(splitpat[1])
             returnval += (np.sign(np.real(val)) * np.abs(val),)
     return returnval
+
+
+def fit_function(name):
+    """
+    Given a name, return a lmfit Model with a guess method implemented
+    :param name:
+    :return:
+    """

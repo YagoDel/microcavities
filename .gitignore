@@ -219,5 +219,5 @@ pip-log.txt
 .idea
 
 # microcavities control panel
-microcavities/igor.tif
-microcavities/igor.txt
+.h5
+.npy

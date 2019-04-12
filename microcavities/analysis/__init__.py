@@ -28,12 +28,12 @@ class HierarchicalAnalysis(object):
 
     # TODO: implement analysis at different depths
     """
-    def __init__(self):
+    def __init__(self, hierarchical_object):
         super(HierarchicalAnalysis, self).__init__()
 
+        self.data = hierarchical_object
         self.analysis_functions = OrderedDict()
         self.variables = OrderedDict()
-        self._current_level = None
         self.results = OrderedDict()
 
     def variable_name_value(self, level):
@@ -63,6 +63,12 @@ class HierarchicalAnalysis(object):
         """
         raise NotImplementedError
 
+    def run(self, level):
+        self.variables = OrderedDict()
+        self.results = OrderedDict()
+        self._iterate(level)
+        self._reshape_results()
+
     def _iterate(self, level):
         """
         Recursive function to iterate over a hierarchical dataset. Given an input level, it will either perform analysis
@@ -89,8 +95,17 @@ class HierarchicalAnalysis(object):
         :param level:
         :return:
         """
-        for name, funct in self.analysis_functions.items():
-            result = funct(level)
+        for name, parameters in self.analysis_functions.items():
+            if 'args' not in parameters:
+                args = []
+            else:
+                args = parameters['args']
+            if 'kwargs' not in parameters:
+                kwargs = dict()
+            else:
+                kwargs = parameters['kwargs']
+
+            result = parameters['function'](level, *args, **kwargs)
             if result is not None:
                 if name not in self.results:
                     self.results[name] = [result]
@@ -141,11 +156,52 @@ class HierarchicalAnalysis(object):
         if var_name is not None:
             self.variables[var_name] = values
 
+    def get_random_group(self, level):
+        """
+        Iterates through the hdf5 file by randomly selecting a group lower down the hierarchy (which matches the form
+        'varname=varvalue') until it finds a group called groupName.
+
+        Say your file has the following hierarchy:
+            FullDataset:
+                Focus=1:
+                    Power=2:
+                        Spin:
+                            Image1
+                            Image2
+                    Power=3:
+                        Spin:
+                            Image1
+                            Image2
+                Focus=2:
+                    Power=2:
+                        Spin:
+                            Image1
+                            Image2
+                    Power=3:
+                        Spin:
+                            Image1
+                            Image2
+        This function allows you to randomly select one of the 'Spin' datasets, returning one of the following strings:
+            FullDataset/Focus=1/Power=2/Spin
+            FullDataset/Focus=1/Power=3/Spin
+            FullDataset/Focus=2/Power=2/Spin
+            FullDataset/Focus=2/Power=3/Spin
+        :param level: starting level
+        :return:
+        """
+
+        if self.is_lowest_level(level):
+            return level
+        else:
+            levels = self.next_levels(level)
+            indices = range(len(levels))
+            return self.get_random_group(levels[np.random.choice(indices)])
+
 
 class Hdf5Analysis(HierarchicalAnalysis):
     def __init__(self):
-        super(Hdf5Analysis, self).__init__()
-        self.analysis_functions = OrderedDict(dummy=self.dummy_analysis)
+        super(Hdf5Analysis, self).__init__(None)
+        self.analysis_functions = OrderedDict()
 
     def variable_name_value(self, level):
         name = level.name
@@ -175,4 +231,3 @@ class Hdf5Analysis(HierarchicalAnalysis):
     @staticmethod
     def dummy_analysis(level):
         return level[...]
-
