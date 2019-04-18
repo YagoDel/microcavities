@@ -67,7 +67,7 @@ class Experiment(object, ShowGUIMixin):
             full_class_name = setting['class']
             location = '.'.join(full_class_name.split('.')[:-1])
             class_name = full_class_name.split('.')[-1]
-            eval("from %s import %s" % (location, class_name))
+            exec("from %s import %s" % (location, class_name))
             return eval(class_name)(*setting['args'], **setting['kwargs'])
         except Exception as e:
             print 'Failed to open %s because %s' % (setting['class'], e)
