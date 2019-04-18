@@ -2,36 +2,91 @@
 from nplab.utils.gui import QtWidgets, QtGui, QtCore, get_qt_app
 from nplab.utils.show_gui_mixin import ShowGUIMixin
 from nplab.utils import gui_generator
-from nplab.instrument.stage.apt_vcp_motor import DC_APT
-from nplab.instrument.camera.Andor.andornplab import Andor
-from nplab.instrument.temperatureControl.LakeShore import LS331
-from nplab.instrument.camera.Hamamatsu_streak import StreakBase
-from microcavities.experiment.instruments import PvcamClient, Spectrometer, AndorClient, Stages, SampleMovement, \
-    RetarderPower, NdWheel, PowerMeterFlipper, Flipper
-
+import yaml
 import numpy as np
 import os
 from functools import partial
 
 
 # TODO:
-#     Autofocus
-#     AutoWL
+#   Autofocus:
+#       A simple one simply calculating the required exposure to saturate (assuming linear trends).
+#       A more complicated one where it adjusts according to an LUT.
+#   AutoWL
 
 
-settings = dict(pvcam=dict(cls=PvcamClient, args=[("172.27.25.39", 9999)], use=1),
-                spectrometer=dict(cls=Spectrometer, args=["COM11"], use=1),
-                andor=dict(cls=AndorClient, args=[("172.27.25.39", 9998)], use=1),
-                andor2=dict(cls=Andor, use=0),
-                stages=dict(cls=Stages, args=['COM8'], use=1),
-                sample=dict(cls=SampleMovement, args=['COM12'], use=1),
-                vwp=dict(cls=RetarderPower, args=['COM7'], use=0),
-                power_wheel=dict(cls=NdWheel, args=['GPIB0::8::INSTR'], use=1),
-                temp_gauge=dict(cls=LS331, args=['GPIB0::1::INSTR'], use=1),
-                power_meter=dict(cls=PowerMeterFlipper, args=['COM14', 0xCEC7], use=1),
-                flipper=dict(cls=Flipper, args=[], use=0),
-                rotat=dict(cls=DC_APT, args=['COM15'], kwargs=dict(destination=0x50, stage_type='PRM'), use=0),
-                streak=dict(cls=StreakBase, args=[("172.27.25.39", 1001)], use=1))
+# full_settings = yaml.load(open("settings.yaml", 'r'))
+# settings = full_settings['instruments']
+
+
+class Experiment(object, ShowGUIMixin):
+
+    def __init__(self, settings_file="settings.yaml"):
+        super(Experiment, self).__init__()
+        self.settings = self._parse_settings(settings_file)
+        self.instr_dict = self._open_instruments()
+        print self.instr_dict
+
+    @staticmethod
+    def _parse_settings(path):
+        """
+        The yaml file should be a dictionary with at least one key called "instruments". Under "instruments" there
+        should be another dictionary where the keys are the names you want the instrument instances to have, and the
+        values are another dictionary with up to four keys:
+            class: full name of the instrument class e.g. nplab.instrument.camera.lumenera.LumeneraCamera
+            args: list of arguments to be passed to the instance. Not required
+            kwargs: list of named arguments to be passed to the instance. Not required
+            use: boolean on whether to use the instrument in the current experiment or not. Not required
+
+        Example, two instruments a camera and a spectrometer:
+            instruments:
+                camera:
+                    class: nplab.instrument.camera.Andor.Andor
+                    use: True
+                spectrometer:
+                    class: nplab.instrument.spectrometer.Triax.Triax
+                    args: ["COM11"]
+                    use: True
+
+        :param path: str
+        :return:
+        """
+        full_settings = yaml.load(open(path, 'r'))
+        return full_settings['instruments']
+
+    @staticmethod
+    def _open_instrument(setting):
+        if 'args' not in setting:
+            setting['args'] = []
+        if 'kwargs' not in setting:
+            setting['kwargs'] = {}
+        assert isinstance(setting['kwargs'], dict)
+        assert isinstance(setting['args'], list)
+
+        try:
+            full_class_name = setting['class']
+            location = '.'.join(full_class_name.split('.')[:-1])
+            class_name = full_class_name.split('.')[-1]
+            eval("from %s import %s" % (location, class_name))
+            return eval(class_name)(*setting['args'], **setting['kwargs'])
+        except Exception as e:
+            print 'Failed to open %s because %s' % (setting['class'], e)
+
+    def _open_instruments(self):
+        _instr_dict = dict()
+        for name, setting in self.settings.items():
+            if 'use' in setting and not setting['use']:
+                continue
+            else:
+                print 'Opening %s' % name
+                instr = Experiment._open_instrument(setting)
+                if instr is not None:
+                    _instr_dict[name] = instr
+        print 'Instrument set up finished'
+        return _instr_dict
+
+    def get_qt_ui(self):
+        return ExperimentGUI(self, dock_settings_path="docks.npy")
 
 
 class ExperimentGUI(gui_generator.GuiGenerator):
@@ -191,46 +246,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
             # self._open_one_gui(name)
 
 
-class Experiment(object, ShowGUIMixin):
-
-    def __init__(self, settings):
-        super(Experiment, self).__init__()
-        self.settings = settings
-        self.instr_dict = self._open_instruments()
-        print self.instr_dict
-
-    @staticmethod
-    def _open_instrument(setting):
-        if 'args' not in setting:
-            setting['args'] = []
-        if 'kwargs' not in setting:
-            setting['kwargs'] = {}
-        assert isinstance(setting['kwargs'], dict)
-        assert isinstance(setting['args'], list)
-
-        try:
-            return setting['cls'](*setting['args'], **setting['kwargs'])
-        except Exception as e:
-            print 'Failed to open %s because %s' % (setting['cls'], e)
-
-    def _open_instruments(self):
-        _instr_dict = dict()
-        for name, setting in self.settings.items():
-            if 'use' in setting and not setting['use']:
-                continue
-            else:
-                print 'Opening %s' % name
-                instr = Experiment._open_instrument(setting)
-                if instr is not None:
-                    _instr_dict[name] = instr
-        print 'Instrument set up finished'
-        return _instr_dict
-
-    def get_qt_ui(self):
-        return ExperimentGUI(self, dock_settings_path="docks.npy")
-
-
-exper = Experiment(settings)
+exper = Experiment()
 exper.show_gui()
 
 

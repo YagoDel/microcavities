@@ -2,3 +2,4 @@ delete.h5
 *.npy
 .idea
 *.pyc
+*.yaml
