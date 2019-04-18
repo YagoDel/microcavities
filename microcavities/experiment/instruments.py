@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from nplab.instrument import Instrument
-from nplab.instrument.server_instrument import create_client_class
+from nplab.instrument.server_instrument import create_client_class, create_server_class
 from nplab.instrument.stage.SigmaKoki import HIT, SHOT
 from nplab.instrument.electronics.Meadowlark import VariableRetarder
 from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
@@ -104,12 +104,14 @@ class Flipper(Instrument):
             self.on()
 
 
+PvcamServer = create_server_class(Pvcam)
 PvcamClient = create_client_class(Pvcam,
                                   PvcamSdk.__dict__.keys() + ["get_camera_parameter", "set_camera_parameter"],
                                   ('get_qt_ui', "get_control_widget", "get_preview_widget", 'get_wavelength', 'set_wavelength'),
                                   ('latest_frame', 'latest_raw_frame'),
                                   ('_preview_widgets', 'wavelength'))
 
+AndorServer = create_server_class(Andor)
 AndorClient = create_client_class(Andor,
                                   Andor.__dict__.keys() + ['get_camera_parameter', 'get_camera_parameter', 'raw_image'],
                                   ('get_qt_ui',  "get_control_widget", "get_preview_widget"),

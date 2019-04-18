@@ -2,6 +2,7 @@
 from nplab.utils.gui import QtWidgets, QtGui, QtCore, get_qt_app
 from nplab.utils.show_gui_mixin import ShowGUIMixin
 from nplab.utils import gui_generator
+from microcavities.experiment.instruments import PvcamServer, AndorServer
 import yaml
 import numpy as np
 import os
@@ -81,7 +82,11 @@ class Experiment(object, ShowGUIMixin):
                 print 'Opening %s' % name
                 instr = Experiment._open_instrument(setting)
                 if instr is not None:
-                    _instr_dict[name] = instr
+                    if isinstance(instr, PvcamServer) or isinstance(instr, AndorServer):
+                        instr.run(False, True)
+                        _instr_dict[name] = instr.instrument
+                    else:
+                        _instr_dict[name] = instr
         print 'Instrument set up finished'
         return _instr_dict
 
