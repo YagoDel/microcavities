@@ -10,26 +10,26 @@ from functools import partial
 
 
 # TODO:
-#   Autofocus:
+#   Autoexposure:
 #       A simple one simply calculating the required exposure to saturate (assuming linear trends).
 #       A more complicated one where it adjusts according to an LUT.
+#   Autofocus:
+#       Find a place on the sample that we know is in focus
+#       Focus a laser on the surface manually
+#       Auto-focus will maximise emission on the laser position / minimise laser shape
+#       Check that the laser is properly focused. Add an offset correction if necessary
+#       Need to somehow automatically switch
 #   AutoWL
-
-
-# full_settings = yaml.load(open("settings.yaml", 'r'))
-# settings = full_settings['instruments']
 
 
 class Experiment(object, ShowGUIMixin):
 
     def __init__(self, settings_file="settings.yaml"):
         super(Experiment, self).__init__()
-        self.settings = self._parse_settings(settings_file)
+        self._parse_settings(settings_file)
         self.instr_dict = self._open_instruments()
-        print self.instr_dict
 
-    @staticmethod
-    def _parse_settings(path):
+    def _parse_settings(self, path):
         """
         The yaml file should be a dictionary with at least one key called "instruments". Under "instruments" there
         should be another dictionary where the keys are the names you want the instrument instances to have, and the
@@ -53,7 +53,11 @@ class Experiment(object, ShowGUIMixin):
         :return:
         """
         full_settings = yaml.load(open(path, 'r'))
-        return full_settings['instruments']
+        self.settings = full_settings['instruments']
+        self.gui_settings = {}
+        for variable in ['working_directory', 'scripts_path', 'dock_settings_path']:
+            if variable in full_settings:
+                self.gui_settings[variable] = full_settings[variable]
 
     @staticmethod
     def _open_instrument(setting):
@@ -91,7 +95,7 @@ class Experiment(object, ShowGUIMixin):
         return _instr_dict
 
     def get_qt_ui(self):
-        return ExperimentGUI(self, dock_settings_path="docks.npy")
+        return ExperimentGUI(self, **self.gui_settings)
 
 
 class ExperimentGUI(gui_generator.GuiGenerator):
