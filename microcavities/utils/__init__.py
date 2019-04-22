@@ -32,16 +32,6 @@ def run_once(f):
     return wrapper
 
 
-def is_prime(integer):
-    """
-    Checks whether integer is divisible by any other integer smaller than itself.
-
-    :param integer: int
-    :return: bool. True if a is prime, False otherwise
-    """
-    return all(integer % i for i in xrange(2, integer))
-
-
 def string_to_number(s):
     """Given a string, tries to convert it to an integer, and if it fails tries to convert it to a float
 
@@ -54,6 +44,16 @@ def string_to_number(s):
         return int(s)
     except ValueError:
         return float(s)
+
+
+def is_prime(integer):
+    """
+    Checks whether integer is divisible by any other integer smaller than itself.
+
+    :param integer: int
+    :return: bool. True if a is prime, False otherwise
+    """
+    return all(integer % i for i in xrange(2, integer))
 
 
 def square(integer, _iter=0):
