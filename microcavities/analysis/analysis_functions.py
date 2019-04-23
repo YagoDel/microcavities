@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 from nplab.utils.gui import QtWidgets, QtCore, uic, get_qt_app
 from nplab.utils.log import create_logger
+from nplab.utils.show_gui_mixin import ShowGUIMixin
 import numpy as np
 import os
 from scipy.ndimage import gaussian_filter
 from lmfit.models import LorentzianModel, GaussianModel, ConstantModel
-from scipy.optimize import fsolve
+import pyqtgraph as pg
 import pymsgbox
 import matplotlib.pyplot as plt
 
@@ -190,18 +191,103 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
 # IMAGE ANALYSIS
 # Functions to be used on real- and k-space images
 
-def roi(data, apply_function, roi_params=None, axes=-1):
+class roi2d_GUI(QtWidgets.QMainWindow):
+    """ Multi region-of-interest GUI
 
-    # if roi_params is None:
-    #     popup a window with a plot and a button. Plot a random set of data and allow the button to change it.
-    #     popup a ROI and allow the user to move it. 1D or 2D
-    #     Also add a checkbox to the GUI to either lock the ROI to image pixels or not
-    #
-    # iterate over data, select a roi and apply_function
-    # roid = pyqtgraph.affineSlice(data, shape, origin, vectors, axes, order=1, returnCoords=False, **kargs)
-    # np.apply_over_axes(apply_function, roid, axes)
+    Base class for creating GUIs for analysing images where you want to create multiple ROIs and extract information 
+    about those ROIs
+    """
 
-    return 1
+    def __init__(self, images, results, **kwargs):
+        super(roi2d_GUI, self).__init__()
+        uic.loadUi(os.path.join(os.path.dirname(__file__), 'roi_gui.ui'), self)
+
+        self.images = images
+        self.results = results
+        self.kwargs = dict(kwargs)
+
+        self.spinBoxNoROI.valueChanged.connect(self._make_ROIs)
+        self.pushButtonSetROI.clicked.connect(self.SetROIs)
+        self.pushButtonAutoMove.clicked.connect(self._move_ROIs)
+        self.pushButtonNewImage.clicked.connect(self.new_image)
+
+        if len(self.images.shape) <= 2:
+            self.pushButtonNewImage.hide()
+            self._current_image = self.images
+            self.graphicsView.setImage(self.images)
+
+        self.rois = []
+
+    def _make_single_ROI(self, pen):
+        print "ROI type: ", self.comboBox_roitype.text()
+        if self.comboBox_roitype.text() == 'Square':
+            roi = pg.ROI([50, 10], [3, 3], pen=pen)
+            roi.addScaleHandle([1, 0.5], [0.5, 0.5])
+            roi.addScaleHandle([0.5, 1], [0.5, 0.5])
+            roi.addRotateHandle([0, 0], [0.5, 0.5])
+            return roi
+        if self.comboBox_roitype.text() == 'Round':
+            return pg.CircleROI([10, 10], [3, 3], pen=pen)
+
+    def _make_ROIs(self):
+        n_rois = self.spinBoxNoROI.value()
+
+        for roi in self.rois:
+            self.graphicsView.getView().removeItem(roi)
+
+        self.rois = []
+        for n in range(n_rois):
+            pen = pg.mkPen(n)
+            self.rois += [self._make_single_ROI(pen)]
+
+        for roi in self.rois:
+            self.graphicsView.getView().addItem(roi)
+
+    def SetROIs(self):
+        affineSliceParams = []
+        for roi in self.rois:
+            affineSliceParams += [roi.getAffineSliceParams(self._current_image, self.graphicsView.getImageItem())]
+
+        self.results['affineSliceParams'] = affineSliceParams
+
+    def _move_ROIs(self):
+        pass
+
+    def new_image(self):
+        self._index = np.random.randint(0, self.images.shape[0])
+        self._current_image = self.images[self._index]
+        self.graphicsView.setImage(self.images[self._index])
+
+class roi2d(object, ShowGUIMixin):
+    def __init__(self, images):
+        super(roi2d, self).__init__()
+
+        self.images = images
+        self.results = dict()
+
+    def get_qt_ui(self):
+        return roi2d_GUI(self.images, self.results)
+
+
+# def roi2d(data, apply_function, roi_params=None, axes=-1):
+#
+#     if roi_params is None:
+#         # popup a ROI and allow the user to move it
+#         results = dict()
+#         app = get_qt_app()
+#         gui = roi2d_GUI(data, results)
+#         gui.show()
+#         app.exec_()
+#
+#         roi_params = results['affineSliceParams']
+#     #     popup a window with a plot and a button. Plot a random set of data and allow the button to change it.
+#     #     Also add a checkbox to the GUI to either lock the ROI to image pixels or not
+#     #
+#     # iterate over data, select a roi and apply_function
+#     # roid = pyqtgraph.affineSlice(data, shape, origin, vectors, axes, order=1, returnCoords=False, **kargs)
+#     # np.apply_over_axes(apply_function, roid, axes)
+#
+#     return 1
 
 
 def roi_intensity(data, roi_params=None):
