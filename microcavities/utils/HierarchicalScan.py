@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from nplab.utils.gui import get_qt_app  #, QtCore, uic
+from nplab.utils.gui import get_qt_app
 from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
@@ -30,20 +30,26 @@ class HierarchicalScan(object):
             angle = 0
             angle = 1
 
-    It is designed thinking that datasets could be HDF5 datasets, or they could be folder directories, or anything else.
+    It is designed without specifying the type of data structure that could be used, but has been mostly tested on HDF5
     We have abstracted those details by keeping a 'level' object and leaving the user to reimplement the necessary
     methods to address these objects.
-    The user must reimplement self.variable_name_value, self.is_lowest_level, and self.next_levels
+    The user may re-implement self.iteration_function, self.final_function, and self.abort_scan
 
-    TODO: implement analysis at different depths
-    TODO: variable creation from a yaml. Both the experiment and the analysis should have access to this file.
+    TODO: save yaml with file
     """
     def __init__(self, settings_yaml, **kwargs):
         super(HierarchicalScan, self).__init__()
 
         self.variables = OrderedDict()
 
-        full_yaml = yaml.load(open(settings_yaml, 'r'))
+        if isinstance(settings_yaml, str):
+            full_yaml = yaml.load(open(settings_yaml, 'r'))
+        elif isinstance(settings_yaml, dict):
+            full_yaml = settings_yaml
+        elif isinstance(settings_yaml, file):
+            full_yaml = yaml.load(settings_yaml)
+        else:
+            raise TypeError("settings_yaml cannot be %s. Needs to be str, dict or file" % type(settings_yaml))
         self.settings_yaml = full_yaml
 
         logger_name = "HierarchicalScan"
@@ -290,7 +296,7 @@ class ExperimentScan(HierarchicalScan):
             self._logger.debug('Creating group: %s %s' % (file_name, attributes))
             if not DRY_RUN:
                 self.instr_dict['HDF5'].create_dataset(file_name, data=data, attrs=attributes)
-        else:
+        elif self.save_type != 'None':
             lst = file_name.split('/')
             folder_name = '/'.join(lst[:-1])
             if not os.path.exists(folder_name):
@@ -299,6 +305,9 @@ class ExperimentScan(HierarchicalScan):
                     os.makedirs(folder_name)
             self.save_array(file_name, attributes, self.save_type)
             self.save_attributes(attributes, file_name)
+        else:
+            self._logger.debug('Saving is disabled')
+
         self.pyqt_app.processEvents()
 
     def save_attributes(self, attributes, file_name):
@@ -563,8 +572,6 @@ class AnalysisScan(HierarchicalScan):
 
 
 def call_dictionary(obj, dictionary):
-    print "call_dictionary: %s %s" % (obj, dictionary)
-
     if DRY_RUN:
         print "call_dictionary: %s %s" % (obj, dictionary)
         return 1
