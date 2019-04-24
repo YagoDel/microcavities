@@ -260,6 +260,33 @@ class ExperimentGUI(gui_generator.GuiGenerator):
             self.terminalWindow.push_vars({name: self.instr_dict[name]})
             # self._open_one_gui(name)
 
+    def makeScriptMenu(self):
+        """Generate a menu for running the scripts found in the scripts path locationlocation """
+        from functools import partial
+
+        if self.script_menu is None:
+            script_menu = self.menuBar().addMenu('&Scripts')
+        else:
+            script_menu = self.script_menu
+
+        menus = {self.scripts_path: script_menu}
+
+        for dirpath, dirnames, filenames in os.walk(self.scripts_path):
+            # print filenames
+            current = menus[dirpath]
+            for dn in dirnames:
+                menus[os.path.join(dirpath, dn)] = current.addMenu(dn)
+            for fn in filenames:
+                if fn.endswith('.py'):
+                    if fn != '__init__.py':
+                        menuitem = current.addAction(fn)
+                        menuitem.triggered.connect(partial(self.menuScriptClicked, fn))
+
+        script_menu.addSeparator()
+        refreshScripts = script_menu.addAction('Refresh')
+        refreshScripts.triggered.connect(self.refreshScriptMenu)
+        self.script_menu = script_menu
+
 
 exper = Experiment()
 exper.show_gui()
