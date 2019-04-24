@@ -10,16 +10,22 @@ from functools import partial
 
 
 # TODO:
-#   Autoexposure:
-#       A simple one simply calculating the required exposure to saturate (assuming linear trends).
-#       A more complicated one where it adjusts according to an LUT.
-#   Autofocus:
-#       Find a place on the sample that we know is in focus
-#       Focus a laser on the surface manually
-#       Auto-focus will maximise emission on the laser position / minimise laser shape
-#       Check that the laser is properly focused. Add an offset correction if necessary
-#       Need to somehow automatically switch
-#   AutoWL
+#   Functions:
+#       Autoexposure:
+#           A simple one simply calculating the required exposure to saturate (assuming linear trends).
+#           A more complicated one where it adjusts according to an LUT.
+#       Autofocus:
+#           Find a place on the sample that we know is in focus
+#           Focus a laser on the surface manually
+#           Auto-focus will maximise emission on the laser position / minimise laser shape
+#           Check that the laser is properly focused. Add an offset correction if necessary
+#           Need to somehow automatically switch
+#       AutoWL
+#       Threshold
+#           Power fitting
+#           Energy fitting
+#   Experiment yaml
+#       Lenses -> magnification -> calibrations
 
 
 class Experiment(object, ShowGUIMixin):
@@ -257,95 +263,3 @@ class ExperimentGUI(gui_generator.GuiGenerator):
 
 exper = Experiment()
 exper.show_gui()
-
-
-# from sympy import sympify, Symbol
-# from sympy.matrices import Matrix
-# from sympy import pprint
-# import sys
-# sys.displayhook = pprint
-#
-# f1 = Symbol('f1')
-# f2 = Symbol('f2')
-# f3 = Symbol('f3')
-# d1 = Symbol('d1')
-# d2 = Symbol('d2')
-# d3 = Symbol('d3')
-#
-#
-# def lens(f):
-#     return Matrix([[1, 0], [-1./f, 0]])
-# def dist(d):
-#     return Matrix([[1, d], [0, 1]])
-#
-# mat1 = dist(d1)*lens(f1)
-# mat2 = lens(f2) * mat1
-# mat3 = dist(d2) * mat2
-# full = lens(f3) * mat3
-
-
-#
-def magnification(focus_array, wavelength=780e-9):
-    assert len(focus_array) > 1
-
-    if len(focus_array) % 2:
-        # For an odd number of lenses, you are measuring k-space, so we use the wavelength to get the wavenumber
-        kp = 2 * np.pi / wavelength  # wavenumber in m-1
-        m = focus_array[0] / kp
-        m_array = [m]
-        m2, m_array2 = magnification(focus_array[1:])
-        m_array += list(map(lambda x: m * x, m_array2))
-        m *= m2
-    else:
-        # For an even number of lenses, you are measuring real space
-        m = 1
-        m_array = [m]
-        for idx in range(len(focus_array)/2):
-            m *= focus_array[2*idx + 1] / focus_array[2*idx]
-            m_array += [m]
-    return m, m_array
-
-# def calcmag(foc_arr, lam):
-#     from numpy import pi
-#     # all focal lengths in foc_arr are in m
-#     kp = 2 * pi / lam  # wavenumber in m-1
-#
-#     assert len(foc_arr) > 1
-#     if len(foc_arr) == 2:
-#         return foc_arr[1] / foc_arr[0], None
-#     else:
-#         mr = [foc_arr[1] / foc_arr[0]]
-#         mk = [foc_arr[2] / foc_arr[1] * foc_arr[0] / kp]
-#         for idx, focus in enumerate(foc_arr):
-#             if idx == 1:
-#                 mr = [foc_arr[idx] / foc_arr[idx - 1]]
-#             elif idx == 2:
-#                 mk = [foc_arr[2] / foc_arr[1] * foc_arr[0] / kp]
-#             elif idx > 2:
-#                 if idx % 2:
-#                     mk += [mk[-1] * foc_arr[idx] / foc_arr[idx - 1]]
-#                 else:
-#                     mr += [mr[-1] * foc_arr[idx] / foc_arr[idx - 1]]
-#     return mr, mk
-#
-#     if len(foc_arr) == 5:
-#         Mr1 = foc_arr['fa'] / foc_arr['fo']
-#         Mk2 = foc_arr['fb'] / foc_arr['fa'] * foc_arr['fo'] / kp
-#         Mr3 = Mr1 * foc_arr['fc'] / foc_arr['fb']
-#         Mrs = Mr1 * foc_arr['fd'] / foc_arr['fb']
-#         Mks = Mk2 * foc_arr['fd'] / foc_arr['fc']
-#         M_arr = {'Mr1': Mr1, 'Mk2': Mk2, 'Mr3': Mr3, 'Mrs': Mrs, 'Mks': Mks, }
-#
-#     return M_arr
-#
-# m_per_pix = 8 / M_arr['Mrs']
-#
-# {'fo':10.0e-3,'fa':250e-3,'fb':100e-3,'fc':100e-3,'fd':200e-3,}
-# {'Mk2': 4.965634224467135e-10,
-#  'Mks': 9.93126844893427e-10,
-#  'Mr1': 25.0,
-#  'Mr3': 25.0,
-#  'Mrs': 50.0}
-#
-#
-# [10, 250, 100, 100, 150, 150, 200]

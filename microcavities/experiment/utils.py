@@ -2,6 +2,7 @@
 
 import numpy as np
 
+
 def magnification(focus_array, wavelength=780e-9):
     """Returns the scaling, either in real-space or k-space, at the focal plane
     of a series of lenses.
