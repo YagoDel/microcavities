@@ -5,12 +5,15 @@ from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
 from microcavities.analysis.utils import SortingKey
+from microcavities.utils import string_to_number
 import h5py
 import yaml
 import pymsgbox
 import numpy as np
-import time, datetime
+import time
+import datetime
 import os
+import re
 from collections import OrderedDict
 
 
@@ -78,7 +81,10 @@ class HierarchicalScan(object):
                 if self.email_address is None:
                     self.email_when_done = False
 
-        for variable in full_yaml['variables']:
+        self.make_variables(full_yaml)
+
+    def make_variables(self, yaml_file):
+        for variable in yaml_file['variables']:
             if 'name' in variable:
                 name = variable['name']
             else:
@@ -156,7 +162,6 @@ class HierarchicalScan(object):
         self._logger.debug("Called final_function. Folder_name: %s" % self.folder_name)
 
     def run(self, level=0):
-        self.abort = False
         t0 = time.time()
         self._iterate(level)
         total_time = time.time() - t0
@@ -233,6 +238,8 @@ class ExperimentScan(HierarchicalScan):
         self.save_type = 'HDF5'
         if "save_type" in self.settings_yaml:
             self.save_type = self.settings_yaml["save_type"]
+        if self.save_type == 'local':
+            self.results = []
 
     def iteration_function(self, level, name, value):
         """At each level of the iteration, we get an instrument and set a property or call a function
@@ -296,6 +303,8 @@ class ExperimentScan(HierarchicalScan):
             self._logger.debug('Creating group: %s %s' % (file_name, attributes))
             if not DRY_RUN:
                 self.instr_dict['HDF5'].create_dataset(file_name, data=data, attrs=attributes)
+        elif self.save_type == 'local':
+            self.results += [data]
         elif self.save_type != 'None':
             lst = file_name.split('/')
             folder_name = '/'.join(lst[:-1])
@@ -364,6 +373,9 @@ class ExperimentScan(HierarchicalScan):
             if self.instr_dict["HDF5"] is None:
                 self.gui.menuNewExperiment()
 
+        if self.save_type == 'local':
+            self.results = []
+
         super(ExperimentScan, self).run(level)
 
         if not DRY_RUN:
@@ -383,7 +395,6 @@ class ExperimentScan(HierarchicalScan):
 
 
 class AnalysisScan(HierarchicalScan):
-    # TODO: add support for analysing hierarchical files for which we do not have the yaml
     """
     tester.yaml
         experiment_yaml_path: 'C:/Users/Rotation/polariton.riken/Python_lab/Experiments/scripts/test_exper.yaml'
@@ -398,7 +409,11 @@ class AnalysisScan(HierarchicalScan):
     def __init__(self, settings_yaml, **kwargs):
         full_yaml = yaml.load(open(settings_yaml, 'r'))
         self.analysis_yaml = full_yaml
-        super(AnalysisScan, self).__init__(self.analysis_yaml['experiment_yaml_path'],
+        if 'experiment_yaml_path' in self.analysis_yaml:
+            passing_yaml = self.analysis_yaml['experiment_yaml_path']
+        else:
+            passing_yaml = dict(variables=[])
+        super(AnalysisScan, self).__init__(passing_yaml,
                                            logger_name="AnalysisScan", **kwargs)
         self.analysed_data = OrderedDict()
         self.analysis_functions = self.analysis_yaml["analysis_functions"]
@@ -414,6 +429,9 @@ class AnalysisScan(HierarchicalScan):
                 self.HDF5 = h5py.File(self.settings_yaml['base_path'], 'r')
             elif 'raw_data_file' in self.analysis_yaml:
                 self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
+
+        if 'experiment_yaml_path' not in self.analysis_yaml:
+            self.extract_hierarchy()
 
     def get_data(self, file_name):
         if DRY_RUN:
@@ -505,34 +523,76 @@ class AnalysisScan(HierarchicalScan):
 
             self.analysed_data[name] = result.reshape(new_shape + current_shape[1:])
 
-    def _extract_hierarchy(self, levels):
-        """
-        Iterates over levels, checking that only one parameter is being changed, and storing the parameter values (if any)
+    def extract_hierarchy(self):
+        """Base call for the recursive iterator to get a file's hierarchy
 
-        :param levels:
+        To be used in situations where we do not have access to the yaml used to run the experiment
+
         :return:
         """
-        self._logger.debug('Extracting variables from: %s' % levels)
+        if self.save_type == 'HDF5' and len(self.HDF5.keys()) == 1:
+            self.series_name = self.HDF5.keys()[0]
+        elif 'series_name' in self.analysis_yaml:
+            self.series_name = self.analysis_yaml['series_name']
+        else:
+            raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data file with '
+                             'just one key at the top level, or a series_name')
+
+        self._extract_hierarchy(self.series_name)
+
+    def _extract_hierarchy(self, level_name):
+        """Recursive function for extracting a hierarchy
+
+        Makes use of the self.next_levels and self.is_lowest_level methods so that different types of file structures
+        can be analysed
+
+        :param level_name: string
+        :return:
+        """
+        self._logger.debug('Extracting variables from: %s' % level_name)
 
         var_name = None
-        values = []
-        for level in levels:
-            name, value = self.variable_name_value(level)
+        next_levels = self.next_levels(level_name)
+        for level in next_levels:
+            if not self.is_lowest_level(level):
+                last_level = level.split('/')[-1]
+                name, value = re.findall(r'(.+)=(\d+)', last_level)[0]
+                value = string_to_number(value)
 
-            values += [value]
-            if var_name is None:
-                var_name = name
-            elif var_name != name:
-                raise ValueError('There are differently named variables in the same hierarchical level: %s %s' %
-                                 (var_name, name))
+                if var_name is None:
+                    var_name = name
+                elif var_name != name:
+                    raise ValueError('There are differently named variables in the same hierarchical level: %s %s' %
+                                     (var_name, name))
 
-        if var_name is not None:
-            self.variables[var_name] = values
+                if var_name not in self.variables:
+                    self.variables[var_name] = [value]
+                else:
+                    self.variables[var_name] += [value]
+
+                self._extract_hierarchy(level)
+
+    def next_levels(self, level_name):
+        """Currently only works for HDF5
+        Returns the sorted keys under the current level
+
+        :param level_name:
+        :return:
+        """
+        assert self.save_type == 'HDF5'
+        keys = self.HDF5[level_name].keys()
+        keys.sort(key=SortingKey)
+        return [level_name + '/' + key for key in keys]
+
+    def is_lowest_level(self, level_name):
+        """Returns whether a level is a Dataset (True) or a Group (False)"""
+        assert self.save_type == 'HDF5'
+        return isinstance(self.HDF5[level_name], h5py.Dataset)
 
     def get_random_group(self, level):
         """
-        Iterates through the hdf5 file by randomly selecting a group lower down the hierarchy (which matches the form
-        'varname=varvalue') until it finds a group called groupName.
+        Iterates through the file structure by randomly selecting a group lower down the hierarchy until it gets to the
+        lowest level. It requires the self.next_levels and self.is_lowest_level methods
 
         Say your file has the following hierarchy:
             FullDataset:
