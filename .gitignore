@@ -1,4 +1,68 @@
-delete.h5
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# HDF5 data (test files)
+*.h5
+*.hdf5
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+
+# VIM
+*.swp
+
+# Sphinx documentation
+docs/_build/
+docs/modules.rst
+docs/nplab.rst
+docs/nplab.*.rst
+
+# VIM backups
+*.*~
+
+# profiling statistics files
+*.stats
+
+# user specified files
+*.xml
+*.iml
+.DS_Store
 *.npy
 .idea
 *.pyc

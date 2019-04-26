@@ -9,23 +9,7 @@ import os
 from functools import partial
 
 
-# TODO:
-#   Functions:
-#       Autoexposure:
-#           A simple one simply calculating the required exposure to saturate (assuming linear trends).
-#           A more complicated one where it adjusts according to an LUT.
-#       Autofocus:
-#           Find a place on the sample that we know is in focus
-#           Focus a laser on the surface manually
-#           Auto-focus will maximise emission on the laser position / minimise laser shape
-#           Check that the laser is properly focused. Add an offset correction if necessary
-#           Need to somehow automatically switch
-#       AutoWL
-#       Threshold
-#           Power fitting
-#           Energy fitting
-#   Experiment yaml
-#       Lenses -> magnification -> calibrations
+# TODO: from the yaml   Lenses -> magnification -> calibrations
 
 
 class Experiment(object, ShowGUIMixin):
