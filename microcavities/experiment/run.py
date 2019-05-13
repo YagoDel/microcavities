@@ -3,13 +3,12 @@ from nplab.utils.gui import QtWidgets, QtGui, QtCore, get_qt_app
 from nplab.utils.show_gui_mixin import ShowGUIMixin
 from nplab.utils import gui_generator
 from microcavities.experiment.instruments import PvcamServer, AndorServer
+from microcavities.experiment.utils import magnification
 import yaml
 import numpy as np
 import os
 from functools import partial
 
-
-# TODO: from the yaml   Lenses -> magnification -> calibrations
 
 
 class Experiment(object, ShowGUIMixin):
@@ -43,9 +42,10 @@ class Experiment(object, ShowGUIMixin):
         :return:
         """
         full_settings = yaml.load(open(path, 'r'))
-        self.settings = full_settings['instruments']
+        self.settings = full_settings
+        self.instrument_settings = full_settings['instruments']
         self.gui_settings = {}
-        for variable in ['working_directory', 'scripts_path', 'dock_settings_path']:
+        for variable in ['working_directory', 'scripts_path', 'dock_settings_path', 'file_path']:
             if variable in full_settings:
                 self.gui_settings[variable] = full_settings[variable]
 
@@ -69,7 +69,7 @@ class Experiment(object, ShowGUIMixin):
 
     def _open_instruments(self):
         _instr_dict = dict()
-        for name, setting in self.settings.items():
+        for name, setting in self.instrument_settings.items():
             if 'use' in setting and not setting['use']:
                 continue
             else:
@@ -94,7 +94,8 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         # super(ExperimentGUI, self).__init__(weakref.WeakValueDictionary(self._instr_dict), *args, **kwargs)
         super(ExperimentGUI, self).__init__(experiment.instr_dict, *args, **kwargs)
 
-        self.settings = experiment.settings
+        self.instrument_settings = experiment.instrument_settings
+        self.experiment_settings = experiment.settings
 
         self._abort_scan = False
         self._pause_scan = False
@@ -125,71 +126,64 @@ class ExperimentGUI(gui_generator.GuiGenerator):
     def _setup_calibrations(self):
         self.menuCalibration = QtWidgets.QMenu('Calibrations')
         self.menubar.addMenu(self.menuCalibration)
-        # self.calibrationActions = ()
-        # for name in ['kk', 'rr', 'Ek', 'Er']:
-        #     action = QtWidgets.QAction(name, self)
-        #     self.menuCalibration.addAction(action)
-        #     action.triggered.connect(lambda: self.calibrate(name))
-        #     self.calibrationActions += (action, )
 
-        self.action_calibrate_kspace = QtWidgets.QAction('kk', self)
-        self.menuCalibration.addAction(self.action_calibrate_kspace)
-        self.action_calibrate_kspace.triggered.connect(lambda: self.calibrate('kk'))
+        if 'calibrations' in self.experiment_settings:
+            self.calibration_actions = []
+            for camera, cam_props in self.experiment_settings['calibrations'].items():
+                if camera in self.instr_dict:
+                    for name, cal_props in cam_props['calibrations'].items():
+                        action = self._calibration_button(camera, name, cam_props, cal_props)
+                        self.calibration_actions += [action]
 
-        self.action_calibrate_rspace = QtWidgets.QAction('rr', self)
-        self.menuCalibration.addAction(self.action_calibrate_rspace)
-        self.action_calibrate_rspace.triggered.connect(lambda: self.calibrate('rr'))
+    def _calibration_button(self, camera, name, cam_props, cal_props):
+        """ Utility function for creating action buttons dynamically in a loop
 
-        self.action_calibrate_Ekspace = QtWidgets.QAction('Ek', self)
-        self.menuCalibration.addAction(self.action_calibrate_Ekspace)
-        self.action_calibrate_Ekspace.triggered.connect(lambda: self.calibrate('Ek'))
+        :param camera: str camera name
+        :param name: str name of the calibration
+        :param cam_props: dictionary of camera properties (see yaml)
+        :param cal_props: dictionary of calibration properties (see yaml)
+        :return:
+        """
+        self._logger.debug('Making action: %s_%s' % (camera, name))
+        action = QtWidgets.QAction('%s_%s' % (camera, name), self)
+        self.menuCalibration.addAction(action)
+        action.triggered.connect(lambda: self.calibrate(camera, cam_props, cal_props))
+        return action
 
-        self.action_calibrate_Erspace = QtWidgets.QAction('Er', self)
-        self.menuCalibration.addAction(self.action_calibrate_Erspace)
-        self.action_calibrate_Erspace.triggered.connect(lambda: self.calibrate('Er'))
+    def calibrate(self, camera_name, camera_properties, calibration_properties):
+        self._logger.debug('Calibrating: %s, %s' % (camera_name, calibration_properties))
+        camera = self.instr_dict[camera_name]
+        pixel = camera_properties['pixel_size'] / 1e6  # Transforming from micron to SI
+        shape = camera_properties['detector_shape']
+        camera.units = ['', '']
+        axes = dict(x=0, y=1)
 
-    def calibrate(self, name):
-        try:
-            if name == 'kk':
-                # foci = [0.01, 0.25, 0.1, 0.1, 0.15, 0.15, 0.2]
-                # mag = (9.93126844893427e-10, [1.2414085561167838e-09, 1.2414085561167838e-09,
-                #       4.965634224467135e-10, 7.448451336700703e-10, 9.93126844893427e-10])
-                # 1px = 0.008055 um-1
-                self.instr_dict['andor'].x_axis = np.linspace(-4.03555, 4.03555, 1002)
-                self.instr_dict['andor'].y_axis = np.linspace(-4.04361, 4.04361, 1004)
-                self.instr_dict['andor'].units = (u"\u03BCm<sup>-1</sup>",
-                                                  u"\u03BCm<sup>-1</sup>")
-            elif name == 'rr':
-                # foci = [0.01, 0.25, 0.1 , 0.1 , 0.15, 0.2 ]
-                # mag = (33.333333333333336, [1, 25.0, 25.0, 33.333333333333336])
-                # 1px = 0.24 um
-                self.instr_dict['andor'].x_axis = np.linspace(-120.24, 120.24, 1002)
-                self.instr_dict['andor'].y_axis = np.linspace(-120.48, 120.48, 1004)
-                self.instr_dict['andor'].units = (u"\u03BCm", u"\u03BCm")
-            elif name[0] == 'E':
+        for ax, props in calibration_properties.items():
+            ax_idx = axes[ax]
+            if props == 'spectrometer':
                 wvl = self.instr_dict['spectrometer'].wavelength
-                pixels = np.arange(1340)
-                self.instr_dict['pvcam'].x_axis = (-7.991E-06 * wvl + 2.454E-02) * pixels + \
-                                                  (-2.131E-04 * wvl + 1.937E-01) + wvl
-                self.instr_dict['pvcam'].units = ("nm", )
-
-                if name[1] == 'k':
-                    # foci = [0.01, 0.25, 0.1, 0.1, 0.2]
-                    # mag = (9.93126844893427e-10, [1.2414085561167838e-09, 1.2414085561167838e-09,
-                    #        4.965634224467135e-10, 9.93126844893427e-10])
-                    # 1px = 0.008055 um-1
-                    self.instr_dict['pvcam'].y_axis = np.linspace(-1.611, 1.611, 400)
-                    self.instr_dict['pvcam'].units += (u"\u03BCm<sup>-1</sup>",)
-                elif name[1] == 'r':
-                    # foci = [0.01, 0.25, 0.1, 0.2]
-                    # mag = (50.0, [1, 25.0, 50.0])
-                    # 1px = 0.4 um
-                    self.instr_dict['pvcam'].y_axis = np.linspace(-80, 80, 400)
-                    self.instr_dict['pvcam'].units += (u"\u03BCm",)
+                pixels = np.arange(shape[ax_idx])
+                setattr(camera, '%s_axis' % ax,
+                        (-7.991E-06 * wvl + 2.454E-02) * pixels + (-2.131E-04 * wvl + 1.937E-01) + wvl)
+                camera.units[ax_idx] = "nm"
             else:
-                print 'Nope'
-        except Exception as e:
-            print 'Failed calibrating: ', e
+                mag = magnification(props['lenses'])[0]
+                ratio = pixel / mag
+                if 'units' in props:
+                    unit = props['units']
+                    if unit == 'micron':
+                        ratio /= 1e-6  # Converting from SI to micron
+                    elif unit == 'inverse_micron':
+                        ratio *= 1e-6  # Converting from SI to micron
+                else:
+                    unit = ''
+                self._logger.debug('Calibration parameters %s axis: %s mag, %s pixel, %s shape, %s ratio, %s unit' %
+                                   (ax, mag, shape, pixel, ratio, unit))
+
+                setattr(camera, '%s_axis' % ax, np.linspace(-shape[ax_idx] * ratio / 2,
+                                                            shape[ax_idx] * ratio / 2,
+                                                            shape[ax_idx]))
+                camera.units[ax_idx] = unit
 
     def abort_scan(self):
         self._abort_scan = self.actionScanAbort.isChecked()
@@ -221,7 +215,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         self.menuInstruments = QtWidgets.QMenu('Instruments')
         self.menubar.addMenu(self.menuInstruments)
 
-        for name, setting in self.settings.items():
+        for name, setting in self.instrument_settings.items():
             action = QtWidgets.QAction(name, self)
             self.menuInstruments.addAction(action)
             action.setCheckable(True)
@@ -240,7 +234,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
             # self.terminalWindow.execute_command('del %s' % name)
             # self.terminalWindow.execute_command("del exper['%s']" % name)
         else:
-            self.instr_dict[name] = self._open_instrument(self.settings[name])
+            self.instr_dict[name] = self._open_instrument(self.instrument_settings[name])
             self.terminalWindow.push_vars({name: self.instr_dict[name]})
             # self._open_one_gui(name)
 
