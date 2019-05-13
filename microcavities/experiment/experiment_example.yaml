@@ -1,0 +1,28 @@
+base_path: ""
+series_name: power_scan
+save_type: None
+
+variables:
+  - {instrument: power_wheel,  # name of instrument instance inside Experiment.instr_dict
+     property: power,  # instance property name
+     values: [linear, 0, 100, 11]}  # ten values, linearly distributed between 0 and 100
+  - {instrument: laser,
+     property: wavelength,
+     values: [random, 750, 800, 10]}  # ten values, randomly distributed between 780 and 800
+  - {instrument: temperature_control,
+     function: set_temperature,
+     values: [4, 10, 15], # three values
+     metadata:[{instrument: andor, property: exposure}]}  # save the exposure
+
+measurements:
+  depth1:  # For every power change
+    - {instrument: andor, # call andor.raw_image(update_latest_frame=True) and save the returned array
+       function: raw_image, kwargs: {update_latest_frame: True}, save: True}
+  depth2:  # For every wavelength change
+    - {instrument: streak, function: start_acquisition} # call streak.start_acquisition()
+    - {wait: 5}
+    - {instrument: streak, # call streak.save_image(), where scan_file_name will be replaced by the appropriate location
+       name: wavefronts, function: save_image, kwargs: {filename: "scan_file_name.tif"}}
+  depth3:  # For every temperature change
+    - {instrument: streak, function: start_sequence, args: [scan_file_name/00001.tif, True]}
+

@@ -1,0 +1,10 @@
+experiment_yaml_path:
+save_path:
+
+analysis_functions:
+  depth1:
+  - {data_name: andor_raw_image,  # HDF5 dataset name
+     function_name: roi_intensity}  # Name of function inside analysis.analysis_functions.py
+  - {data_name: andor_raw_image, function_name: fit_gaussian}
+  depth2:
+  - {data_name: wavefronts, function_name: fit_gaussian}
