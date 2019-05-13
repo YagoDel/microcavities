@@ -10,7 +10,6 @@ import os
 from functools import partial
 
 
-
 class Experiment(object, ShowGUIMixin):
 
     def __init__(self, settings_file="settings.yaml"):
@@ -104,98 +103,6 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         self._setup_calibrations()
         # self._setup_instrument_actions()
 
-    def _setup_scan(self):
-        icon_path = os.path.dirname(os.path.abspath(gui_generator.__file__)) + r'\icons'
-        scan_abort = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanStop.png'), 'scan_abort', self)
-        scan_abort.setCheckable(True)
-        self.toolBar.addAction(scan_abort)
-        self.actionScanAbort = scan_abort
-        scan_abort.triggered.connect(self.abort_scan)
-
-        scan_pause = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanPause.png'), 'scan_pause', self)
-        scan_pause.setCheckable(True)
-        self.toolBar.addAction(scan_pause)
-        self.actionScanPause = scan_pause
-        scan_pause.triggered.connect(self.pause_scan)
-        scan_play = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanPlay.png'), 'scan_play', self)
-        scan_play.setCheckable(True)
-        self.toolBar.addAction(scan_play)
-        self.actionScanPlay = scan_play
-        scan_play.triggered.connect(self.play_scan)
-
-    def _setup_calibrations(self):
-        self.menuCalibration = QtWidgets.QMenu('Calibrations')
-        self.menubar.addMenu(self.menuCalibration)
-
-        if 'calibrations' in self.experiment_settings:
-            self.calibration_actions = []
-            for camera, cam_props in self.experiment_settings['calibrations'].items():
-                if camera in self.instr_dict:
-                    for name, cal_props in cam_props['calibrations'].items():
-                        action = self._calibration_button(camera, name, cam_props, cal_props)
-                        self.calibration_actions += [action]
-
-    def _calibration_button(self, camera, name, cam_props, cal_props):
-        """ Utility function for creating action buttons dynamically in a loop
-
-        :param camera: str camera name
-        :param name: str name of the calibration
-        :param cam_props: dictionary of camera properties (see yaml)
-        :param cal_props: dictionary of calibration properties (see yaml)
-        :return:
-        """
-        self._logger.debug('Making action: %s_%s' % (camera, name))
-        action = QtWidgets.QAction('%s_%s' % (camera, name), self)
-        self.menuCalibration.addAction(action)
-        action.triggered.connect(lambda: self.calibrate(camera, cam_props, cal_props))
-        return action
-
-    def calibrate(self, camera_name, camera_properties, calibration_properties):
-        self._logger.debug('Calibrating: %s, %s' % (camera_name, calibration_properties))
-        camera = self.instr_dict[camera_name]
-        pixel = camera_properties['pixel_size'] / 1e6  # Transforming from micron to SI
-        shape = camera_properties['detector_shape']
-        camera.units = ['', '']
-        axes = dict(x=0, y=1)
-
-        for ax, props in calibration_properties.items():
-            ax_idx = axes[ax]
-            if props == 'spectrometer':
-                wvl = self.instr_dict['spectrometer'].wavelength
-                pixels = np.arange(shape[ax_idx])
-                setattr(camera, '%s_axis' % ax,
-                        (-7.991E-06 * wvl + 2.454E-02) * pixels + (-2.131E-04 * wvl + 1.937E-01) + wvl)
-                camera.units[ax_idx] = "nm"
-            else:
-                mag = magnification(props['lenses'])[0]
-                ratio = pixel / mag
-                if 'units' in props:
-                    unit = props['units']
-                    if unit == 'micron':
-                        ratio /= 1e-6  # Converting from SI to micron
-                    elif unit == 'inverse_micron':
-                        ratio *= 1e-6  # Converting from SI to micron
-                else:
-                    unit = ''
-                self._logger.debug('Calibration parameters %s axis: %s mag, %s pixel, %s shape, %s ratio, %s unit' %
-                                   (ax, mag, shape, pixel, ratio, unit))
-
-                setattr(camera, '%s_axis' % ax, np.linspace(-shape[ax_idx] * ratio / 2,
-                                                            shape[ax_idx] * ratio / 2,
-                                                            shape[ax_idx]))
-                camera.units[ax_idx] = unit
-
-    def abort_scan(self):
-        self._abort_scan = self.actionScanAbort.isChecked()
-
-    def pause_scan(self):
-        self._pause_scan = self.actionScanPause.isChecked()
-        self.actionScanPlay.setChecked(not self._pause_scan)
-
-    def play_scan(self):
-        self._pause_scan = not self.actionScanPlay.isChecked()
-        self.actionScanPause.setChecked(self._pause_scan)
-
     def _close_instrument(self, name):
         dock = self.allDocks[name]
         dock.close()
@@ -264,6 +171,100 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         refreshScripts = script_menu.addAction('Refresh')
         refreshScripts.triggered.connect(self.refreshScriptMenu)
         self.script_menu = script_menu
+
+    # CCD axis calibrations
+    def _setup_calibrations(self):
+        self.menuCalibration = QtWidgets.QMenu('Calibrations')
+        self.menubar.addMenu(self.menuCalibration)
+
+        if 'calibrations' in self.experiment_settings:
+            self.calibration_actions = []
+            for camera, cam_props in self.experiment_settings['calibrations'].items():
+                if camera in self.instr_dict:
+                    for name, cal_props in cam_props['calibrations'].items():
+                        action = self._calibration_button(camera, name, cam_props, cal_props)
+                        self.calibration_actions += [action]
+
+    def _calibration_button(self, camera, name, cam_props, cal_props):
+        """ Utility function for creating action buttons dynamically in a loop
+
+        :param camera: str camera name
+        :param name: str name of the calibration
+        :param cam_props: dictionary of camera properties (see yaml)
+        :param cal_props: dictionary of calibration properties (see yaml)
+        :return:
+        """
+        self._logger.debug('Making action: %s_%s' % (camera, name))
+        action = QtWidgets.QAction('%s_%s' % (camera, name), self)
+        self.menuCalibration.addAction(action)
+        action.triggered.connect(lambda: self.calibrate(camera, cam_props, cal_props))
+        return action
+
+    def calibrate(self, camera_name, camera_properties, calibration_properties):
+        self._logger.debug('Calibrating: %s, %s' % (camera_name, calibration_properties))
+        camera = self.instr_dict[camera_name]
+        pixel = camera_properties['pixel_size'] / 1e6  # Transforming from micron to SI
+        shape = camera_properties['detector_shape']
+        camera.units = ['', '']
+        axes = dict(x=0, y=1)
+
+        for ax, props in calibration_properties.items():
+            ax_idx = axes[ax]
+            if props == 'spectrometer':
+                wvl = self.instr_dict['spectrometer'].wavelength
+                pixels = np.arange(shape[ax_idx])
+                setattr(camera, '%s_axis' % ax,
+                        (-7.991E-06 * wvl + 2.454E-02) * pixels + (-2.131E-04 * wvl + 1.937E-01) + wvl)
+                camera.units[ax_idx] = "nm"
+            else:
+                mag, _ = magnification(props['lenses'])
+                ratio = pixel / mag
+                if 'units' in props:
+                    unit = props['units']
+                    if unit == 'micron':
+                        ratio /= 1e-6  # Converting from SI to micron
+                    elif unit == 'inverse_micron':
+                        ratio *= 1e-6  # Converting from SI to micron
+                else:
+                    unit = ''
+                self._logger.debug('Calibration parameters %s axis: %s mag, %s pixel, %s shape, %s ratio, %s unit' %
+                                   (ax, mag, shape, pixel, ratio, unit))
+
+                setattr(camera, '%s_axis' % ax, np.linspace(-shape[ax_idx] * ratio / 2,
+                                                            shape[ax_idx] * ratio / 2,
+                                                            shape[ax_idx]))
+                camera.units[ax_idx] = unit
+
+    # Scanning functionality
+    def _setup_scan(self):
+        icon_path = os.path.dirname(os.path.abspath(gui_generator.__file__)) + r'\icons'
+        scan_abort = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanStop.png'), 'scan_abort', self)
+        scan_abort.setCheckable(True)
+        self.toolBar.addAction(scan_abort)
+        self.actionScanAbort = scan_abort
+        scan_abort.triggered.connect(self.abort_scan)
+
+        scan_pause = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanPause.png'), 'scan_pause', self)
+        scan_pause.setCheckable(True)
+        self.toolBar.addAction(scan_pause)
+        self.actionScanPause = scan_pause
+        scan_pause.triggered.connect(self.pause_scan)
+        scan_play = QtWidgets.QAction(QtGui.QIcon(icon_path + '/ScanPlay.png'), 'scan_play', self)
+        scan_play.setCheckable(True)
+        self.toolBar.addAction(scan_play)
+        self.actionScanPlay = scan_play
+        scan_play.triggered.connect(self.play_scan)
+
+    def abort_scan(self):
+        self._abort_scan = self.actionScanAbort.isChecked()
+
+    def pause_scan(self):
+        self._pause_scan = self.actionScanPause.isChecked()
+        self.actionScanPlay.setChecked(not self._pause_scan)
+
+    def play_scan(self):
+        self._pause_scan = not self.actionScanPlay.isChecked()
+        self.actionScanPause.setChecked(self._pause_scan)
 
 
 exper = Experiment()
