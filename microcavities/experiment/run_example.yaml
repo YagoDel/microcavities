@@ -1,0 +1,43 @@
+working_directory:
+dock_settings_path:
+scripts_path:
+file_path:
+
+calibrations:
+  andor:
+    pixel_size: 10  # Pixel size in microns
+    detector_shape: [100, 100]  # Number of pixels in each direction (x, y)
+    calibrations:
+      k_space:
+        x:
+          lenses: [0.01, 0.25, 0.1]  # Lens focal distances, starting at the objective, in meters
+          units: inverse_micron  # Either micron or inverse_micron (or nothing)
+        y:
+          lenses: [0.01, 0.25, 0.1]
+          units: inverse_micron
+      real_space:
+        x:
+          lenses: [0.01, 0.25]
+          units: micron
+        y:
+          lenses: [0.01, 0.25]
+          units: micron
+      energy:
+        x: spectrometer  # Can simply state that axis should be calibrated according to the spectrometer
+        y:
+          lenses: [0.01, 0.25]
+          units: micron
+
+instruments:
+  spectrometer:
+    class: microcavities.experiment.instruments.Spectrometer
+    args: # Serial Address
+    use: True
+  andor:
+    class: microcavities.experiment.instruments.AndorClient
+    args: # TCP Address
+    use: True
+  stages:
+    class: microcavities.experiment.instruments.Stages
+    args: # Serial Address
+    use: True
