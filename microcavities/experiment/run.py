@@ -205,17 +205,18 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         camera = self.instr_dict[camera_name]
         pixel = camera_properties['pixel_size'] / 1e6  # Transforming from micron to SI
         shape = camera_properties['detector_shape']
-        camera.units = ['', '']
         axes = dict(x=0, y=1)
+        axes_names = dict(x='bottom', y='left')
 
         for ax, props in calibration_properties.items():
             ax_idx = axes[ax]
+            name = axes_names[ax]
             if props == 'spectrometer':
                 wvl = self.instr_dict['spectrometer'].wavelength
                 pixels = np.arange(shape[ax_idx])
                 setattr(camera, '%s_axis' % ax,
                         (-7.991E-06 * wvl + 2.454E-02) * pixels + (-2.131E-04 * wvl + 1.937E-01) + wvl)
-                camera.units[ax_idx] = "nm"
+                camera.axis_units[name] = "nm"
             else:
                 mag, _ = magnification(props['lenses'])
                 ratio = pixel / mag
@@ -233,7 +234,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
                 setattr(camera, '%s_axis' % ax, np.linspace(-shape[ax_idx] * ratio / 2,
                                                             shape[ax_idx] * ratio / 2,
                                                             shape[ax_idx]))
-                camera.units[ax_idx] = unit
+                camera.axis_units[name] = unit
 
     # Scanning functionality
     def _setup_scan(self):
