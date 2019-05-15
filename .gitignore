@@ -67,3 +67,4 @@ docs/nplab.*.rst
 .idea
 *.pyc
 *.yaml
+!*_example.yaml
