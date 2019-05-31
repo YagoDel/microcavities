@@ -17,6 +17,8 @@ import re
 from collections import OrderedDict
 
 
+# TODO: add functionality for repeated measurements
+
 DRY_RUN = False
 
 
@@ -209,7 +211,7 @@ class HierarchicalScan(object):
 class ExperimentScan(HierarchicalScan):
     """
     tester.yaml
-        base_path: "C:/Users/Rotation/Desktop/TestExperiment"
+        file_name: "C:/Users/Rotation/Desktop/TestExperiment"
         series_name: power_scan
         save_type: HDF5
 
@@ -240,6 +242,15 @@ class ExperimentScan(HierarchicalScan):
             self.save_type = self.settings_yaml["save_type"]
         if self.save_type == 'local':
             self.results = []
+
+        if 'base_path' in self.settings_yaml:
+            self.base_path = self.settings_yaml['base_path']
+            if self.save_type == 'HDF5':
+                try:
+                    self.instr_dict['HDF5'].close()
+                except:
+                    pass  # ignore if already closed
+                self.instr_dict['HDF5'] = df.DataFile(self.base_path)
 
     def iteration_function(self, level, name, value):
         """At each level of the iteration, we get an instrument and set a property or call a function
@@ -365,9 +376,10 @@ class ExperimentScan(HierarchicalScan):
                 getattr(self.gui, 'actionScan' + button).setChecked(not value)
                 getattr(self.gui, 'actionScan' + button).trigger()
 
-            if 'base_path' in self.settings_yaml:
-                filename = self.settings_yaml['base_path']
-                self.instr_dict['HDF5'].close()
+            if 'file_name' in self.settings_yaml:
+                filename = self.settings_yaml['file_name']
+                if isinstance(self.instr_dict['HDF5'], h5py.File):
+                    self.instr_dict['HDF5'].close()
                 self.instr_dict['HDF5'] = df.DataFile(filename)
                 self.instr_dict['HDF5'].make_current()
             if self.instr_dict["HDF5"] is None:
@@ -425,8 +437,8 @@ class AnalysisScan(HierarchicalScan):
             self.save_type = self.settings_yaml["save_type"]
 
         if self.save_type == 'HDF5' and not DRY_RUN:
-            if 'base_path' in self.settings_yaml:
-                self.HDF5 = h5py.File(self.settings_yaml['base_path'], 'r')
+            if 'file_name' in self.settings_yaml:
+                self.HDF5 = h5py.File(self.settings_yaml['file_name'], 'r')
             elif 'raw_data_file' in self.analysis_yaml:
                 self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
 
