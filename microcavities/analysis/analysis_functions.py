@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from nplab.utils.gui import QtWidgets, QtCore, uic, get_qt_app
+from nplab.utils.gui import QtWidgets, uic
 from nplab.utils.log import create_logger
 from nplab.utils.show_gui_mixin import ShowGUIMixin
 import numpy as np
 import os
 from scipy.ndimage import gaussian_filter
-from lmfit.models import LorentzianModel, GaussianModel, ConstantModel
+from lmfit.models import LorentzianModel, ConstantModel
 import pyqtgraph as pg
 import pymsgbox
 import matplotlib.pyplot as plt
@@ -15,7 +15,9 @@ LOGGER = create_logger("analysis_functions")
 
 def gui_checkplot():
     plt.show()
-    reply = pymsgbox.confirm('Are you happy to continue?', 'Check plot', ["Yes", 'No'])
+    reply = pymsgbox.confirm('Are you happy to continue?',
+                             'Check plot',
+                             ["Yes", 'No'])
     if reply == 'No':
         raise RuntimeError("Unsatisfactory plotting")
 
@@ -23,10 +25,12 @@ def gui_checkplot():
 def find_smooth_region(data, threshold=0.1):
     """Returns the boundary indices of the smooth region in data
 
-    Smoothness is defined as a fraction of the min to max variation, given by the threshold parameter
+    Smoothness is defined as a fraction of the min to max variation, given by
+    the threshold parameter
 
     :param 1d array data:
-    :param float threshold: percentage of the min to max variation below which a signal is considered to be smooth
+    :param float threshold: percentage of the min to max variation below which
+                            a signal is considered to be smooth
     :return:
     """
     # First normalise the data to go from 0 to 1
@@ -34,15 +38,19 @@ def find_smooth_region(data, threshold=0.1):
     data -= np.min(data)
     data /= np.max(data)
 
-    # Then find the indices where the variation between adjacent points is larger than the desired threshold
+    # Then find the indices where the variation between adjacent points is
+    # larger than the desired threshold
     diff = np.diff(data)
-    noise_indices = [0] + list(np.argwhere(np.abs(diff) > threshold).flatten()) + [len(data)]
+    noise_indices = [0]
+    noise_indices += list(np.argwhere(np.abs(diff) > threshold).flatten())
+    noise_indices += [len(data)]
 
-    # If there is a flat region in the line, there will be a large gap in the noise_indices. To find the gap, we find
-    # the location of the maximum variation between noise_indices
+    # If there is a flat region in the line, there will be a large gap in the
+    # noise_indices. To find the gap, we find the location of the maximum
+    # variation between noise_indices
     idx = np.argmax(np.abs(np.diff(noise_indices)))
 
-    # The boundary of the smooth region is given by the noise_indices at the idx
+    # The boundary of the smooth region is given by noise_indices at idx
     boundaries = noise_indices[idx] + 1, noise_indices[idx + 1] + 1
     return boundaries, data[boundaries[0]:boundaries[1]]
 
@@ -75,12 +83,14 @@ def guess_peak(data):
 # Functions to be used on k-space spectra images
 
 def find_k0(image):
-    # peak_pos gives the pixel of the maximal emission as a function of wavevector. To find them, the image is smoothed
+    # peak_pos gives the pixel of the maximal emission as a function of
+    # wavevector. To find them, the image is smoothed
     peak_pos = np.argmax(gaussian_filter(image, 1), 1)
     smooth_idx, region = find_smooth_region(peak_pos)
     k0_idx = np.argmax(region) + smooth_idx[0]
 
-    # Quadratic fit at the bottom of the dispersion, in pixel units. Allows one to find the pixel for k=0
+    # Quadratic fit at the bottom of the dispersion, in pixel units. Allows one
+    # to find the pixel for k=0
     x_pixels = np.arange(image.shape[0])
     if np.diff(smooth_idx) > 141:
         fitting_x = x_pixels[k0_idx - 70:k0_idx + 70]
@@ -95,9 +105,10 @@ def find_k0(image):
 
 
 def find_mass(image, energy, wavevector, plotting=False):
-    # Finding the mass by quadratically fitting the bottom of the dispersion. In physical units
-    # We do not want to include high-k values in the fitting, so we limit the fitting to at most a 141 pixel wide
-    # region, which we found phenomenologically
+    # Finding the mass (in physical units) by quadratically fitting the bottom
+    # of the dispersion. We do not want to include high-k values in the fitting
+    # so we limit the fitting to at most a 141 pixel wide region, which we
+    # found phenomenologically
     hbar = 0.658  # in meV*ps
     c = 300  # in um/ps
 
@@ -114,7 +125,7 @@ def find_mass(image, energy, wavevector, plotting=False):
         fitting_y = energies[smooth_idx[0]:smooth_idx[1]]
     quad_fit = np.polyfit(fitting_x, fitting_y, 2)
     a = np.abs(quad_fit[0])  # meV * um**2
-    mass = hbar**2 / (2 * a)  # (meV * ps)**2 / meV * um**2  = meV * ps**2 / um **2
+    mass = hbar**2 / (2 * a)  # (meV*ps)**2 / meV * um**2  = meV*ps**2 / um**2
     mass *= c**2  # for meV / c**2 units
     mass /= 10**9  # for MeV / c**2
     mass /= 0.511  # for ratio with free electron mass
@@ -140,17 +151,17 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         energy (high-energy at small pixels).
     k_axis : 1D np.ndarray or float
         optional (the default is None). If a float, the pixel to wavevector
-        calibration. If a 1d array, the wavevector values. If not given, results
-        will be in "pixel" units.
-    energy_axis : 1D np.ndarray
-        optional (the default is None). 1d array of energy values. If not given,
+        calibration. If a 1d array, the wavevector values. If not given,
         results will be in "pixel" units.
+    energy_axis : 1D np.ndarray
+        optional (the default is None). 1d array of energy values. If not
+        given, results will be in "pixel" units.
     plotting : bool
         Whether to pop-up a GUI for checking fitting is working correctly (the
         default is True).
     known_sample_parameters : dict
-        Should contain at least two keys: exciton_energy and coupling. They will
-        be used for returning a detuning (the default is None).
+        Should contain at least two keys: exciton_energy and coupling. They
+        will be used for returning a detuning (the default is None).
 
     Returns
     -------
@@ -180,15 +191,19 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     else:
         k0_idx = int(np.argmin(np.abs(k_axis)))
         if np.abs(k0_idx - fitted_k0_pixel) > 3:
-            LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % k_axis[fitted_k0_pixel])
+            LOGGER.warn(
+                "Fitted bottom of the dispersion occurs at k=%g not at k=0" %
+                k_axis[fitted_k0_pixel])
 
     mass = find_mass(image, energy_axis, k_axis, plotting)
 
     k0_spectra = image[k0_idx + 20]
     model = LorentzianModel() + ConstantModel()
     my_guess = guess_peak(k0_spectra)
-    params_guess = model.make_params(sigma=my_guess['sigma'], center=my_guess['center'],
-                                     amplitude=my_guess['amplitude'], c=my_guess['background'])
+    params_guess = model.make_params(sigma=my_guess['sigma'],
+                                     center=my_guess['center'],
+                                     amplitude=my_guess['amplitude'],
+                                     c=my_guess['background'])
     result = model.fit(k0_spectra, params_guess, x=energy_axis)
 
     if plotting:
@@ -215,8 +230,8 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
 class roi2d_GUI(QtWidgets.QMainWindow):
     """ Multi region-of-interest GUI
 
-    Base class for creating GUIs for analysing images where you want to create multiple ROIs and extract information
-    about those ROIs
+    Base class for creating GUIs for analysing images where you want to create
+    multiple ROIs and extract information about those ROIs
     """
 
     def __init__(self, images, results, **kwargs):
@@ -267,7 +282,8 @@ class roi2d_GUI(QtWidgets.QMainWindow):
     def SetROIs(self):
         affineSliceParams = []
         for roi in self.rois:
-            affineSliceParams += [roi.getAffineSliceParams(self._current_image, self.graphicsView.getImageItem())]
+            affineSliceParams += [roi.getAffineSliceParams(self._current_image,
+                                                           self.graphicsView.getImageItem())]
 
         self.results['affineSliceParams'] = affineSliceParams
 
@@ -278,6 +294,7 @@ class roi2d_GUI(QtWidgets.QMainWindow):
         self._index = np.random.randint(0, self.images.shape[0])
         self._current_image = self.images[self._index]
         self.graphicsView.setImage(self.images[self._index])
+
 
 class roi2d(object, ShowGUIMixin):
     def __init__(self, images):
