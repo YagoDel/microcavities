@@ -22,12 +22,12 @@ def gui_checkplot():
 
 def find_smooth_region(data, threshold=0.1):
     """Returns the boundary indices of the smooth region in data
-    
+
     Smoothness is defined as a fraction of the min to max variation, given by the threshold parameter
-    
-    :param 1d array data: 
+
+    :param 1d array data:
     :param float threshold: percentage of the min to max variation below which a signal is considered to be smooth
-    :return: 
+    :return:
     """
     # First normalise the data to go from 0 to 1
     data = np.array(data, np.float)
@@ -127,20 +127,41 @@ def find_mass(image, energy, wavevector, plotting=False):
     return mass
 
 
-def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample_parameters=None):
+def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
+               known_sample_parameters=None):
     """Finds polariton energy and mass. If possible, also finds detuning.
 
     If given, energies should be in meV and wavevectors in inverse micron.
 
-    :param ndarray image: 2d array. Dispersion PL data. First axis is k (order irrelevant), second axis is energy (high-energy at small pixels).
-    :param ndarray or float k_axis: optional. If a float, the pixel to wavevector calibration. If a 1d array, the wavevector values. If not given, results will be in "pixel" units. Defaults to None.
-    :param tuple energy_axis: optional. 1d array of energy values. If not given, results will be in "pixel" units. Defaults to None.
-    :param bool plotting: whether to pop-up a GUI for checking fitting is working correctly. Defaults to False.
-    :param dict known_sample_parameters: if given, should contain at least two keys: exciton_energy and coupling. They will be used for returning a detuning. Defaults to None.
-    :return: Description of returned object.
-    :rtype: type
-    """
+    Parameters
+    ----------
+    image : 2D np.ndarray
+        Dispersion PL data. First axis is k (order irrelevant), second axis is
+        energy (high-energy at small pixels).
+    k_axis : 1D np.ndarray or float
+        optional (the default is None). If a float, the pixel to wavevector
+        calibration. If a 1d array, the wavevector values. If not given, results
+        will be in "pixel" units.
+    energy_axis : 1D np.ndarray
+        optional (the default is None). 1d array of energy values. If not given,
+        results will be in "pixel" units.
+    plotting : bool
+        Whether to pop-up a GUI for checking fitting is working correctly (the
+        default is True).
+    known_sample_parameters : dict
+        Should contain at least two keys: exciton_energy and coupling. They will
+        be used for returning a detuning (the default is None).
 
+    Returns
+    -------
+    tuple
+        Energy, lifetime, mass.
+    list
+        Updated args that can be passed to the next function call
+    dict
+        Updated kwargs that can be passed to the next function call
+
+    """
     hbar = 0.658  # in meV*ps
     # c = 300  # in um/ps
 
@@ -178,11 +199,11 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
         axs[1].plot(energy_axis, result.best_fit)
         gui_checkplot()
 
-    energy = energy_axis[int(result.best_values['center'])]
+    energy = result.best_values['center']
     lifetime = hbar / result.best_values['sigma']
 
     results = (energy, lifetime, mass)
-    args = ()  #(k_axis, energy_axis, plotting, known_sample_parameters)
+    args = ()  # (k_axis, energy_axis, plotting, known_sample_parameters)
     kwargs = dict(plotting=plotting)
 
     return results, args, kwargs
@@ -194,7 +215,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
 class roi2d_GUI(QtWidgets.QMainWindow):
     """ Multi region-of-interest GUI
 
-    Base class for creating GUIs for analysing images where you want to create multiple ROIs and extract information 
+    Base class for creating GUIs for analysing images where you want to create multiple ROIs and extract information
     about those ROIs
     """
 
