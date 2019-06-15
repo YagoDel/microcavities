@@ -5,6 +5,7 @@ from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
 from microcavities.analysis.utils import SortingKey
+from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number
 import h5py
 import yaml
@@ -142,6 +143,8 @@ class HierarchicalScan(object):
             return
         if save_type == 'npy':
             array = np.load(name)
+        elif save_type == 'streak':
+            array = open_image(name + '.tif')[0]
         else:
             array = np.loadtxt(name + '.' + save_type)
         return array
