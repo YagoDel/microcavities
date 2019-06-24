@@ -91,7 +91,8 @@ class FittingLinear(object, ShowGUIMixin):
 
     @staticmethod
     def flatten(images):
-        return np.reshape(images,(np.prod(images.shape[:-3]), ) + images.shape[-3:])
+        return np.reshape(images,
+                          (np.prod(images.shape[:-3]), ) + images.shape[-3:])
 
     def reshape(self, images):
         return np.reshape(images, self._original_shape)
@@ -116,14 +117,17 @@ class FittingLinear(object, ShowGUIMixin):
     def make_fits_array(self, shape):
         if not isinstance(shape, tuple):
             shape = (shape, )
-        self.fits = np.array(self._none_array(self.lines.shape[:-1] + shape)) #[None] * self.images.shape[0]
-        self.points = np.array(self._none_array(self.lines.shape[:-1] + shape)) #[None] * self.images.shape[0]
+        # [None] * self.images.shape[0]
+        self.fits = np.array(self._none_array(self.lines.shape[:-1] + shape))
+        # [None] * self.images.shape[0]
+        self.points = np.array(self._none_array(self.lines.shape[:-1] + shape))
 
 
 class FittingLinearUi(QtWidgets.QMainWindow):
     def __init__(self, fl):
         super(FittingLinearUi, self).__init__()
-        uic.loadUi(os.path.join(os.path.dirname(__file__), 'LineFitting.ui'), self)
+        uipath = os.path.join(os.path.dirname(__file__), 'LineFitting.ui')
+        uic.loadUi(uipath, self)
 
         self.object = fl
         self.object.make_fits_array(2)
@@ -143,7 +147,8 @@ class FittingLinearUi(QtWidgets.QMainWindow):
 
         self.roi = pg.LinearRegionItem([10, 100], pg.LinearRegionItem.Vertical)
         self.graphics_linear.addItem(self.roi)
-        self.img_roi = pg.LinearRegionItem([10, 100], pg.LinearRegionItem.Horizontal)
+        self.img_roi = pg.LinearRegionItem([10, 100],
+                                           pg.LinearRegionItem.Horizontal)
         self.ImageDisplay.addItem(self.img_roi)
         self.roi.sigRegionChanged.connect(lambda x: self.update_plot_roi('line'))
         self.img_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi('img'))
@@ -154,7 +159,8 @@ class FittingLinearUi(QtWidgets.QMainWindow):
         colors = 255*cm.jet(np.linspace(0, 1, self.lines.shape[-2]))
         for color in colors:
             self.data_lines += [self.graphics_linear.plot(pen=pg.mkPen(color=color[:3], width=1))]
-            self.fit_lines += [self.graphics_linear.plot(pen=pg.mkPen(color='w', width=2, style=QtCore.Qt.DashDotDotLine))]
+            self.fit_lines += [self.graphics_linear.plot(pen=pg.mkPen(
+                color='w', width=2, style=QtCore.Qt.DashDotDotLine))]
         self._plot()
 
         self.button_next.clicked.connect(self.next_image)
@@ -372,8 +378,8 @@ cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
 class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def __init__(self, fl):
         super(FittingWavefrontsUi, self).__init__()
-        print os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
-        uic.loadUi(os.path.join(os.path.dirname(__file__), 'SumFitting.ui'), self)
+        uipath = os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
+        uic.loadUi(uipath, self)
 
         self.fl = fl
         self.fl.make_fits_array(3)
@@ -398,7 +404,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_linear.addItem(self.linear_roi)
         self.log_roi = pg.LinearRegionItem([400, 700])
         self.graphics_loglog.addItem(self.log_roi)
-        self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi('loglog'))
+        self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi)
 
         self.button_next.clicked.connect(self.next_image)
         self.button_save.clicked.connect(self.save)
@@ -423,8 +429,10 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_loglog.clear()
         self.graphics_linear.addItem(self.linear_roi)
         self.graphics_loglog.addItem(self.log_roi)
-        self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine))
-        self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+        self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(
+            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+        self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(
+            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
 
         new_number = self.spinbox_reps.value()
         self.plots_lin = ()
@@ -440,14 +448,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.fl.make_fits_array((new_number, 2))
 
     def update_plot_roi(self, axis):
-        if axis == 'linear':
-            region = self.log_roi.getRegion()
-            new_region = np.exp(region)
-            self.linear_roi.setRegion(new_region)
-        elif axis == 'loglog':
-            region = self.linear_roi.getRegion()
-            new_region = np.log(region)
-            self.log_roi.setRegion(new_region)
+        region = self.linear_roi.getRegion()
+        new_region = np.log(region)
+        self.log_roi.setRegion(new_region)
 
     def update_isocurve(self):
         self.iso_level.setLevel(self.iso_line.value())
