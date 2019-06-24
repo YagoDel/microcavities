@@ -8,6 +8,7 @@ from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.ndimage.measurements import center_of_mass
 import pyqtgraph as pg
+from pyqtgraph.functions import affineSlice
 from matplotlib import cm
 
 
@@ -327,3 +328,289 @@ class FittingLinearUi(QtWidgets.QMainWindow):
             pass
             # print e
             # raise e
+
+
+# Fitting program for linear wavefronts (thresholding)
+class FittingWavefronts(object, ShowGUIMixin):
+    def __init__(self, images, backgrounds=None, repeat_ax=0):
+        super(FittingWavefronts, self).__init__()
+        self.images = images
+        if backgrounds is None:
+            self.backgrounds = self.make_backgrounds()
+        else:
+            self.backgrounds = backgrounds
+
+    def get_qt_ui(self):
+        return FittingWavefrontsUi(self)
+
+    @staticmethod
+    def _none_array(shape):
+        if len(shape) > 1:
+            return [FittingWavefronts._none_array(shape[1:])] * shape[0]
+        else:
+            return [np.nan] * shape[0]
+
+    def make_backgrounds(self):
+        bkgs = np.copy(self.images[..., :5, :])
+        bkgs = np.mean(bkgs, -2)
+        bkgs = np.expand_dims(bkgs, -2)
+
+        return np.repeat(bkgs, self.images.shape[-2], -2)
+
+    def make_fits_array(self, shape):
+        if not isinstance(shape, tuple):
+            shape = (shape, )
+        self.fits = np.array(self._none_array(self.images.shape[:-2] + shape))
+        self.points = np.array(self._none_array(self.images.shape[:-2] + shape))
+
+
+cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
+                                 [1.0, 1.0, 1.0, 1.],
+                                 [0.0, 0.0, 1.0, 1.]])
+
+
+class FittingWavefrontsUi(QtWidgets.QMainWindow):
+    def __init__(self, fl):
+        super(FittingWavefrontsUi, self).__init__()
+        print os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
+        uic.loadUi(os.path.join(os.path.dirname(__file__), 'SumFitting.ui'), self)
+
+        self.fl = fl
+        self.fl.make_fits_array(3)
+        self.images = fl.images
+        self.image_indxs = [0] * (len(self.images.shape) - 2)
+        self.roi = pg.RectROI([0, 0], [30, 30], pen='r')
+        self.roi.sigRegionChanged.connect(self.update_roi)
+        self.graphics_image.addItem(self.roi)
+        self.graphics_image.setColorMap(cmap)
+        self.graphics_imagethresholded.setColorMap(cmap)
+
+        self.iso_level = pg.IsocurveItem(level=0.0, pen='g')
+        self.graphics_imagethresholded.getView().addItem(self.iso_level)
+        self.iso_level.setZValue(1000)
+        self.iso_line = pg.InfiniteLine(angle=0, movable=True, pen='g')
+        self.graphics_imagethresholded.getHistogramWidget().vb.addItem(self.iso_line)
+        self.iso_line.setValue(0.0)
+        self.iso_line.setZValue(1000)  # bring iso line above contrast controls
+        self.iso_line.sigDragged.connect(self.update_isocurve)
+
+        self.linear_roi = pg.LinearRegionItem([400, 700])
+        self.graphics_linear.addItem(self.linear_roi)
+        self.log_roi = pg.LinearRegionItem([400, 700])
+        self.graphics_loglog.addItem(self.log_roi)
+        self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi('loglog'))
+
+        self.button_next.clicked.connect(self.next_image)
+        self.button_save.clicked.connect(self.save)
+        self.button_proceed.clicked.connect(self.fast_button)
+        self.button_fitlinear.clicked.connect(self.fit)
+        self.button_plot.clicked.connect(self.plot_lines)
+        self.spinbox_reps.valueChanged.connect(self.create_roi)
+
+        self.indx_spinboxes = []
+        for idx in range(len(self.image_indxs)):
+            sb = QtWidgets.QSpinBox()
+            self.img_explorer.layout().addWidget(sb)
+            sb.valueChanged.connect(self.new_image)
+            self.indx_spinboxes += [sb]
+
+        self.xdata = None
+        self.new_image()
+        self.create_roi()
+
+    def create_roi(self):
+        self.graphics_linear.clear()
+        self.graphics_loglog.clear()
+        self.graphics_linear.addItem(self.linear_roi)
+        self.graphics_loglog.addItem(self.log_roi)
+        self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+        self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+
+        new_number = self.spinbox_reps.value()
+        self.plots_lin = ()
+        self.plots_log = ()
+        for idx2 in range(new_number):
+            color = pg.intColor(idx2, new_number)
+            plots_lin = self.graphics_linear.plot(pen=color)
+            plots_log = self.graphics_loglog.plot(pen=color)
+            self.plots_lin += (plots_lin, )
+            self.plots_log += (plots_log, )
+        self.plots_lin = np.array(self.plots_lin)
+        self.plots_log = np.array(self.plots_log)
+        self.fl.make_fits_array((new_number, 2))
+
+    def update_plot_roi(self, axis):
+        if axis == 'linear':
+            region = self.log_roi.getRegion()
+            new_region = np.exp(region)
+            self.linear_roi.setRegion(new_region)
+        elif axis == 'loglog':
+            region = self.linear_roi.getRegion()
+            new_region = np.log(region)
+            self.log_roi.setRegion(new_region)
+
+    def update_isocurve(self):
+        self.iso_level.setLevel(self.iso_line.value())
+
+    def update_roi(self):
+        roi = self.get_roi()
+        self.graphics_imagethresholded.setImage(roi, levels=(-0.5, 0.5))
+        self.graphics_imagethresholded.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        self.iso_level.setData(roi)
+
+    def _plot(self):
+        img = self._select_image(self.images, self.image_indxs)
+        if self.checkbox_bkg.isChecked():
+            img -= self._select_image(self.fl.backgrounds, self.image_indxs)
+        if self.checkbox_transpose.isChecked():
+            img = img.transpose()
+        self.current_image = img
+        self.graphics_image.setImage(img, False, False)
+        self.graphics_image.setLevels(-0.5, 0.5)
+        self.graphics_image.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        self.update_roi()
+
+    def new_image(self):
+        self.image_indxs = []
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val > self.images.shape[idx] - 1:
+                self.image_indxs += [self.images.shape[idx] - 1]
+                sb.setValue(self.images.shape[idx] - 1)
+            elif val < 0:
+                self.image_indxs += [0]
+                sb.setValue(0)
+            else:
+                self.image_indxs += [val]
+        self._plot()
+
+    def next_image(self, breaker=0):
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val < self.images.shape[idx] - 1:
+                sb.setValue(val + 1)
+                break
+            else:
+                sb.setValue(0)
+
+        # if self.fl.fits[tuple(self.image_indxs) + (0, )] != np.nan:
+        #     if breaker < np.prod(self.images.shape[:-2]):
+        #         self.next_image(breaker+1)
+        #     else:
+        #         print "You've saved everything"
+
+    def prev_image(self):
+        if self.image_indx > 0:
+            self.image_indx -= 1
+            self._plot()
+
+    def save(self):
+        try:
+            self.fl.fits[tuple(self.image_indxs)] = self.fit_results
+        except Exception as e:
+            print 'Failed saving: ', e
+
+    @staticmethod
+    def _select_image(images, indxs):
+        if len(indxs) > 1:
+            return FittingWavefrontsUi._select_image(images[indxs[0]],
+                                                     indxs[1:])
+        else:
+            return np.copy(images[indxs[0]])
+
+    def fast_button(self):
+        self.save()
+        self.next_image()
+        self.plot_lines()
+        self.fit()
+
+    def get_roi(self, image=None):
+        if image is None:
+            image = self.current_image
+        roi = self.roi.getAffineSliceParams(image,
+                                            self.graphics_image.getImageItem())
+        roi_image = affineSlice(image, shape=roi[0], vectors=roi[1],
+                                origin=roi[2], axes=(0, 1))
+        return roi_image
+
+    def plot_lines(self):
+        try:
+            threshold = self.iso_line.value()
+            thrsh_var = self.lineEdit_thresholdvar.text()
+            if len(thrsh_var) == 0:
+                thrsh_var = 0.1
+                self.lineEdit_thresholdvar.setText(str(thrsh_var))
+            else:
+                thrsh_var = float(thrsh_var)
+
+            reps = self.spinbox_reps.value()
+            variation = np.random.uniform(-thrsh_var, thrsh_var, reps)
+            reverse = self.checkbox_reverse.isChecked()
+            self.ydatas = ()
+            self.logydatas = ()
+            for idx, plot_lin, plot_log in zip(range(reps),
+                                               self.plots_lin,
+                                               self.plots_log):
+                roi_image = self.get_roi()
+
+                minval = np.min(roi_image) - 1
+                if reverse:
+                    roi_image[roi_image > (threshold+variation[idx])] = minval
+                    roi_image[roi_image != minval] = 1
+                    roi_image[roi_image == minval] = 0
+                else:
+                    roi_image[roi_image < (threshold+variation[idx])] = minval
+                    roi_image[roi_image != minval] = 1
+                    roi_image[roi_image == minval] = 0
+                ydata = np.sum(roi_image, 0)
+                if self.xdata is None or len(self.xdata) != len(ydata):
+                    self.xdata = range(1, len(ydata)+1)
+                    bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
+                    self.linear_roi.setBounds(bnds)
+                    self.linear_roi.setRegion(0.9 * bnds)
+                    self.log_roi.setBounds(np.log(bnds))
+                    self.log_roi.setRegion(0.9 * np.log(bnds))
+                plot_lin.setData(x=self.xdata, y=ydata)
+                plot_log.setData(x=np.log(self.xdata), y=np.log(ydata))
+
+                self.ydatas += (ydata, )
+                self.logydatas += (np.log(ydata), )
+            self.ydatas = np.array(self.ydatas)
+            self.logydatas = np.array(self.logydatas)
+
+        except Exception as e:
+            print e
+            raise e
+
+    def fit(self):
+        roi = tuple(map(int, self.linear_roi.getRegion()))
+        self.fit_results = ()
+        # Linear fit
+        xdata = self.xdata[roi[0]:roi[1]]
+        newxdata = np.linspace(0.9*xdata[0], 1.1*xdata[-1], 2)
+        results = ()
+        for ydata in self.ydatas[:, roi[0]:roi[1]]:
+            results += (np.polyfit(xdata, ydata, 1), )
+        results = np.array(results)
+        self.fit_results += (results, )
+        newfunc = np.poly1d(np.mean(results, 0))
+        newydata = newfunc(newxdata)
+        self.fit_linear.setData(x=newxdata, y=newydata)
+        self.fit_linear.setZValue(100)
+        self.label_speed.setText(str(np.mean(results, 0)[0]))
+
+        # Loglog fit
+        xdata = np.log(self.xdata[roi[0]:roi[1]])
+        newxdata = np.linspace(0.9 * xdata[0], 1.1 * xdata[-1], 2)
+        results = ()
+        for ydata in self.logydatas[:, roi[0]:roi[1]]:
+            results += (np.polyfit(xdata, ydata, 1),)
+        results = np.array(results)
+        # self.fit_results += (results, )
+        newfunc = np.poly1d(np.mean(results, 0))
+        newydata = newfunc(newxdata)
+        self.fit_log.setData(x=newxdata, y=newydata)
+        self.fit_log.setZValue(100)
+        self.label_exponent.setText(str(np.mean(results, 0)[0]))
+
+        self.fit_results = np.array(self.fit_results)
