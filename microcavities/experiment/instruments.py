@@ -10,8 +10,10 @@ from nplab.instrument.stage.wheel_of_power import PowerWheelMixin
 from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.ST133.pvcam import Pvcam, PvcamSdk
 from nplab.instrument.camera.Andor.andornplab import Andor
+from microcavities.experiment.utils import spectrometer_calibration
 
 import nidaqmx
+import nidaqmx.stream_writers
 import numpy as np
 import re
 import time
@@ -53,8 +55,8 @@ class Matisse(VisaInstrument):
 
 
 class RetarderPower(VariableRetarder, PowerWheelMixin):
-    def __init__(self, port):
-        super(RetarderPower, self).__init__(port)
+    def __init__(self, port, channel=2):
+        super(RetarderPower, self).__init__(port, channel)
         self._raw_min = 2
         self._raw_max = 8
         # self.channel = 2
@@ -140,6 +142,46 @@ class Flipper(Instrument):
             self.on()
 
 
+class AOM(Instrument):
+    def __init__(self, device="Dev1", channel="ao0"):
+        self.id = "%s/%s" % (device, channel)
+        self.task = None
+
+    def close_task(self):
+        self.task.stop()
+        self.task.close()
+        self.task = None
+
+    def sawtooth(self, frequency=100, duty_cycle=10, amplitude=1):
+        """
+
+        :param frequency: in Hz
+        :param duty_cycle: out of 100
+        :param amplitude: in V
+        :return:
+        """
+        assert duty_cycle / (frequency * 100.) > 1e-5  # If you make too small a pulse, it isn't really square
+
+        if self.task is not None:
+            self.close_task()
+
+        waveform = np.append(amplitude * np.ones(duty_cycle), np.zeros(100 - duty_cycle))
+
+        self.task = nidaqmx.Task()
+        self.task.ao_channels.add_ao_voltage_chan(self.id)
+        self.task.timing.cfg_samp_clk_timing(rate=frequency * 100, samps_per_chan=100,
+                                             sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+
+        writer = nidaqmx.stream_writers.AnalogSingleChannelWriter(self.task.out_stream, auto_start=True)
+        writer.write_many_sample(waveform)
+
+    def cw(self, amplitude):
+        with nidaqmx.Task() as task:
+            task.ao_channels.add_ao_voltage_chan(self.id)
+            writer = nidaqmx.stream_writers.AnalogSingleChannelWriter(task.out_stream, auto_start=True)
+            writer.write_one_sample(amplitude)
+
+
 PvcamServer = create_server_class(Pvcam)
 PvcamClient = create_client_class(Pvcam,
                                   PvcamSdk.__dict__.keys() + ["get_camera_parameter", "set_camera_parameter"],
@@ -155,16 +197,9 @@ AndorClient = create_client_class(Andor,
                                   ('_preview_widgets', ))
 
 
-# def calibrate(self, wvl, to_device=True):
-#     if to_device:
-#         calibrated = (wvl - 1.937E-01) / (1-2.131E-04)
-#     else:
-#         calibrated = (-2.131E-04 * wvl + 1.937E-01) + wvl
-#     return calibrated
-# setattr(SP2750, 'calibrate', calibrate)
-
-
 class Spectrometer(SP2750):
+    metadata_property_names = ('wavelength', )
+
     def __init__(self, *args, **kwargs):
         super(Spectrometer, self).__init__(*args, **kwargs)
 
@@ -177,41 +212,22 @@ class Spectrometer(SP2750):
 
 
 class PvactonClient(PvcamClient):
+    metadata_property_names = PvcamClient.metadata_property_names + ('wavelength', )
+
     def __init__(self, camera_address, spectrometer_address,  **kwargs):
         # super(Pvacton, self).__init__(camera_device, **kwargs)
         # SP2750.__init__(self, spectrometer_address)
         PvcamClient.__init__(self, camera_address)
         self.spectrometer = SP2750(spectrometer_address)
-
-    def set_offset_scaling(self):
-        string = self.spectrometer.query("?NM")
-        raw_wvl = float(re.findall(" ([0-9]+\.[0-9]+) ", string)[0])
-
-        def pos_to_unit(pos, axis):
-            if axis == 'bottom':
-                offset = (-7.991E-06 * raw_wvl + 2.454E-02) * (-self.resolution[0] / 2) + (
-                    -2.131E-04 * raw_wvl + 1.937E-01) + raw_wvl
-                scale = (-7.991E-06 * raw_wvl + 2.454E-02)
-                return map(lambda x: scale * x + offset, pos)
-            elif axis == 'left':
-                return map(lambda x: x, pos)
-            else:
-                raise ValueError
-        setattr(self, 'pos_to_unit', pos_to_unit)
-
-        # self.unit_offset[0] = (-7.991E-06 * raw_wvl + 2.454E-02) * (-self.resolution[0] / 2) + (
-        #             -2.131E-04 * raw_wvl + 1.937E-01) + raw_wvl
-        # self.scaling[0] = (-7.991E-06 * raw_wvl + 2.454E-02)
+        self.x_axis = spectrometer_calibration(None, self.get_wavelength())
 
     def get_wavelength(self):
         wvl = self.spectrometer.get_wavelength()
-        self.set_offset_scaling()
         return wvl
 
     def set_wavelength(self, wvl):
         self.spectrometer.set_wavelength_fast(wvl)
-        # self.unit_offset[0] = self.spectrometer.calibrate(wvl) - self.unit_scale[0] * self.resolution[0] / 2
-        self.set_offset_scaling()
+        self.x_axis = spectrometer_calibration(None, self.get_wavelength())
 
     wavelength = property(get_wavelength, set_wavelength)
 
@@ -271,7 +287,9 @@ class NdWheel(SHOT, PowerWheelMixin):
 class PowerMeterFlipper(NewportPowermeter):
     def __init__(self, motor_address, *args, **kwargs):
         super(PowerMeterFlipper, self).__init__(*args, **kwargs)
+        print 'Newport opened'
         self.flipper = ThorlabsMFF(motor_address)
+        print 'Flipper opened'
 
     @property
     def power(self):
@@ -373,11 +391,12 @@ class Stages(HIT):
             self.set_speed(axis, 1, 500000, 1000)
 
         self.axis_toggle = dict(k_lens=dict(on=2330000, off=7000000),
-                                filter_y=dict(off=8604180, small=338640, medium=3446640, big=6511640),
-                                filter_x=dict(on=2091000, off=6000000))
+                                filter_y=dict(off=8604180, small=338640, medium=3394640, big=6475000),
+                                filter_x=dict(off=6000000, small=2204000, medium=1983000, big=2030000))
         # 20um pinhole x,y = [2204000, 338640]
-        # 50um pinhole x, y = [2127000, 3417640]
-        # 100um pinhole x, y = [2117000, 6482000]
+        # 50um pinhole x, y = [1983000, 3394640]
+        # 100um pinhole x, y = [2030000, 6475000]
+        self._tomography_limits = [6586000, 7246000]
 
     def toggle(self, axis, state):
         if axis in self.axis_toggle:
@@ -385,31 +404,16 @@ class Stages(HIT):
             if state in dictionary:
                 self.move(dictionary[state], axis)
             else:
-                self._logger.warn('Unrecognised state %s. Needs to be one of %s' %(state, dictionary.keys()))
+                self._logger.warn('Unrecognised state %s. Needs to be one of %s' % (state, dictionary.keys()))
         else:
             self._logger.warn('Axis %s does not have toggle values' % axis)
 
-            # states = np.array(self.axis_toggle[axis])
-            # pos = self.get_position(axis)[0]
-            # current_state = np.argmin(np.abs(states - pos))
-            # self.move(states[(current_state + 1) % len(states)])
+    def tomography(self, kvalue):
+        """
 
-
-"""OLD and UNUSED"""
-class Pvacton(Pvcam):
-    def __init__(self, camera_device, spectrometer_address,  **kwargs):
-        # super(Pvacton, self).__init__(camera_device, **kwargs)
-        # SP2750.__init__(self, spectrometer_address)
-        Pvcam.__init__(self, camera_device, **kwargs)
-        self.spectrometer = SP2750(spectrometer_address)
-
-    def get_wavelength(self):
-        wvl = self.spectrometer.get_wavelength()
-        self.unit_offset[0] = wvl
-        return wvl
-
-    def set_wavelength(self, wvl):
-        self.spectrometer.set_wavelength_fast(wvl)
-        self.unit_offset[0] = self.spectrometer.calibrate(wvl) - self.unit_scale[0] * self.resolution[0] / 2
-
-    wavelength = property(get_wavelength, set_wavelength)
+        :param kvalue: float. In inverse micron
+        :return:
+        """
+        counts = np.interp(kvalue, np.linspace(-4, 4), np.linspace(self._tomography_limits[0],
+                                                                   self._tomography_limits[1]))
+        self.move(counts, 'spectrometer_lens')

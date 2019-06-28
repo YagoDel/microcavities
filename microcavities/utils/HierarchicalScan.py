@@ -5,6 +5,7 @@ from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
 from microcavities.analysis.utils import SortingKey
+from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number
 import h5py
 import yaml
@@ -16,8 +17,6 @@ import os
 import re
 from collections import OrderedDict
 
-
-# TODO: add functionality for repeated measurements
 
 DRY_RUN = False
 
@@ -94,16 +93,19 @@ class HierarchicalScan(object):
                 if name in self.variables:
                     self._logger.warn("Repeated variable name. Are you sure you know what you're doing?")
 
-            first_value = variable['values'][0]
-            if type(first_value) == str:
-                if first_value == 'linear':
-                    values = np.linspace(*variable['values'][1:])
-                elif first_value == 'random':
-                    values = np.random.uniform(*variable['values'][1:])
-                else:
-                    raise ValueError("Unrecognised variable value type: %s" % name)
+            if name == 'repeat':
+                values = range(variable['values'])
             else:
-                values = variable['values']
+                first_value = variable['values'][0]
+                if type(first_value) == str:
+                    if first_value == 'linear':
+                        values = np.linspace(*variable['values'][1:])
+                    elif first_value == 'random':
+                        values = np.random.uniform(*variable['values'][1:])
+                    else:
+                        raise ValueError("Unrecognised variable value type: %s" % name)
+                else:
+                    values = variable['values']
 
             self.variables[name] = values
 
@@ -141,6 +143,8 @@ class HierarchicalScan(object):
             return
         if save_type == 'npy':
             array = np.load(name)
+        elif save_type == 'streak':
+            array = open_image(name + '.tif')[0]
         else:
             array = np.loadtxt(name + '.' + save_type)
         return array
@@ -243,14 +247,11 @@ class ExperimentScan(HierarchicalScan):
         if self.save_type == 'local':
             self.results = []
 
-        if 'base_path' in self.settings_yaml:
-            self.base_path = self.settings_yaml['base_path']
-            if self.save_type == 'HDF5':
-                try:
-                    self.instr_dict['HDF5'].close()
-                except:
-                    pass  # ignore if already closed
-                self.instr_dict['HDF5'] = df.DataFile(self.base_path)
+        if self.save_type == 'HDF5':
+            try:
+                self.instr_dict['HDF5'].close()
+            except:
+                pass  # ignore if already closed
 
     def iteration_function(self, level, name, value):
         """At each level of the iteration, we get an instrument and set a property or call a function
@@ -263,7 +264,10 @@ class ExperimentScan(HierarchicalScan):
         super(ExperimentScan, self).iteration_function(level, name, value)  # Purely for logging
 
         dictionary = self.settings_yaml['variables'][level-1]
-        instr = self.instr_dict[dictionary['instrument']]
+        if 'instrument' in dictionary:
+            instr = self.instr_dict[dictionary['instrument']]
+        else:
+            instr = None  # for some iterations (notably repeated measurements), an instrument is not needed
         dictionary['value'] = value
         call_dictionary(instr, dictionary)
         self.pyqt_app.processEvents()
@@ -287,14 +291,24 @@ class ExperimentScan(HierarchicalScan):
                     current_folder = list(self.folder_name[:level+1])
                     file_name = current_folder + [measure_name]
                     file_name = '/'.join(file_name)
+                    # The next line allows one to access the file_name from the original yaml file
                     measurement = yaml.load(str(measurement).replace("scan_file_name", file_name))
-
                     instr = self.instr_dict[measurement['instrument']]
+
+                    # if 'repeat' in measurement and measurement['repeat'] > 1:
+                    #     for idx in range(measurement['repeat']):
+                    #         data = call_dictionary(instr, measurement)
+                    #         self.pyqt_app.processEvents()
+                    #         if 'save' in measurement and measurement['save']:
+                    #             self.save(data, file_name + str(idx), measurement)
+                    # else:
                     data = call_dictionary(instr, measurement)
                     self.pyqt_app.processEvents()
-
                     if 'save' in measurement and measurement['save']:
                         self.save(data, file_name, measurement)
+
+                else:
+                    self._logger.warn('Measurement is an empty dictionary: %s' % measurement)
 
     def save(self, data, file_name, dictionary):
         """
@@ -376,14 +390,28 @@ class ExperimentScan(HierarchicalScan):
                 getattr(self.gui, 'actionScan' + button).setChecked(not value)
                 getattr(self.gui, 'actionScan' + button).trigger()
 
-            if 'file_name' in self.settings_yaml:
-                filename = self.settings_yaml['file_name']
-                if isinstance(self.instr_dict['HDF5'], h5py.File):
-                    self.instr_dict['HDF5'].close()
-                self.instr_dict['HDF5'] = df.DataFile(filename)
-                self.instr_dict['HDF5'].make_current()
-            if self.instr_dict["HDF5"] is None:
+            if 'raw_data_file' in self.settings_yaml:
+                path = self.settings_yaml['raw_data_file']
+                # self.base_path = os.path.dirname(path)
+                self.instr_dict['HDF5'] = df.DataFile(path)
+            elif 'base_path' in self.settings_yaml:
+                # self.base_path = self.settings_yaml['base_path']
+                path = self.settings_yaml['base_path']
+                self.instr_dict['HDF5'] = df.DataFile(path)
+            elif self.instr_dict["HDF5"] is None:
                 self.gui.menuNewExperiment()
+            else:
+                raise RuntimeError('Do not know how to handle instr_dict.HDF5: %g' % self.instr_dict['HDF5'])
+            self.instr_dict['HDF5'].make_current()
+
+            # if 'file_name' in self.settings_yaml:
+            #     filename = self.settings_yaml['file_name']
+            #     if isinstance(self.instr_dict['HDF5'], h5py.File):
+            #         self.instr_dict['HDF5'].close()
+            #     self.instr_dict['HDF5'] = df.DataFile(filename)
+            #     self.instr_dict['HDF5'].make_current()
+            # if self.instr_dict["HDF5"] is None:
+            #     self.gui.menuNewExperiment()
 
         if self.save_type == 'local':
             self.results = []
@@ -421,16 +449,13 @@ class AnalysisScan(HierarchicalScan):
     def __init__(self, settings_yaml, **kwargs):
         full_yaml = yaml.load(open(settings_yaml, 'r'))
         self.analysis_yaml = full_yaml
-        if 'experiment_yaml_path' in self.analysis_yaml:
-            passing_yaml = self.analysis_yaml['experiment_yaml_path']
+
+        if 'variables' in self.analysis_yaml:
+            passing_yaml = full_yaml
         else:
             passing_yaml = dict(variables=[])
         super(AnalysisScan, self).__init__(passing_yaml,
                                            logger_name="AnalysisScan", **kwargs)
-        self.analysed_data = OrderedDict()
-        self.analysis_functions = self.analysis_yaml["analysis_functions"]
-        if isinstance(self.analysis_functions, list):
-            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
 
         self.save_type = 'HDF5'
         if "save_type" in self.settings_yaml:
@@ -442,8 +467,23 @@ class AnalysisScan(HierarchicalScan):
             elif 'raw_data_file' in self.analysis_yaml:
                 self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
 
-        if 'experiment_yaml_path' not in self.analysis_yaml:
+        # if 'experiment_yaml_path' not in self.analysis_yaml:
+        if 'variables' not in self.analysis_yaml:
             self.extract_hierarchy()
+
+        self.analysed_data = OrderedDict()
+        if "analysis_functions" in self.analysis_yaml:
+            self.analysis_functions = self.analysis_yaml["analysis_functions"]
+        elif "measurements" in self.analysis_yaml:
+            self.analysis_functions = []
+            for idx, measurement in enumerate(self.analysis_yaml['measurements']):
+                dataname = self.get_default_name(measurement)
+                self.analysis_functions += [dict(function_name='raw_%s' % dataname, data_name=dataname)]
+        else:
+            raise RuntimeError("Neither analysis_functions or measurements were provided in the yaml")
+
+        if isinstance(self.analysis_functions, list):
+            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
 
     def get_data(self, file_name):
         if DRY_RUN:
@@ -492,14 +532,19 @@ class AnalysisScan(HierarchicalScan):
                 file_name = current_folder + [data_name]
                 file_name = '/'.join(file_name)
                 raw_data, attributes = self.get_data(file_name)
-                exec("from microcavities.analysis.analysis_functions import %s" % analysis_dict['function_name'])
+
                 args = []
                 if 'args' in analysis_dict:
                     args = analysis_dict['args']
                 kwargs = {}
                 if 'kwargs' in analysis_dict:
                     kwargs = analysis_dict['kwargs']
-                data, args, kwargs = eval(analysis_dict['function_name'])(raw_data, *args, **kwargs)
+
+                if analysis_dict['function_name'].startswith('raw'):
+                    data = np.copy(raw_data)
+                else:
+                    exec("from microcavities.analysis.analysis_functions import %s" % analysis_dict['function_name'])
+                    data, args, kwargs = eval(analysis_dict['function_name'])(raw_data, *args, **kwargs)
                 analysis_dict['args'] = args
                 analysis_dict['kwargs'] = kwargs
 
@@ -523,7 +568,7 @@ class AnalysisScan(HierarchicalScan):
         self._logger.debug('Reshaping results')
 
         new_shape = tuple([len(var) for var in self.variables.values()])
-        self._logger.debug('New shape: %s' % new_shape)
+        self._logger.debug('New shape: %s' % (new_shape, ))
 
         for name, result in self.analysed_data.items():
             if not isinstance(result, np.ndarray):
@@ -542,14 +587,14 @@ class AnalysisScan(HierarchicalScan):
 
         :return:
         """
-        if self.save_type == 'HDF5' and len(self.HDF5.keys()) == 1:
-            self.series_name = self.HDF5.keys()[0]
-        elif 'series_name' in self.analysis_yaml:
+        if 'series_name' in self.analysis_yaml:
             self.series_name = self.analysis_yaml['series_name']
+        elif self.save_type == 'HDF5' and len(self.HDF5.keys()) == 1:
+            self.series_name = self.HDF5.keys()[0]
         else:
             raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data file with '
                              'just one key at the top level, or a series_name')
-
+        self.variables = OrderedDict()
         self._extract_hierarchy(self.series_name)
 
     def _extract_hierarchy(self, level_name):
@@ -568,8 +613,9 @@ class AnalysisScan(HierarchicalScan):
         for level in next_levels:
             if not self.is_lowest_level(level):
                 last_level = level.split('/')[-1]
-                name, value = re.findall(r'(.+)=(\d+)', last_level)[0]
+                name, value = re.findall(r'(.+)=(\d+(?:\.\d*)?(?:e[+-]\d+)?)', last_level)[0]
                 value = string_to_number(value)
+                self._logger.debug('Extracted variable and value: %s = %g' % (name, value))
 
                 if var_name is None:
                     var_name = name
@@ -647,6 +693,9 @@ def call_dictionary(obj, dictionary):
     if DRY_RUN:
         print "call_dictionary: %s %s" % (obj, dictionary)
         return 1
+
+    if 'name' in dictionary and dictionary['name'] == 'repeat':
+        return None
 
     if 'function' in dictionary and 'property' in dictionary:
         raise ValueError("Provided a function and a property. Please provide only one.")
