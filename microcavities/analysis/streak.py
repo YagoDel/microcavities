@@ -391,14 +391,14 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_image.setColorMap(cmap)
         self.graphics_imagethresholded.setColorMap(cmap)
 
-        self.iso_level = pg.IsocurveItem(level=0.0, pen='g')
-        self.graphics_imagethresholded.getView().addItem(self.iso_level)
-        self.iso_level.setZValue(1000)
-        self.iso_line = pg.InfiniteLine(angle=0, movable=True, pen='g')
-        self.graphics_imagethresholded.getHistogramWidget().vb.addItem(self.iso_line)
-        self.iso_line.setValue(0.0)
-        self.iso_line.setZValue(1000)  # bring iso line above contrast controls
-        self.iso_line.sigDragged.connect(self.update_isocurve)
+        # self.iso_level = pg.IsocurveItem(level=0.0, pen='g')
+        # self.graphics_imagethresholded.getView().addItem(self.iso_level)
+        # self.iso_level.setZValue(1000)
+        # self.iso_line = pg.InfiniteLine(angle=0, movable=True, pen='g')
+        # self.graphics_imagethresholded.getHistogramWidget().vb.addItem(self.iso_line)
+        # self.iso_line.setValue(0.0)
+        # self.iso_line.setZValue(1000)  # bring iso line above contrast controls
+        # self.iso_line.sigDragged.connect(self.update_isocurve)
 
         self.linear_roi = pg.LinearRegionItem([400, 700])
         self.graphics_linear.addItem(self.linear_roi)
@@ -412,6 +412,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.button_fitlinear.clicked.connect(self.fit)
         self.button_plot.clicked.connect(self.plot_lines)
         self.spinbox_reps.valueChanged.connect(self.create_roi)
+        self.spinBox_noIsolines.valueChanged.connect(self.create_isolines)
 
         self.indx_spinboxes = []
         for idx in range(len(self.image_indxs)):
@@ -419,8 +420,10 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.img_explorer.layout().addWidget(sb)
             sb.valueChanged.connect(self.new_image)
             self.indx_spinboxes += [sb]
-
+        self.iso_lines = ()
+        self.iso_levels = ()
         self.xdata = None
+        self.create_isolines()
         self.new_image()
         self.create_roi()
 
@@ -447,19 +450,46 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.plots_log = np.array(self.plots_log)
         self.fl.make_fits_array((new_number, 2))
 
+    def create_isolines(self):
+        n_lines = self.spinBox_noIsolines.value()
+        print 'Creating %d lines' % n_lines
+        for line, level  in zip(self.iso_lines, self.iso_levels):
+            self.graphics_imagethresholded.getView().removeItem(level)
+            self.graphics_imagethresholded.getHistogramWidget().vb.removeItem(line)
+
+        self.iso_lines = ()
+        self.iso_levels = ()
+        for idx in range(n_lines):
+            pen = pg.mkPen(pg.intColor(idx, n_lines))
+            iso_level = pg.IsocurveItem(level=0.0,
+                                        pen=pen)
+            self.graphics_imagethresholded.getView().addItem(iso_level)
+            iso_level.setZValue(1000)
+            iso_line = pg.InfiniteLine(angle=0, movable=True, pen=pen)
+            self.graphics_imagethresholded.getHistogramWidget().vb.addItem(iso_line)
+            iso_line.setValue(0.0)
+            iso_line.setZValue(1000)  # bring iso line above contrast controls
+            iso_line.sigDragged.connect(self.update_isocurve)
+            self.iso_lines += (iso_line, )
+            self.iso_levels += (iso_level, )
+        self.update_isocurve()
+
     def update_plot_roi(self, axis):
         region = self.linear_roi.getRegion()
         new_region = np.log(region)
         self.log_roi.setRegion(new_region)
 
     def update_isocurve(self):
-        self.iso_level.setLevel(self.iso_line.value())
+        for level, line in zip(self.iso_levels, self.iso_lines):
+            level.setLevel(line.value())
+        self._plot()  # ensures the data of the iso_levels is updated
 
     def update_roi(self):
         roi = self.get_roi()
         self.graphics_imagethresholded.setImage(roi, levels=(-0.5, 0.5))
         self.graphics_imagethresholded.getHistogramWidget().setHistogramRange(-0.5, 0.5)
-        self.iso_level.setData(roi)
+        for iso_level in self.iso_levels:
+            iso_level.setData(roi)
 
     def _plot(self):
         img = self._select_image(self.images, self.image_indxs)

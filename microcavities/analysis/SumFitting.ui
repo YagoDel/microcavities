@@ -50,19 +50,6 @@
          </property>
         </widget>
        </item>
-       <item row="1" column="5">
-        <widget class="QLineEdit" name="lineEdit_centervar">
-         <property name="maximumSize">
-          <size>
-           <width>150</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="placeholderText">
-          <string>Center variation</string>
-         </property>
-        </widget>
-       </item>
        <item row="4" column="1" colspan="2">
         <widget class="QPushButton" name="button_plot">
          <property name="maximumSize">
@@ -102,6 +89,9 @@
           <string>Reverse threshold</string>
          </property>
         </widget>
+       </item>
+       <item row="1" column="5">
+        <widget class="QSpinBox" name="spinBox_noIsolines"/>
        </item>
       </layout>
      </widget>
