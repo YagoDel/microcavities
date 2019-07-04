@@ -10,6 +10,7 @@ from scipy.ndimage.measurements import center_of_mass
 import pyqtgraph as pg
 from pyqtgraph.functions import affineSlice
 from matplotlib import cm
+from microcavities.utils import square
 
 
 def open_image(path, smooth=False):
@@ -400,11 +401,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         # self.iso_line.setZValue(1000)  # bring iso line above contrast controls
         # self.iso_line.sigDragged.connect(self.update_isocurve)
 
-        self.linear_roi = pg.LinearRegionItem([400, 700])
-        self.graphics_linear.addItem(self.linear_roi)
-        self.log_roi = pg.LinearRegionItem([400, 700])
-        self.graphics_loglog.addItem(self.log_roi)
-        self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi)
+        # self.linear_roi = pg.LinearRegionItem([400, 700])
+        # self.graphics_linear.addItem(self.linear_roi)
+        # self.log_roi = pg.LinearRegionItem([400, 700])
+        # self.graphics_loglog.addItem(self.log_roi)
+        # self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi)
 
         self.button_next.clicked.connect(self.next_image)
         self.button_save.clicked.connect(self.save)
@@ -428,26 +429,26 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.create_roi()
 
     def create_roi(self):
-        self.graphics_linear.clear()
-        self.graphics_loglog.clear()
-        self.graphics_linear.addItem(self.linear_roi)
-        self.graphics_loglog.addItem(self.log_roi)
-        self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(
-            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
-        self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(
-            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+        # self.graphics_linear.clear()
+        # self.graphics_loglog.clear()
+        # self.graphics_linear.addItem(self.linear_roi)
+        # self.graphics_loglog.addItem(self.log_roi)
+        # self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(
+            # color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+        # self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(
+            # color='w', width=3, style=QtCore.Qt.DashDotDotLine))
 
         new_number = self.spinbox_reps.value()
-        self.plots_lin = ()
-        self.plots_log = ()
-        for idx2 in range(new_number):
-            color = pg.intColor(idx2, new_number)
-            plots_lin = self.graphics_linear.plot(pen=color)
-            plots_log = self.graphics_loglog.plot(pen=color)
-            self.plots_lin += (plots_lin, )
-            self.plots_log += (plots_log, )
-        self.plots_lin = np.array(self.plots_lin)
-        self.plots_log = np.array(self.plots_log)
+        # self.plots_lin = ()
+        # self.plots_log = ()
+        # # for idx2 in range(new_number):
+        # #     color = pg.intColor(idx2, new_number)
+        # #     plots_lin = self.graphics_linear.plot(pen=color)
+        # #     plots_log = self.graphics_loglog.plot(pen=color)
+        # #     self.plots_lin += (plots_lin, )
+        # #     self.plots_log += (plots_log, )
+        # self.plots_lin = np.array(self.plots_lin)
+        # self.plots_log = np.array(self.plots_log)
         self.fl.make_fits_array((new_number, 2))
 
     def create_isolines(self):
@@ -473,6 +474,45 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.iso_lines += (iso_line, )
             self.iso_levels += (iso_level, )
         self.update_isocurve()
+        self.setup_lineplots()
+
+    def setup_lineplots(self):
+        n_lines = self.spinBox_noIsolines.value()
+        n_thresholds = self.spinbox_reps.value()
+
+        layout = self.widget_replaceable.layout()
+        for i in reversed(range(layout.count())):
+            layout.itemAt(i).widget().deleteLater()
+
+        self.lineplot_widgets = ()
+        self.plots_lin = ()
+        shape = square(n_lines)
+        idx = 0
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                widgt = pg.PlotWidget()
+                self.lineplot_widgets += (widgt, )
+                layout.addWidget(widgt, i, j)
+
+                pen = pg.mkPen(pg.intColor(idx, n_lines))
+                plots = ()
+                for idx2 in range(n_thresholds):
+                    plots += (widgt.plot(pen=pen), )
+                self.plots_lin += (plots, )
+                idx += 1
+
+        # self.plots_lin = ()
+        # # self.plots_log = ()
+        # for idx in range(n_lines):
+        #     plots_lin = ()
+        #     for idx2 in range(n_thresholds)
+        # #     color = pg.intColor(idx2, new_number)
+        # #     plots_lin = self.graphics_linear.plot(pen=color)
+        # #     plots_log = self.graphics_loglog.plot(pen=color)
+        # #     self.plots_lin += (plots_lin, )
+        # #     self.plots_log += (plots_log, )
+        # self.plots_lin = np.array(self.plots_lin)
+        # self.plots_log = np.array(self.plots_log)
 
     def update_plot_roi(self, axis):
         region = self.linear_roi.getRegion()
@@ -612,7 +652,6 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.logydatas = np.array(self.logydatas)
 
         except Exception as e:
-            print e
             raise e
 
     def fit(self):
