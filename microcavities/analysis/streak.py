@@ -414,6 +414,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.button_plot.clicked.connect(self.plot_lines)
         self.spinbox_reps.valueChanged.connect(self.create_roi)
         self.spinBox_noIsolines.valueChanged.connect(self.create_isolines)
+        self.checkbox_randomize.stateChanged.connect(self.randomize)
 
         self.indx_spinboxes = []
         for idx in range(len(self.image_indxs)):
@@ -427,6 +428,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.create_isolines()
         self.new_image()
         self.create_roi()
+
+    def randomize(self):
+        state = self.checkbox_randomize.isChecked()
+        self.lineEdit_thresholdvar.setEnabled(state)
+        self.spinbox_reps.setEnabled(state)
 
     def create_roi(self):
         # self.graphics_linear.clear()
@@ -474,45 +480,38 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.iso_lines += (iso_line, )
             self.iso_levels += (iso_level, )
         self.update_isocurve()
-        self.setup_lineplots()
+        self.setup_line_widgets()
 
-    def setup_lineplots(self):
+    def setup_line_widgets(self):
         n_lines = self.spinBox_noIsolines.value()
-        n_thresholds = self.spinbox_reps.value()
 
         layout = self.widget_replaceable.layout()
         for i in reversed(range(layout.count())):
             layout.itemAt(i).widget().deleteLater()
 
         self.lineplot_widgets = ()
-        self.plots_lin = ()
         shape = square(n_lines)
-        idx = 0
         for i in range(shape[0]):
             for j in range(shape[1]):
                 widgt = pg.PlotWidget()
                 self.lineplot_widgets += (widgt, )
                 layout.addWidget(widgt, i, j)
+        self.setup_line_plots()
 
-                pen = pg.mkPen(pg.intColor(idx, n_lines))
-                plots = ()
-                for idx2 in range(n_thresholds):
-                    plots += (widgt.plot(pen=pen), )
-                self.plots_lin += (plots, )
-                idx += 1
+    def setup_line_plots(self):
+        if self.checkbox_randomize.isChecked():
+            n_thresholds = self.spinbox_reps.value()
+        else:
+            n_thresholds = 1
 
-        # self.plots_lin = ()
-        # # self.plots_log = ()
-        # for idx in range(n_lines):
-        #     plots_lin = ()
-        #     for idx2 in range(n_thresholds)
-        # #     color = pg.intColor(idx2, new_number)
-        # #     plots_lin = self.graphics_linear.plot(pen=color)
-        # #     plots_log = self.graphics_loglog.plot(pen=color)
-        # #     self.plots_lin += (plots_lin, )
-        # #     self.plots_log += (plots_log, )
-        # self.plots_lin = np.array(self.plots_lin)
-        # self.plots_log = np.array(self.plots_log)
+        self.plots_lin = ()
+        for idx, widgt in enumerate(self.lineplot_widgets):
+            pen = pg.mkPen(pg.intColor(idx, len(self.lineplot_widgets)))
+            plots = ()
+            for idx2 in range(n_thresholds):
+                plots += (widgt.plot(pen=pen), )
+            self.plots_lin += (plots, )
+        self.plots_lin = np.array(self.plots_lin)
 
     def update_plot_roi(self, axis):
         region = self.linear_roi.getRegion()
@@ -522,7 +521,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def update_isocurve(self):
         for level, line in zip(self.iso_levels, self.iso_lines):
             level.setLevel(line.value())
-        self._plot()  # ensures the data of the iso_levels is updated
+        self.plot_image()  # ensures the data of the iso_levels is updated
 
     def update_roi(self):
         roi = self.get_roi()
@@ -531,7 +530,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         for iso_level in self.iso_levels:
             iso_level.setData(roi)
 
-    def _plot(self):
+    def plot_image(self):
         img = self._select_image(self.images, self.image_indxs)
         if self.checkbox_bkg.isChecked():
             img -= self._select_image(self.fl.backgrounds, self.image_indxs)
@@ -555,7 +554,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                 sb.setValue(0)
             else:
                 self.image_indxs += [val]
-        self._plot()
+        self.plot_image()
 
     def next_image(self, breaker=0):
         for idx, sb in enumerate(self.indx_spinboxes):
@@ -575,7 +574,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def prev_image(self):
         if self.image_indx > 0:
             self.image_indx -= 1
-            self._plot()
+            self.plot_image()
 
     def save(self):
         try:
@@ -608,48 +607,49 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
 
     def plot_lines(self):
         try:
-            threshold = self.iso_line.value()
-            thrsh_var = self.lineEdit_thresholdvar.text()
-            if len(thrsh_var) == 0:
-                thrsh_var = 0.1
-                self.lineEdit_thresholdvar.setText(str(thrsh_var))
+            n_lines = self.spinBox_noIsolines.value()
+            if self.checkbox_randomize.isChecked():
+                n_thresholds = self.spinbox_reps.value()
+                thrsh_var = float(self.lineEdit_thresholdvar.text())
             else:
-                thrsh_var = float(thrsh_var)
+                n_thresholds = 1
+                thrsh_var = 0
+            print '%d lines, %d thresholds' % (n_lines, n_thresholds)
+            print self.plots_lin.shape
 
-            reps = self.spinbox_reps.value()
-            variation = np.random.uniform(-thrsh_var, thrsh_var, reps)
-            reverse = self.checkbox_reverse.isChecked()
-            self.ydatas = ()
-            self.logydatas = ()
-            for idx, plot_lin, plot_log in zip(range(reps),
-                                               self.plots_lin,
-                                               self.plots_log):
-                roi_image = self.get_roi()
+            # thrsh_var = self.lineEdit_thresholdvar.text()
+            # if len(thrsh_var) == 0:
+            #     thrsh_var = 0.1
+            #     self.lineEdit_thresholdvar.setText(str(thrsh_var))
+            # else:
+            #     thrsh_var = float(thrsh_var)
+            for idx in range(n_lines):
+                iso_line = self.iso_lines[idx]
+                plots_lin = self.plots_lin[idx]
+                threshold = iso_line.value()
 
-                minval = np.min(roi_image) - 1
-                if reverse:
-                    roi_image[roi_image > (threshold+variation[idx])] = minval
+                variation = np.random.uniform(-thrsh_var, thrsh_var, n_thresholds)
+                # reverse = self.checkbox_reverse.isChecked()
+                self.ydatas = ()
+                # self.logydatas = ()
+                for idx2, plot_lin in zip(range(n_thresholds), plots_lin):
+                    roi_image = self.get_roi()
+
+                    minval = np.min(roi_image) - 1
+                    roi_image[roi_image < (threshold+variation[idx2])] = minval
                     roi_image[roi_image != minval] = 1
                     roi_image[roi_image == minval] = 0
-                else:
-                    roi_image[roi_image < (threshold+variation[idx])] = minval
-                    roi_image[roi_image != minval] = 1
-                    roi_image[roi_image == minval] = 0
-                ydata = np.sum(roi_image, 0)
-                if self.xdata is None or len(self.xdata) != len(ydata):
-                    self.xdata = range(1, len(ydata)+1)
-                    bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
-                    self.linear_roi.setBounds(bnds)
-                    self.linear_roi.setRegion(0.9 * bnds)
-                    self.log_roi.setBounds(np.log(bnds))
-                    self.log_roi.setRegion(0.9 * np.log(bnds))
-                plot_lin.setData(x=self.xdata, y=ydata)
-                plot_log.setData(x=np.log(self.xdata), y=np.log(ydata))
+                    ydata = np.sum(roi_image, 0)
+                    if self.xdata is None or len(self.xdata) != len(ydata):
+                        self.xdata = range(1, len(ydata)+1)
+                        bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
+                        # self.linear_roi.setBounds(bnds)
+                        # self.linear_roi.setRegion(0.9 * bnds)
+                    print 'Plotting %g' % (threshold+variation[idx])
+                    plot_lin.setData(x=self.xdata, y=ydata)
 
-                self.ydatas += (ydata, )
-                self.logydatas += (np.log(ydata), )
-            self.ydatas = np.array(self.ydatas)
-            self.logydatas = np.array(self.logydatas)
+                    self.ydatas += (ydata, )
+                self.ydatas = np.array(self.ydatas)
 
         except Exception as e:
             raise e
