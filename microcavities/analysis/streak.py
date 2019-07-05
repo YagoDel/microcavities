@@ -4,6 +4,7 @@ from nplab.utils.show_gui_mixin import ShowGUIMixin
 import numpy as np
 import re
 import os
+from functools import partial
 from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.ndimage.measurements import center_of_mass
@@ -449,14 +450,25 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         layout = self.widget_replaceable.layout()
         for i in reversed(range(layout.count())):
             layout.itemAt(i).widget().deleteLater()
+        layout_buttons = self.widget_savebuttons.layout()
+        for i in reversed(range(layout_buttons.count())):
+            layout_buttons.itemAt(i).widget().deleteLater()
 
         self.lineplot_widgets = ()
+        self._savebuttons = ()
+        idx = 0
         shape = square(n_lines)
         for i in range(shape[0]):
             for j in range(shape[1]):
                 widgt = pg.PlotWidget()
                 self.lineplot_widgets += (widgt, )
                 layout.addWidget(widgt, i, j)
+
+                widgt = QtWidgets.QPushButton('Save %d' % idx)
+                layout_buttons.addWidget(widgt, i, j)
+                self._savebuttons += (widgt, )
+                widgt.clicked.connect(partial(self.save, idx))
+                idx += 1
         self.setup_line_plots()
 
     def setup_line_plots(self):
@@ -559,11 +571,16 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.image_indx -= 1
             self.plot_image()
 
-    def save(self):
+    def save(self, line_index=None):
         # print 'Saving: ', self.fit_results
+        print 'line_index = ', line_index
         try:
             indxs = tuple(self.image_indxs)
-            self.fitting_instance.fits[indxs] = self.fit_results
+            if line_index is None:
+                self.fitting_instance.fits[indxs] = self.fit_results
+            else:
+                indxs += (line_index, )
+                self.fitting_instance.fits[indxs] = self.fit_results[line_index]
         except Exception as e:
             print 'Failed saving: ', e
 
