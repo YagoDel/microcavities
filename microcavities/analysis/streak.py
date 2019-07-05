@@ -377,14 +377,13 @@ cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
 
 
 class FittingWavefrontsUi(QtWidgets.QMainWindow):
-    def __init__(self, fl):
+    def __init__(self, fitting_instance):
         super(FittingWavefrontsUi, self).__init__()
         uipath = os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
         uic.loadUi(uipath, self)
 
-        self.fl = fl
-        self.fl.make_fits_array(3)
-        self.images = fl.images
+        self.fitting_instance = fitting_instance
+        self.images = fitting_instance.images
         self.image_indxs = [0] * (len(self.images.shape) - 2)
         self.roi = pg.RectROI([0, 0], [30, 30], pen='r')
         self.roi.sigRegionChanged.connect(self.update_roi)
@@ -392,27 +391,12 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_image.setColorMap(cmap)
         self.graphics_imagethresholded.setColorMap(cmap)
 
-        # self.iso_level = pg.IsocurveItem(level=0.0, pen='g')
-        # self.graphics_imagethresholded.getView().addItem(self.iso_level)
-        # self.iso_level.setZValue(1000)
-        # self.iso_line = pg.InfiniteLine(angle=0, movable=True, pen='g')
-        # self.graphics_imagethresholded.getHistogramWidget().vb.addItem(self.iso_line)
-        # self.iso_line.setValue(0.0)
-        # self.iso_line.setZValue(1000)  # bring iso line above contrast controls
-        # self.iso_line.sigDragged.connect(self.update_isocurve)
-
-        # self.linear_roi = pg.LinearRegionItem([400, 700])
-        # self.graphics_linear.addItem(self.linear_roi)
-        # self.log_roi = pg.LinearRegionItem([400, 700])
-        # self.graphics_loglog.addItem(self.log_roi)
-        # self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi)
-
         self.button_next.clicked.connect(self.next_image)
         self.button_save.clicked.connect(self.save)
         self.button_proceed.clicked.connect(self.fast_button)
         self.button_fitlinear.clicked.connect(self.fit)
         self.button_plot.clicked.connect(self.plot_lines)
-        self.spinbox_reps.valueChanged.connect(self.create_roi)
+        self.spinbox_reps.valueChanged.connect(self.setup_line_plots)
         self.spinBox_noIsolines.valueChanged.connect(self.create_isolines)
         self.checkbox_randomize.stateChanged.connect(self.randomize)
 
@@ -427,7 +411,6 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.xdata = None
         self.create_isolines()
         self.new_image()
-        self.create_roi()
 
     def randomize(self):
         state = self.checkbox_randomize.isChecked()
@@ -435,33 +418,10 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.spinbox_reps.setEnabled(state)
         self.setup_line_plots()
 
-    def create_roi(self):
-        # self.graphics_linear.clear()
-        # self.graphics_loglog.clear()
-        # self.graphics_linear.addItem(self.linear_roi)
-        # self.graphics_loglog.addItem(self.log_roi)
-        # self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(
-            # color='w', width=3, style=QtCore.Qt.DashDotDotLine))
-        # self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(
-            # color='w', width=3, style=QtCore.Qt.DashDotDotLine))
-
-        new_number = self.spinbox_reps.value()
-        # self.plots_lin = ()
-        # self.plots_log = ()
-        # # for idx2 in range(new_number):
-        # #     color = pg.intColor(idx2, new_number)
-        # #     plots_lin = self.graphics_linear.plot(pen=color)
-        # #     plots_log = self.graphics_loglog.plot(pen=color)
-        # #     self.plots_lin += (plots_lin, )
-        # #     self.plots_log += (plots_log, )
-        # self.plots_lin = np.array(self.plots_lin)
-        # self.plots_log = np.array(self.plots_log)
-        self.fl.make_fits_array((new_number, 2))
-
     def create_isolines(self):
         n_lines = self.spinBox_noIsolines.value()
-        print 'Creating %d lines' % n_lines
-        for line, level  in zip(self.iso_lines, self.iso_levels):
+        # print 'Creating %d lines' % n_lines
+        for line, level in zip(self.iso_lines, self.iso_levels):
             self.graphics_imagethresholded.getView().removeItem(level)
             self.graphics_imagethresholded.getHistogramWidget().vb.removeItem(line)
 
@@ -516,7 +476,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                 plots += (widgt.plot(pen=pen), )
             self.plots_lin += (plots, )
 
-            self.fit_lines += (widgt.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine)), )
+            pen = pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine)
+            self.fit_lines += (widgt.plot(pen=pen), )
 
             if self.xdata is None:
                 roi_image = self.get_roi()
@@ -526,13 +487,18 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             linear_roi = pg.LinearRegionItem(lims)
             widgt.addItem(linear_roi)
             self.rois_lin += (linear_roi, )
-
         self.plots_lin = np.array(self.plots_lin)
 
-    # def update_plot_roi(self, axis):
-    #     region = self.linear_roi.getRegion()
-    #     new_region = np.log(region)
-    #     self.log_roi.setRegion(new_region)
+        self.setup_save_array()
+
+    def setup_save_array(self):
+        n_lines = self.spinBox_noIsolines.value()
+        if self.checkbox_randomize.isChecked():
+            n_thresholds = self.spinbox_reps.value()
+        else:
+            n_thresholds = 1
+
+        self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
 
     def update_isocurve(self):
         for level, line in zip(self.iso_levels, self.iso_lines):
@@ -549,7 +515,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def plot_image(self):
         img = self._select_image(self.images, self.image_indxs)
         if self.checkbox_bkg.isChecked():
-            img -= self._select_image(self.fl.backgrounds, self.image_indxs)
+            img -= self._select_image(self.fitting_instance.backgrounds,
+                                      self.image_indxs)
         if self.checkbox_transpose.isChecked():
             img = img.transpose()
         self.current_image = img
@@ -593,8 +560,10 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.plot_image()
 
     def save(self):
+        # print 'Saving: ', self.fit_results
         try:
-            self.fl.fits[tuple(self.image_indxs)] = self.fit_results
+            indxs = tuple(self.image_indxs)
+            self.fitting_instance.fits[indxs] = self.fit_results
         except Exception as e:
             print 'Failed saving: ', e
 
@@ -674,7 +643,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
 
     def fit(self):
         self.fit_results = ()
-        for roi_lin, ydatas, fit_line in zip(self.rois_lin, self.ydatas, self.fit_lines):
+        for roi_lin, ydatas, fit_line in zip(self.rois_lin,
+                                             self.ydatas,
+                                             self.fit_lines):
             roi = tuple(map(int, roi_lin.getRegion()))
             # Linear fit
             xdata = self.xdata[roi[0]:roi[1]]
@@ -691,4 +662,4 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.fit_results = np.array(self.fit_results)
         # Averaging over thresholds, display all the speeds
         self.label_speed.setText(str(np.mean(self.fit_results, 1)[:, 0]))
-        print 'Results shape: %s' % (self.fit_results.shape, )
+        # print 'Results shape: %s' % (self.fit_results.shape, )
