@@ -433,6 +433,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         state = self.checkbox_randomize.isChecked()
         self.lineEdit_thresholdvar.setEnabled(state)
         self.spinbox_reps.setEnabled(state)
+        self.setup_line_plots()
 
     def create_roi(self):
         # self.graphics_linear.clear()
@@ -505,18 +506,30 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             n_thresholds = 1
 
         self.plots_lin = ()
+        self.rois_lin = ()
         for idx, widgt in enumerate(self.lineplot_widgets):
+            widgt.clear()
             pen = pg.mkPen(pg.intColor(idx, len(self.lineplot_widgets)))
             plots = ()
             for idx2 in range(n_thresholds):
                 plots += (widgt.plot(pen=pen), )
             self.plots_lin += (plots, )
+
+            if self.xdata is None:
+                roi_image = self.get_roi()
+                lims = [0, roi_image.shape[1]]
+            else:
+                lims = [np.min(self.xdata), np.max(self.xdata)]
+            linear_roi = pg.LinearRegionItem(lims)
+            widgt.addItem(linear_roi)
+            self.rois_lin += (linear_roi, )
+
         self.plots_lin = np.array(self.plots_lin)
 
-    def update_plot_roi(self, axis):
-        region = self.linear_roi.getRegion()
-        new_region = np.log(region)
-        self.log_roi.setRegion(new_region)
+    # def update_plot_roi(self, axis):
+    #     region = self.linear_roi.getRegion()
+    #     new_region = np.log(region)
+    #     self.log_roi.setRegion(new_region)
 
     def update_isocurve(self):
         for level, line in zip(self.iso_levels, self.iso_lines):
