@@ -506,6 +506,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             n_thresholds = 1
 
         self.plots_lin = ()
+        self.fit_lines = ()
         self.rois_lin = ()
         for idx, widgt in enumerate(self.lineplot_widgets):
             widgt.clear()
@@ -514,6 +515,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             for idx2 in range(n_thresholds):
                 plots += (widgt.plot(pen=pen), )
             self.plots_lin += (plots, )
+
+            self.fit_lines += (widgt.plot(pen=pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine)), )
 
             if self.xdata is None:
                 roi_image = self.get_roi()
@@ -636,6 +639,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             #     self.lineEdit_thresholdvar.setText(str(thrsh_var))
             # else:
             #     thrsh_var = float(thrsh_var)
+            self.ydatas = ()
             for idx in range(n_lines):
                 iso_line = self.iso_lines[idx]
                 plots_lin = self.plots_lin[idx]
@@ -643,7 +647,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
 
                 variation = np.random.uniform(-thrsh_var, thrsh_var, n_thresholds)
                 # reverse = self.checkbox_reverse.isChecked()
-                self.ydatas = ()
+                ydatas = ()
                 # self.logydatas = ()
                 for idx2, plot_lin in zip(range(n_thresholds), plots_lin):
                     roi_image = self.get_roi()
@@ -658,44 +662,33 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                         bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
                         # self.linear_roi.setBounds(bnds)
                         # self.linear_roi.setRegion(0.9 * bnds)
-                    print 'Plotting %g' % (threshold+variation[idx])
+                    print 'Plotting %g' % (threshold+variation[idx2])
                     plot_lin.setData(x=self.xdata, y=ydata)
 
-                    self.ydatas += (ydata, )
-                self.ydatas = np.array(self.ydatas)
+                    ydatas += (ydata, )
+                self.ydatas += (ydatas, )
+            self.ydatas = np.array(self.ydatas)
 
         except Exception as e:
             raise e
 
     def fit(self):
-        roi = tuple(map(int, self.linear_roi.getRegion()))
         self.fit_results = ()
-        # Linear fit
-        xdata = self.xdata[roi[0]:roi[1]]
-        newxdata = np.linspace(0.9*xdata[0], 1.1*xdata[-1], 2)
-        results = ()
-        for ydata in self.ydatas[:, roi[0]:roi[1]]:
-            results += (np.polyfit(xdata, ydata, 1), )
-        results = np.array(results)
-        self.fit_results += (results, )
-        newfunc = np.poly1d(np.mean(results, 0))
-        newydata = newfunc(newxdata)
-        self.fit_linear.setData(x=newxdata, y=newydata)
-        self.fit_linear.setZValue(100)
-        self.label_speed.setText(str(np.mean(results, 0)[0]))
-
-        # Loglog fit
-        xdata = np.log(self.xdata[roi[0]:roi[1]])
-        newxdata = np.linspace(0.9 * xdata[0], 1.1 * xdata[-1], 2)
-        results = ()
-        for ydata in self.logydatas[:, roi[0]:roi[1]]:
-            results += (np.polyfit(xdata, ydata, 1),)
-        results = np.array(results)
-        # self.fit_results += (results, )
-        newfunc = np.poly1d(np.mean(results, 0))
-        newydata = newfunc(newxdata)
-        self.fit_log.setData(x=newxdata, y=newydata)
-        self.fit_log.setZValue(100)
-        self.label_exponent.setText(str(np.mean(results, 0)[0]))
-
+        for roi_lin, ydatas, fit_line in zip(self.rois_lin, self.ydatas, self.fit_lines):
+            roi = tuple(map(int, roi_lin.getRegion()))
+            # Linear fit
+            xdata = self.xdata[roi[0]:roi[1]]
+            newxdata = np.linspace(0.9*xdata[0], 1.1*xdata[-1], 2)
+            results = ()
+            for ydata in ydatas[:, roi[0]:roi[1]]:
+                results += (np.polyfit(xdata, ydata, 1), )
+            results = np.array(results)
+            self.fit_results += (results, )
+            newfunc = np.poly1d(np.mean(results, 0))
+            newydata = newfunc(newxdata)
+            fit_line.setData(x=newxdata, y=newydata)
+            fit_line.setZValue(100)
         self.fit_results = np.array(self.fit_results)
+        # Averaging over thresholds, display all the speeds
+        self.label_speed.setText(str(np.mean(self.fit_results, 1)[:, 0]))
+        print 'Results shape: %s' % (self.fit_results.shape, )
