@@ -15,6 +15,33 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
+    <item row="0" column="4">
+     <widget class="QPushButton" name="button_save">
+      <property name="maximumSize">
+       <size>
+        <width>1000</width>
+        <height>1000</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Save
+all</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="ImageView" name="graphics_imagethresholded"/>
+    </item>
+    <item row="1" column="0">
+     <widget class="ImageView" name="graphics_image">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>0</height>
+       </size>
+      </property>
+     </widget>
+    </item>
     <item row="0" column="0">
      <widget class="QFrame" name="frame_2">
       <property name="frameShape">
@@ -137,59 +164,6 @@
       <layout class="QVBoxLayout" name="verticalLayout"/>
      </widget>
     </item>
-    <item row="0" column="3">
-     <widget class="QPushButton" name="button_proceed">
-      <property name="maximumSize">
-       <size>
-        <width>1000</width>
-        <height>1000</height>
-       </size>
-      </property>
-      <property name="text">
-       <string>Proceed</string>
-      </property>
-     </widget>
-    </item>
-    <item row="0" column="4">
-     <widget class="QPushButton" name="button_save">
-      <property name="maximumSize">
-       <size>
-        <width>1000</width>
-        <height>1000</height>
-       </size>
-      </property>
-      <property name="text">
-       <string>Save
-all</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="0">
-     <widget class="ImageView" name="graphics_imagethresholded"/>
-    </item>
-    <item row="0" column="2">
-     <widget class="QPushButton" name="button_next">
-      <property name="maximumSize">
-       <size>
-        <width>1000</width>
-        <height>1000</height>
-       </size>
-      </property>
-      <property name="text">
-       <string>Next</string>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="0">
-     <widget class="ImageView" name="graphics_image">
-      <property name="minimumSize">
-       <size>
-        <width>0</width>
-        <height>0</height>
-       </size>
-      </property>
-     </widget>
-    </item>
     <item row="0" column="5">
      <widget class="QWidget" name="widget_savebuttons" native="true">
       <layout class="QGridLayout" name="gridLayout_5"/>
@@ -262,6 +236,72 @@ all</string>
         </widget>
        </item>
       </layout>
+     </widget>
+    </item>
+    <item row="0" column="2">
+     <widget class="QFrame" name="frame_3">
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QPushButton" name="button_next">
+         <property name="maximumSize">
+          <size>
+           <width>1000</width>
+           <height>1000</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Next</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="button_previous">
+         <property name="maximumSize">
+          <size>
+           <width>1000</width>
+           <height>1000</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Previous</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="0" column="3">
+     <widget class="QPushButton" name="button_proceed">
+      <property name="maximumSize">
+       <size>
+        <width>1000</width>
+        <height>1000</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Proceed</string>
+      </property>
      </widget>
     </item>
    </layout>

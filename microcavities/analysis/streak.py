@@ -380,7 +380,7 @@ cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
 class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def __init__(self, fitting_instance):
         super(FittingWavefrontsUi, self).__init__()
-        uipath = os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
+        uipath = os.path.join(os.path.dirname(__file__), 'WavefrontFitting.ui')
         uic.loadUi(uipath, self)
 
         self.fitting_instance = fitting_instance
@@ -393,58 +393,70 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_imagethresholded.setColorMap(cmap)
 
         self.button_next.clicked.connect(self.next_image)
+        self.button_previous.clicked.connect(self.previous_image)
         self.button_save.clicked.connect(self.save)
-        self.button_proceed.clicked.connect(self.fast_button)
+        self.button_proceed.clicked.connect(self.proceed)
         self.button_fitlinear.clicked.connect(self.fit)
-        self.button_plot.clicked.connect(self.plot_lines)
+        self.button_plot.clicked.connect(self.update_line_plots)
         self.spinbox_reps.valueChanged.connect(self.setup_line_plots)
-        self.spinBox_noIsolines.valueChanged.connect(self.create_isolines)
+        self.spinBox_noIsolines.valueChanged.connect(self.setup_isolines)
         self.checkbox_randomize.stateChanged.connect(self.randomize)
 
         self.indx_spinboxes = []
         for idx in range(len(self.image_indxs)):
             sb = QtWidgets.QSpinBox()
             self.img_explorer.layout().addWidget(sb)
-            sb.valueChanged.connect(self.new_image)
+            sb.valueChanged.connect(self.update_image_indices)
             self.indx_spinboxes += [sb]
         self.iso_lines = ()
         self.iso_levels = ()
         self.xdata = None
-        self.create_isolines()
-        self.new_image()
+        self.setup_isolines()
+        self.update_image_indices()
 
     def randomize(self):
+        """Toggles between having randomized thresholds or not"""
         state = self.checkbox_randomize.isChecked()
         self.lineEdit_thresholdvar.setEnabled(state)
         self.spinbox_reps.setEnabled(state)
         self.setup_line_plots()
 
-    def create_isolines(self):
-        n_lines = self.spinBox_noIsolines.value()
-        # print 'Creating %d lines' % n_lines
+    def setup_isolines(self):
+        """Creates a number of IsocurveItems (given by the spinbox). Places
+        them in the ROI image and links them to an InfiniteLine in the
+        HistogramWidget of the image"""
+        view = self.graphics_imagethresholded.getView()
+        hist = self.graphics_imagethresholded.getHistogramWidget()
         for line, level in zip(self.iso_lines, self.iso_levels):
-            self.graphics_imagethresholded.getView().removeItem(level)
-            self.graphics_imagethresholded.getHistogramWidget().vb.removeItem(line)
+            view.removeItem(level)
+            hist.vb.removeItem(line)
 
+        n_lines = self.spinBox_noIsolines.value()
         self.iso_lines = ()
         self.iso_levels = ()
         for idx in range(n_lines):
             pen = pg.mkPen(pg.intColor(idx, n_lines))
             iso_level = pg.IsocurveItem(level=0.0,
                                         pen=pen)
-            self.graphics_imagethresholded.getView().addItem(iso_level)
+            view.addItem(iso_level)
             iso_level.setZValue(1000)
             iso_line = pg.InfiniteLine(angle=0, movable=True, pen=pen)
-            self.graphics_imagethresholded.getHistogramWidget().vb.addItem(iso_line)
+            hist.vb.addItem(iso_line)
             iso_line.setValue(0.0)
             iso_line.setZValue(1000)  # bring iso line above contrast controls
-            iso_line.sigDragged.connect(self.update_isocurve)
+            iso_line.sigDragged.connect(partial(self.update_isocurve, idx))
             self.iso_lines += (iso_line, )
             self.iso_levels += (iso_level, )
         self.update_isocurve()
         self.setup_line_widgets()
 
     def setup_line_widgets(self):
+        """Creates a number of PlotWidgets (given by spinbox). Places them in
+        as close to a square shape as possible inside the
+        self.widget_replaceable.
+        Creates saving buttons, places them in the same arrangement, and links
+        them to the save function with the appropriate index
+        """
         n_lines = self.spinBox_noIsolines.value()
 
         layout = self.widget_replaceable.layout()
@@ -472,6 +484,10 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.setup_line_plots()
 
     def setup_line_plots(self):
+        """Makes one (or more, if random thresholds are active) line plots
+        inside each ot the PlotWidgets. Also makes a single fit line for each
+        widget and a single linear ROI
+        """
         if self.checkbox_randomize.isChecked():
             n_thresholds = self.spinbox_reps.value()
         else:
@@ -512,19 +528,18 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
 
         self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
 
-    def update_isocurve(self):
-        for level, line in zip(self.iso_levels, self.iso_lines):
-            level.setLevel(line.value())
-        self.plot_image()  # ensures the data of the iso_levels is updated
+    def update_isocurve(self, index=None):
+        """Links the threshold value in the histogram widgets to the
+        IsocurveItems"""
+        if index is None:
+            for level, line in zip(self.iso_levels, self.iso_lines):
+                level.setLevel(line.value())
+        else:
+            self.iso_levels[index].setLevel(self.iso_lines[index].value())
+        self.update_image()  # ensures the data of the iso_levels is updated
 
-    def update_roi(self):
-        roi = self.get_roi()
-        self.graphics_imagethresholded.setImage(roi, levels=(-0.5, 0.5))
-        self.graphics_imagethresholded.getHistogramWidget().setHistogramRange(-0.5, 0.5)
-        for iso_level in self.iso_levels:
-            iso_level.setData(roi)
-
-    def plot_image(self):
+    def update_image(self):
+        """Selects an image according to self.image_indxs and displays it"""
         img = self._select_image(self.images, self.image_indxs)
         if self.checkbox_bkg.isChecked():
             img -= self._select_image(self.fitting_instance.backgrounds,
@@ -537,77 +552,18 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.graphics_image.getHistogramWidget().setHistogramRange(-0.5, 0.5)
         self.update_roi()
 
-    def new_image(self):
-        self.image_indxs = []
-        for idx, sb in enumerate(self.indx_spinboxes):
-            val = sb.value()
-            if val > self.images.shape[idx] - 1:
-                self.image_indxs += [self.images.shape[idx] - 1]
-                sb.setValue(self.images.shape[idx] - 1)
-            elif val < 0:
-                self.image_indxs += [0]
-                sb.setValue(0)
-            else:
-                self.image_indxs += [val]
-        self.plot_image()
+    def update_roi(self):
+        """Updates the GraphicsItem displaying the image ROI as wells as the
+        IsocurveItem's data"""
+        roi = self.get_roi()
+        widgt = self.graphics_imagethresholded
+        widgt.setImage(roi, levels=(-0.5, 0.5))
+        widgt.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        for iso_level in self.iso_levels:
+            iso_level.setData(roi)
 
-    def next_image(self, breaker=0):
-        for idx, sb in enumerate(self.indx_spinboxes):
-            val = sb.value()
-            if val < self.images.shape[idx] - 1:
-                sb.setValue(val + 1)
-                break
-            else:
-                sb.setValue(0)
-
-        # if self.fl.fits[tuple(self.image_indxs) + (0, )] != np.nan:
-        #     if breaker < np.prod(self.images.shape[:-2]):
-        #         self.next_image(breaker+1)
-        #     else:
-        #         print "You've saved everything"
-
-    def prev_image(self):
-        if self.image_indx > 0:
-            self.image_indx -= 1
-            self.plot_image()
-
-    def save(self, line_index=None):
-        # print 'Saving: ', self.fit_results
-        print 'line_index = ', line_index
-        try:
-            indxs = tuple(self.image_indxs)
-            if line_index is None:
-                self.fitting_instance.fits[indxs] = self.fit_results
-            else:
-                indxs += (line_index, )
-                self.fitting_instance.fits[indxs] = self.fit_results[line_index]
-        except Exception as e:
-            print 'Failed saving: ', e
-
-    @staticmethod
-    def _select_image(images, indxs):
-        if len(indxs) > 1:
-            return FittingWavefrontsUi._select_image(images[indxs[0]],
-                                                     indxs[1:])
-        else:
-            return np.copy(images[indxs[0]])
-
-    def fast_button(self):
-        self.save()
-        self.next_image()
-        self.plot_lines()
-        self.fit()
-
-    def get_roi(self, image=None):
-        if image is None:
-            image = self.current_image
-        roi = self.roi.getAffineSliceParams(image,
-                                            self.graphics_image.getImageItem())
-        roi_image = affineSlice(image, shape=roi[0], vectors=roi[1],
-                                origin=roi[2], axes=(0, 1))
-        return roi_image
-
-    def plot_lines(self):
+    def update_line_plots(self):
+        """Thresholds the ROI image and creates the ydata for the line plots"""
         try:
             n_lines = self.spinBox_noIsolines.value()
             if self.checkbox_randomize.isChecked():
@@ -616,25 +572,17 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             else:
                 n_thresholds = 1
                 thrsh_var = 0
-            print '%d lines, %d thresholds' % (n_lines, n_thresholds)
-            print self.plots_lin.shape
 
-            # thrsh_var = self.lineEdit_thresholdvar.text()
-            # if len(thrsh_var) == 0:
-            #     thrsh_var = 0.1
-            #     self.lineEdit_thresholdvar.setText(str(thrsh_var))
-            # else:
-            #     thrsh_var = float(thrsh_var)
             self.ydatas = ()
             for idx in range(n_lines):
                 iso_line = self.iso_lines[idx]
                 plots_lin = self.plots_lin[idx]
                 threshold = iso_line.value()
 
-                variation = np.random.uniform(-thrsh_var, thrsh_var, n_thresholds)
-                # reverse = self.checkbox_reverse.isChecked()
+                variation = np.random.uniform(-thrsh_var, thrsh_var,
+                                              n_thresholds)
                 ydatas = ()
-                # self.logydatas = ()
+
                 for idx2, plot_lin in zip(range(n_thresholds), plots_lin):
                     roi_image = self.get_roi()
 
@@ -645,10 +593,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     ydata = np.sum(roi_image, 0)
                     if self.xdata is None or len(self.xdata) != len(ydata):
                         self.xdata = range(1, len(ydata)+1)
-                        bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
-                        # self.linear_roi.setBounds(bnds)
-                        # self.linear_roi.setRegion(0.9 * bnds)
-                    print 'Plotting %g' % (threshold+variation[idx2])
+
                     plot_lin.setData(x=self.xdata, y=ydata)
 
                     ydatas += (ydata, )
@@ -659,6 +604,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             raise e
 
     def fit(self):
+        """Iterates over all of the line plots and fits lines inside the
+        regions determined by the ROIs"""
         self.fit_results = ()
         for roi_lin, ydatas, fit_line in zip(self.rois_lin,
                                              self.ydatas,
@@ -680,3 +627,83 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         # Averaging over thresholds, display all the speeds
         self.label_speed.setText(str(np.mean(self.fit_results, 1)[:, 0]))
         # print 'Results shape: %s' % (self.fit_results.shape, )
+
+    def update_image_indices(self):
+        """Called every time the indx_spinboxes are triggered"""
+        self.image_indxs = []
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val > self.images.shape[idx] - 1:
+                self.image_indxs += [self.images.shape[idx] - 1]
+                sb.setValue(self.images.shape[idx] - 1)
+            elif val < 0:
+                self.image_indxs += [0]
+                sb.setValue(0)
+            else:
+                self.image_indxs += [val]
+        self.update_image()
+
+    def next_image(self):
+        """Finds the first spinbox to which we can add +1. If a spinbox has a
+        value already corresponding to the size of the array, it sets it back
+        to zero
+        """
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val < self.images.shape[idx] - 1:
+                sb.setValue(val + 1)
+                break
+            else:
+                sb.setValue(0)
+
+    def previous_image(self):
+        """Opposite of next_image"""
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val > 0:
+                sb.setValue(val - 1)
+                break
+            else:
+                sb.setValue(self.images.shape[idx] - 1)
+
+    def save(self, line_index=None):
+        """Saves the current fitting results at the correct indices inside the
+        FittingWavefronts instance
+        """
+        # print 'Saving: ', self.fit_results
+        try:
+            indxs = tuple(self.image_indxs)
+            if line_index is None:
+                self.fitting_instance.fits[indxs] = self.fit_results
+            else:
+                indxs += (line_index, )
+                self.fitting_instance.fits[indxs] = self.fit_results[line_index]
+        except Exception as e:
+            print 'Failed saving: ', e
+
+    def proceed(self):
+        """Convenience function for quickly proceeding through a dataset"""
+        self.save()
+        self.next_image()
+        self.update_line_plots()
+        self.fit()
+
+    @staticmethod
+    def _select_image(images, indxs):
+        """Given a set of indices and a large array, return the sub-array
+        determined by the indices"""
+        if len(indxs) > 1:
+            return FittingWavefrontsUi._select_image(images[indxs[0]],
+                                                     indxs[1:])
+        else:
+            return np.copy(images[indxs[0]])
+
+    def get_roi(self, image=None):
+        """Returns the sub-image determined by the GUIs ROI"""
+        if image is None:
+            image = self.current_image
+        roi = self.roi.getAffineSliceParams(image,
+                                            self.graphics_image.getImageItem())
+        roi_image = affineSlice(image, shape=roi[0], vectors=roi[1],
+                                origin=roi[2], axes=(0, 1))
+        return roi_image
