@@ -45,22 +45,6 @@
           <enum>QFrame::Raised</enum>
          </property>
          <layout class="QGridLayout" name="gridLayout_2">
-          <item row="2" column="1">
-           <widget class="QCheckBox" name="checkbox_transpose">
-            <property name="maximumSize">
-             <size>
-              <width>16777215</width>
-              <height>16777215</height>
-             </size>
-            </property>
-            <property name="text">
-             <string>Transpose</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
           <item row="1" column="4">
            <widget class="QLabel" name="label_5">
             <property name="text">
@@ -68,44 +52,7 @@
             </property>
            </widget>
           </item>
-          <item row="1" column="1">
-           <widget class="QCheckBox" name="checkbox_bkg">
-            <property name="text">
-             <string>Background</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="5">
-           <widget class="QSpinBox" name="spinBox_noIsolines"/>
-          </item>
-          <item row="4" column="4">
-           <widget class="QLabel" name="label_4">
-            <property name="text">
-             <string>No. of random thresholds</string>
-            </property>
-           </widget>
-          </item>
           <item row="4" column="5">
-           <widget class="QSpinBox" name="spinbox_reps">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="value">
-             <number>10</number>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="4">
-           <widget class="QLabel" name="label_3">
-            <property name="text">
-             <string>Threshold variation (abs)</string>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="5">
            <widget class="QLineEdit" name="lineEdit_thresholdvar">
             <property name="enabled">
              <bool>false</bool>
@@ -124,14 +71,50 @@
             </property>
            </widget>
           </item>
-          <item row="2" column="4">
-           <widget class="QCheckBox" name="checkbox_randomize">
+          <item row="3" column="1">
+           <widget class="QCheckBox" name="checkbox_transpose">
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>16777215</height>
+             </size>
+            </property>
             <property name="text">
-             <string>Randomize</string>
+             <string>Transpose</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
             </property>
            </widget>
           </item>
-          <item row="3" column="1" rowspan="2">
+          <item row="1" column="5">
+           <widget class="QSpinBox" name="spinBox_noIsolines"/>
+          </item>
+          <item row="4" column="4">
+           <widget class="QLabel" name="label_3">
+            <property name="text">
+             <string>Threshold variation (abs)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="4">
+           <widget class="QLabel" name="label_4">
+            <property name="text">
+             <string>No. of random thresholds</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QCheckBox" name="checkbox_bkg">
+            <property name="text">
+             <string>Background</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1" rowspan="2">
            <widget class="QPushButton" name="button_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
@@ -147,6 +130,33 @@
             </property>
             <property name="text">
              <string>Plot</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="5">
+           <widget class="QSpinBox" name="spinbox_reps">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="value">
+             <number>10</number>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="4">
+           <widget class="QCheckBox" name="checkbox_analysistype">
+            <property name="text">
+             <string>Lineplots</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="5">
+           <widget class="QCheckBox" name="checkbox_randomize">
+            <property name="text">
+             <string>Randomize</string>
             </property>
            </widget>
           </item>
@@ -264,7 +274,7 @@ all</string>
        </item>
        <item>
         <widget class="QWidget" name="widget_savebuttons" native="true">
-         <layout class="QGridLayout" name="gridLayout_5"/>
+         <layout class="QGridLayout" name="layout_savebuttons"/>
         </widget>
        </item>
       </layout>
@@ -303,45 +313,7 @@ all</string>
        <property name="bottomMargin">
         <number>0</number>
        </property>
-       <item row="0" column="0" colspan="2">
-        <widget class="QWidget" name="widget_replaceable" native="true">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <layout class="QGridLayout" name="gridLayout_4"/>
-        </widget>
-       </item>
-       <item row="3" column="1">
-        <widget class="QLabel" name="label_speed">
-         <property name="text">
-          <string/>
-         </property>
-        </widget>
-       </item>
-       <item row="4" column="1">
-        <widget class="QLabel" name="label_exponent">
-         <property name="text">
-          <string/>
-         </property>
-        </widget>
-       </item>
-       <item row="4" column="0">
-        <widget class="QLabel" name="label">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="text">
-          <string>Speed</string>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="0">
+       <item row="1" column="0" colspan="3">
         <widget class="QPushButton" name="button_fitlinear">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -351,6 +323,43 @@ all</string>
          </property>
          <property name="text">
           <string>Fit</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="label">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="text">
+          <string>Speed</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="0" colspan="3">
+        <widget class="QWidget" name="widget_replaceable" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <layout class="QGridLayout" name="layout_plots"/>
+        </widget>
+       </item>
+       <item row="4" column="2">
+        <widget class="QLabel" name="label_speed">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="text">
+          <string/>
          </property>
         </widget>
        </item>
@@ -371,7 +380,19 @@ all</string>
       <property name="frameShadow">
        <enum>QFrame::Raised</enum>
       </property>
-      <layout class="QVBoxLayout" name="verticalLayout_3">
+      <layout class="QVBoxLayout" name="verticallayout_left">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
        <item>
         <widget class="ImageView" name="graphics_image">
          <property name="minimumSize">
@@ -381,9 +402,6 @@ all</string>
           </size>
          </property>
         </widget>
-       </item>
-       <item>
-        <widget class="ImageView" name="graphics_imagethresholded"/>
        </item>
       </layout>
      </widget>

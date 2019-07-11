@@ -382,6 +382,12 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         uipath = os.path.join(os.path.dirname(__file__), 'WavefrontFitting.ui')
         uic.loadUi(uipath, self)
 
+        self.lineplot_widgets = ()
+        self._savebuttons = None
+        self.plots_lin = None
+        self.fit_lines = None
+        self.rois_lin = None
+
         self.fitting_instance = fitting_instance
         self.images = fitting_instance.images
         self.image_indxs = [0] * (len(self.images.shape) - 2)
@@ -390,6 +396,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.roi.sigRegionChangeFinished.connect(self.update_line_plots)
         self.graphics_image.addItem(self.roi)
         self.graphics_image.setColorMap(cmap)
+
+        self.graphics_imagethresholded = pg.ImageView()
+        self.verticallayout_left.addWidget(self.graphics_imagethresholded)
         self.graphics_imagethresholded.setColorMap(cmap)
 
         self.button_next.clicked.connect(self.next_image)
@@ -401,6 +410,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.spinbox_reps.valueChanged.connect(self.setup_line_plots)
         self.spinBox_noIsolines.valueChanged.connect(self.setup_isolines)
         self.checkbox_randomize.stateChanged.connect(self.randomize)
+        self.checkbox_analysistype.stateChanged.connect(self.analysis_type)
 
         self.indx_spinboxes = []
         for idx in range(len(self.image_indxs)):
@@ -414,11 +424,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.setup_isolines()
         self.update_image_indices()
 
-        self.lineplot_widgets = None
-        self._savebuttons = None
-        self.plots_lin = None
-        self.fit_lines = None
-        self.rois_lin = None
+    @staticmethod
+    def clear_layout(layout):
+        """Deletes all widgets in a layout"""
+        for i in reversed(range(layout.count())):
+            layout.itemAt(i).widget().deleteLater()
 
     def randomize(self):
         """Toggles between having randomized thresholds or not"""
@@ -426,6 +436,27 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.lineEdit_thresholdvar.setEnabled(state)
         self.spinbox_reps.setEnabled(state)
         self.setup_line_plots()
+        self.setup_save_array()
+
+    def analysis_type(self):
+        """Toggles between plotting lineplots and having manual fits with lines on images"""
+        self.graphics_imagethresholded.deleteLater()
+
+        state = self.checkbox_analysistype.isChecked()
+        self.checkbox_randomize.setEnabled(state)
+
+        self.graphics_imagethresholded = pg.ImageView()
+        self.graphics_imagethresholded.setColorMap(cmap)
+        if state:
+            self.verticallayout_left.addWidget(self.graphics_imagethresholded)
+        else:
+            self.clear_layout(self.layout_plots)
+            self.layout_plots.addWidget(self.graphics_imagethresholded)
+
+        state = self.checkbox_randomize.isChecked()
+        self.lineEdit_thresholdvar.setEnabled(state)
+        self.spinbox_reps.setEnabled(state)
+        self.setup_isolines()
 
     def setup_isolines(self):
         """Creates a number of IsocurveItems (given by the spinbox). Places
@@ -451,27 +482,27 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             iso_line.setValue(0.0)
             iso_line.setZValue(1000)  # bring iso line above contrast controls
             iso_line.sigDragged.connect(partial(self.update_isocurve, idx))
-            iso_line.sigPositionChangeFinished .connect(self.update_line_plots)
+            iso_line.sigPositionChangeFinished.connect(self.update_line_plots)
             self.iso_lines += (iso_line, )
             self.iso_levels += (iso_level, )
         self.update_isocurve()
         self.setup_line_widgets()
 
     def setup_line_widgets(self):
-        """Creates a number of PlotWidgets (given by spinbox). Places them in
-        as close to a square shape as possible inside the
-        self.widget_replaceable.
-        Creates saving buttons, places them in the same arrangement, and links
-        them to the save function with the appropriate index
+        """
+        For lineplot analysis, creates a number of PlotWidgets (given by spinbox). Places them in as close to a square
+        shape as possible inside the self.widget_replaceable.
+        For manually fitting lines, creates a number of LineSegmentROI and places them on the graphics_imagethresholded
+        Creates saving buttons, places them in the same arrangement, and links them to the save function with the
+        appropriate index
         """
         n_lines = self.spinBox_noIsolines.value()
+        state = self.checkbox_analysistype.isChecked()
+        roishape = self.get_roi().shape
 
-        layout = self.widget_replaceable.layout()
-        for i in reversed(range(layout.count())):
-            layout.itemAt(i).widget().deleteLater()
-        layout_buttons = self.widget_savebuttons.layout()
-        for i in reversed(range(layout_buttons.count())):
-            layout_buttons.itemAt(i).widget().deleteLater()
+        for plot in self.lineplot_widgets:
+            plot.deleteLater()
+        self.clear_layout(self.layout_savebuttons)
 
         self.lineplot_widgets = ()
         self._savebuttons = ()
@@ -479,21 +510,30 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         shape = square(n_lines)
         for i in range(shape[0]):
             for j in range(shape[1]):
-                widgt = pg.PlotWidget()
-                self.lineplot_widgets += (widgt, )
-                layout.addWidget(widgt, i, j)
+                if state:
+                    widgt = pg.PlotWidget()
+                    self.lineplot_widgets += (widgt, )
+                    self.layout_plots.addWidget(widgt, i, j)
+                else:
+                    pen = pg.mkPen(pg.intColor(idx, n_lines), width=3, style=QtCore.Qt.DashLine)
+                    widgt = pg.LineSegmentROI([[0, -5 * idx], [roishape[0], -5 * idx]], pen=pen)
+                    self.lineplot_widgets += (widgt, )
+                    self.graphics_imagethresholded.addItem(widgt)
 
                 widgt = QtWidgets.QPushButton('Save %d' % idx)
-                layout_buttons.addWidget(widgt, i, j)
+                self.layout_savebuttons.addWidget(widgt, i, j)
                 self._savebuttons += (widgt, )
                 widgt.clicked.connect(partial(self.save, idx))
                 idx += 1
-        self.setup_line_plots()
+        if state:
+            self.setup_line_plots()
+        self.setup_save_array()
 
     def setup_line_plots(self):
         """Makes one (or more, if random thresholds are active) line plots
         inside each ot the PlotWidgets. Also makes a single fit line for each
-        widget and a single linear ROI
+        widget and a single linear ROI.
+        Should only get called when performing line fits
         """
         if self.checkbox_randomize.isChecked():
             n_thresholds = self.spinbox_reps.value()
@@ -525,17 +565,19 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.rois_lin += (linear_roi, )
         self.plots_lin = np.array(self.plots_lin)
 
-        self.setup_save_array()
-
     def setup_save_array(self):
+        """Sets up an array of the appropriate size to store the results of the analysis. Note that this resets the
+        arrays, so you should not do this half-way through analysing stuff"""
         n_lines = self.spinBox_noIsolines.value()
-        if self.checkbox_randomize.isChecked():
-            n_thresholds = self.spinbox_reps.value()
-        else:
-            n_thresholds = 1
-
-        self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
+        n_thresholds = self.spinbox_reps.value()
         self.fitting_instance.thresholds = self.fitting_instance.make_fits_array((n_lines, ))
+
+        if self.checkbox_analysistype.isChecked() and self.checkbox_randomize.isChecked():
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
+        elif not self.checkbox_analysistype.isChecked():
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, 2))
+        else:
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, 1, 2))
 
     def update_isocurve(self, index=None):
         """Links the threshold value in the histogram widgets to the
@@ -573,6 +615,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
 
     def update_line_plots(self):
         """Thresholds the ROI image and creates the ydata for the line plots"""
+        state = self.checkbox_analysistype.isChecked()
+        if not state:
+            return
         try:
             n_lines = self.spinBox_noIsolines.value()
             if self.checkbox_randomize.isChecked():
@@ -615,6 +660,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
     def fit(self):
         """Iterates over all of the line plots and fits lines inside the
         regions determined by the ROIs"""
+        state = self.checkbox_analysistype.isChecked()
+        if not state:
+            return
         self.fit_results = ()
         for roi_lin, ydatas, fit_line in zip(self.rois_lin,
                                              self.ydatas,
@@ -683,13 +731,38 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             indxs = tuple(self.image_indxs)
             # print 'Saving: %s, %s' % (str(indxs), line_index)
             thresholds = np.array([iso_line.value() for iso_line in self.iso_lines])
-
+            state = self.checkbox_analysistype.isChecked()
+            if state:
+                data_to_save = np.copy(self.fit_results)
+            else:
+                data_to_save = []
+                # idx = 0
+                for line in self.lineplot_widgets:
+                    # print idx
+                    # print line.state
+                    # # print line.size(), line.pos(), line.angle()
+                    # print line.getAffineSliceParams(self.get_roi(),
+                    #                                 self.graphics_imagethresholded.getImageItem())
+                    handles = line.getHandles()
+                    # print handles
+                    # print [handle.scenePos() for handle in handles]
+                    limits = np.array([(h.pos().x(), h.pos().y()) for h in handles])
+                    # print limits
+                    diff = np.diff(limits, axis=0)[0]
+                    # print diff
+                    slope = diff[1] / diff[0]
+                    offset = limits[0, 1] - slope * limits[0, 0]
+                    # print slope, offset
+                    data_to_save += [(slope, offset)]
+                    # idx += 1
+                data_to_save = np.array(data_to_save)
+                print data_to_save
             if line_index is None:
-                self.fitting_instance.fits[indxs] = self.fit_results
+                self.fitting_instance.fits[indxs] = data_to_save
                 self.fitting_instance.thresholds[indxs] = thresholds
             else:
                 indxs += (line_index, )
-                self.fitting_instance.fits[indxs] = self.fit_results[line_index]
+                self.fitting_instance.fits[indxs] = data_to_save[line_index]
                 self.fitting_instance.thresholds[indxs] = thresholds[line_index]
         except Exception as e:
             print 'Failed saving: ', e
