@@ -368,8 +368,7 @@ class FittingWavefronts(object, ShowGUIMixin):
     def make_fits_array(self, shape):
         if not isinstance(shape, tuple):
             shape = (shape, )
-        self.fits = np.array(self._none_array(self.images.shape[:-2] + shape))
-        self.points = np.array(self._none_array(self.images.shape[:-2] + shape))
+        return np.array(self._none_array(self.images.shape[:-2] + shape))
 
 
 cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
@@ -388,13 +387,14 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.image_indxs = [0] * (len(self.images.shape) - 2)
         self.roi = pg.RectROI([0, 0], [30, 30], pen='r')
         self.roi.sigRegionChanged.connect(self.update_roi)
+        self.roi.sigRegionChangeFinished.connect(self.update_line_plots)
         self.graphics_image.addItem(self.roi)
         self.graphics_image.setColorMap(cmap)
         self.graphics_imagethresholded.setColorMap(cmap)
 
         self.button_next.clicked.connect(self.next_image)
         self.button_previous.clicked.connect(self.previous_image)
-        self.button_save.clicked.connect(self.save)
+        self.button_save.clicked.connect(partial(self.save, None))
         self.button_proceed.clicked.connect(self.proceed)
         self.button_fitlinear.clicked.connect(self.fit)
         self.button_plot.clicked.connect(self.update_line_plots)
@@ -413,6 +413,12 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.xdata = None
         self.setup_isolines()
         self.update_image_indices()
+
+        self.lineplot_widgets = None
+        self._savebuttons = None
+        self.plots_lin = None
+        self.fit_lines = None
+        self.rois_lin = None
 
     def randomize(self):
         """Toggles between having randomized thresholds or not"""
@@ -445,6 +451,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             iso_line.setValue(0.0)
             iso_line.setZValue(1000)  # bring iso line above contrast controls
             iso_line.sigDragged.connect(partial(self.update_isocurve, idx))
+            iso_line.sigPositionChangeFinished .connect(self.update_line_plots)
             self.iso_lines += (iso_line, )
             self.iso_levels += (iso_level, )
         self.update_isocurve()
@@ -514,6 +521,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                 lims = [np.min(self.xdata), np.max(self.xdata)]
             linear_roi = pg.LinearRegionItem(lims)
             widgt.addItem(linear_roi)
+            linear_roi.sigRegionChangeFinished.connect(self.fit)
             self.rois_lin += (linear_roi, )
         self.plots_lin = np.array(self.plots_lin)
 
@@ -526,7 +534,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         else:
             n_thresholds = 1
 
-        self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
+        self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
+        self.fitting_instance.thresholds = self.fitting_instance.make_fits_array((n_lines, ))
 
     def update_isocurve(self, index=None):
         """Links the threshold value in the histogram widgets to the
@@ -666,24 +675,28 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             else:
                 sb.setValue(self.images.shape[idx] - 1)
 
-    def save(self, line_index=None):
+    def save(self, line_index):
         """Saves the current fitting results at the correct indices inside the
         FittingWavefronts instance
         """
-        # print 'Saving: ', self.fit_results
         try:
             indxs = tuple(self.image_indxs)
+            # print 'Saving: %s, %s' % (str(indxs), line_index)
+            thresholds = np.array([iso_line.value() for iso_line in self.iso_lines])
+
             if line_index is None:
                 self.fitting_instance.fits[indxs] = self.fit_results
+                self.fitting_instance.thresholds[indxs] = thresholds
             else:
                 indxs += (line_index, )
                 self.fitting_instance.fits[indxs] = self.fit_results[line_index]
+                self.fitting_instance.thresholds[indxs] = thresholds[line_index]
         except Exception as e:
             print 'Failed saving: ', e
 
     def proceed(self):
         """Convenience function for quickly proceeding through a dataset"""
-        self.save()
+        # self.save()
         self.next_image()
         self.update_line_plots()
         self.fit()

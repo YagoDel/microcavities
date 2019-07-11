@@ -17,9 +17,15 @@
    <layout class="QGridLayout" name="gridLayout">
     <item row="0" column="4">
      <widget class="QPushButton" name="button_save">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
       <property name="maximumSize">
        <size>
-        <width>1000</width>
+        <width>16777215</width>
         <height>1000</height>
        </size>
       </property>
@@ -217,6 +223,12 @@ all</string>
        </item>
        <item row="4" column="0">
         <widget class="QLabel" name="label">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="text">
           <string>Speed</string>
          </property>
@@ -264,9 +276,15 @@ all</string>
        </property>
        <item>
         <widget class="QPushButton" name="button_next">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="maximumSize">
           <size>
-           <width>1000</width>
+           <width>16777215</width>
            <height>1000</height>
           </size>
          </property>
@@ -277,9 +295,15 @@ all</string>
        </item>
        <item>
         <widget class="QPushButton" name="button_previous">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="maximumSize">
           <size>
-           <width>1000</width>
+           <width>16777215</width>
            <height>1000</height>
           </size>
          </property>
@@ -293,9 +317,15 @@ all</string>
     </item>
     <item row="0" column="3">
      <widget class="QPushButton" name="button_proceed">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
       <property name="maximumSize">
        <size>
-        <width>1000</width>
+        <width>16777215</width>
         <height>1000</height>
        </size>
       </property>
@@ -312,7 +342,7 @@ all</string>
      <x>0</x>
      <y>0</y>
      <width>952</width>
-     <height>22</height>
+     <height>20</height>
     </rect>
    </property>
   </widget>
