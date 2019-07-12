@@ -340,16 +340,17 @@ class FittingLinearUi(QtWidgets.QMainWindow):
 
 # Fitting program for linear wavefronts (thresholding)
 class FittingWavefronts(object, ShowGUIMixin):
-    def __init__(self, images, backgrounds=None, repeat_ax=0):
+    def __init__(self, images, backgrounds=None, image_graphics_settings=None):
         super(FittingWavefronts, self).__init__()
         self.images = images
         if backgrounds is None:
             self.backgrounds = self.make_backgrounds()
         else:
             self.backgrounds = backgrounds
+        self.img_grph_sttngs = image_graphics_settings
 
     def get_qt_ui(self):
-        return FittingWavefrontsUi(self)
+        return FittingWavefrontsUi(self, self.img_grph_sttngs)
 
     @staticmethod
     def _none_array(shape):
@@ -371,22 +372,33 @@ class FittingWavefronts(object, ShowGUIMixin):
         return np.array(self._none_array(self.images.shape[:-2] + shape))
 
 
-cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
-                                 [1.0, 1.0, 1.0, 1.],
-                                 [0.0, 0.0, 1.0, 1.]])
-
-
 class FittingWavefrontsUi(QtWidgets.QMainWindow):
-    def __init__(self, fitting_instance):
+    def __init__(self, fitting_instance, image_graphics_settings=None):
         super(FittingWavefrontsUi, self).__init__()
         uipath = os.path.join(os.path.dirname(__file__), 'WavefrontFitting.ui')
         uic.loadUi(uipath, self)
 
+        # Setting up empty class variables
         self.lineplot_widgets = ()
         self._savebuttons = None
         self.plots_lin = None
         self.fit_lines = None
         self.rois_lin = None
+        self.iso_lines = ()
+        self.iso_levels = ()
+        self.xdata = None
+        self.ydatas = None
+        self.fit_results = None
+        self.current_image = None
+
+        if image_graphics_settings is None:
+            self.image_graphics_settings = dict(colormap=pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
+                                                                                   [1.0, 1.0, 1.0, 1.],
+                                                                                   [0.0, 0.0, 1.0, 1.]]),
+                                                levels=[-0.5, 0.5]
+                                                )
+        else:
+            self.image_graphics_settings = image_graphics_settings
 
         self.fitting_instance = fitting_instance
         self.images = fitting_instance.images
@@ -395,11 +407,13 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.roi.sigRegionChanged.connect(self.update_roi)
         self.roi.sigRegionChangeFinished.connect(self.update_line_plots)
         self.graphics_image.addItem(self.roi)
-        self.graphics_image.setColorMap(cmap)
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_image.setColorMap(self.image_graphics_settings['colormap'])
 
         self.graphics_imagethresholded = pg.ImageView()
         self.verticallayout_left.addWidget(self.graphics_imagethresholded)
-        self.graphics_imagethresholded.setColorMap(cmap)
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_imagethresholded.setColorMap(self.image_graphics_settings['colormap'])
 
         self.button_next.clicked.connect(self.next_image)
         self.button_previous.clicked.connect(self.previous_image)
@@ -418,9 +432,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             self.img_explorer.layout().addWidget(sb)
             sb.valueChanged.connect(self.update_image_indices)
             self.indx_spinboxes += [sb]
-        self.iso_lines = ()
-        self.iso_levels = ()
-        self.xdata = None
+
         self.setup_isolines()
         self.update_image_indices()
 
@@ -446,7 +458,8 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         self.checkbox_randomize.setEnabled(state)
 
         self.graphics_imagethresholded = pg.ImageView()
-        self.graphics_imagethresholded.setColorMap(cmap)
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_imagethresholded.setColorMap(self.image_graphics_settings['colormap'])
         if state:
             self.verticallayout_left.addWidget(self.graphics_imagethresholded)
         else:
@@ -599,8 +612,9 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             img = img.transpose()
         self.current_image = img
         self.graphics_image.setImage(img, False, False)
-        self.graphics_image.setLevels(-0.5, 0.5)
-        self.graphics_image.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        if 'levels' in self.image_graphics_settings:
+            self.graphics_image.setLevels(*self.image_graphics_settings['levels'])
+            self.graphics_image.getHistogramWidget().setHistogramRange(*self.image_graphics_settings['levels'])
         self.update_roi()
 
     def update_roi(self):
@@ -608,8 +622,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         IsocurveItem's data"""
         roi = self.get_roi()
         widgt = self.graphics_imagethresholded
-        widgt.setImage(roi, levels=(-0.5, 0.5))
-        widgt.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        if 'levels' in self.image_graphics_settings:
+            widgt.setImage(roi, levels=self.image_graphics_settings['levels'])
+            widgt.getHistogramWidget().setHistogramRange(*self.image_graphics_settings['levels'])
+        else:
+            widgt.setImage(roi)
         for iso_level in self.iso_levels:
             iso_level.setData(roi)
 
@@ -736,27 +753,14 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                 data_to_save = np.copy(self.fit_results)
             else:
                 data_to_save = []
-                # idx = 0
                 for line in self.lineplot_widgets:
-                    # print idx
-                    # print line.state
-                    # # print line.size(), line.pos(), line.angle()
-                    # print line.getAffineSliceParams(self.get_roi(),
-                    #                                 self.graphics_imagethresholded.getImageItem())
                     handles = line.getHandles()
-                    # print handles
-                    # print [handle.scenePos() for handle in handles]
-                    limits = np.array([(h.pos().x(), h.pos().y()) for h in handles])
-                    # print limits
+                    limits = np.array([(h.pos().x(), h.pos().y()) for h in handles], dtype=np.float)
                     diff = np.diff(limits, axis=0)[0]
-                    # print diff
                     slope = diff[1] / diff[0]
                     offset = limits[0, 1] - slope * limits[0, 0]
-                    # print slope, offset
                     data_to_save += [(slope, offset)]
-                    # idx += 1
                 data_to_save = np.array(data_to_save)
-                print data_to_save
             if line_index is None:
                 self.fitting_instance.fits[indxs] = data_to_save
                 self.fitting_instance.thresholds[indxs] = thresholds
