@@ -533,10 +533,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     self.lineplot_widgets += (widgt, )
                     self.graphics_imagethresholded.addItem(widgt)
 
-                widgt = QtWidgets.QPushButton('Save %d' % idx)
+                # widgt = QtWidgets.QPushButton('Save %d' % idx)
+                widgt = QtWidgets.QCheckBox('Save %d' % idx)
                 self.layout_savebuttons.addWidget(widgt, i, j)
                 self._savebuttons += (widgt, )
-                widgt.clicked.connect(partial(self.save, idx))
+                # widgt.clicked.connect(partial(self.save, idx))
                 idx += 1
         if state:
             self.setup_line_plots()
@@ -740,7 +741,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             else:
                 sb.setValue(self.images.shape[idx] - 1)
 
-    def save(self, line_index):
+    def save(self):
         """Saves the current fitting results at the correct indices inside the
         FittingWavefronts instance
         """
@@ -761,19 +762,21 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     offset = limits[0, 1] - slope * limits[0, 0]
                     data_to_save += [(slope, offset)]
                 data_to_save = np.array(data_to_save)
-            if line_index is None:
-                self.fitting_instance.fits[indxs] = data_to_save
-                self.fitting_instance.thresholds[indxs] = thresholds
-            else:
-                indxs += (line_index, )
-                self.fitting_instance.fits[indxs] = data_to_save[line_index]
-                self.fitting_instance.thresholds[indxs] = thresholds[line_index]
+
+            for idx, widgt in enumerate(self._savebuttons):
+                indices = indxs + (idx,)
+                if widgt.isChecked():
+                    self.fitting_instance.fits[indices] = data_to_save[idx]
+                    self.fitting_instance.thresholds[indices] = thresholds[idx]
+                else:
+                    self.fitting_instance.fits[indices] = np.nan
+                    self.fitting_instance.thresholds[indices] = np.nan
         except Exception as e:
             print 'Failed saving: ', e
 
     def proceed(self):
         """Convenience function for quickly proceeding through a dataset"""
-        # self.save()
+        self.save()
         self.next_image()
         self.update_line_plots()
         self.fit()
