@@ -4,12 +4,14 @@ from nplab.utils.show_gui_mixin import ShowGUIMixin
 import numpy as np
 import re
 import os
+from functools import partial
 from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.ndimage.measurements import center_of_mass
 import pyqtgraph as pg
 from pyqtgraph.functions import affineSlice
 from matplotlib import cm
+from microcavities.utils import square
 
 
 def open_image(path, smooth=False):
@@ -338,16 +340,17 @@ class FittingLinearUi(QtWidgets.QMainWindow):
 
 # Fitting program for linear wavefronts (thresholding)
 class FittingWavefronts(object, ShowGUIMixin):
-    def __init__(self, images, backgrounds=None, repeat_ax=0):
+    def __init__(self, images, backgrounds=None, image_graphics_settings=None):
         super(FittingWavefronts, self).__init__()
         self.images = images
         if backgrounds is None:
             self.backgrounds = self.make_backgrounds()
         else:
             self.backgrounds = backgrounds
+        self.img_grph_sttngs = image_graphics_settings
 
     def get_qt_ui(self):
-        return FittingWavefrontsUi(self)
+        return FittingWavefrontsUi(self, self.img_grph_sttngs)
 
     @staticmethod
     def _none_array(shape):
@@ -366,114 +369,342 @@ class FittingWavefronts(object, ShowGUIMixin):
     def make_fits_array(self, shape):
         if not isinstance(shape, tuple):
             shape = (shape, )
-        self.fits = np.array(self._none_array(self.images.shape[:-2] + shape))
-        self.points = np.array(self._none_array(self.images.shape[:-2] + shape))
-
-
-cmap = pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
-                                 [1.0, 1.0, 1.0, 1.],
-                                 [0.0, 0.0, 1.0, 1.]])
+        return np.array(self._none_array(self.images.shape[:-2] + shape))
 
 
 class FittingWavefrontsUi(QtWidgets.QMainWindow):
-    def __init__(self, fl):
+    def __init__(self, fitting_instance, image_graphics_settings=None):
         super(FittingWavefrontsUi, self).__init__()
-        uipath = os.path.join(os.path.dirname(__file__), 'SumFitting.ui')
+        uipath = os.path.join(os.path.dirname(__file__), 'WavefrontFitting.ui')
         uic.loadUi(uipath, self)
 
-        self.fl = fl
-        self.fl.make_fits_array(3)
-        self.images = fl.images
+        # Setting up empty class variables
+        self.lineplot_widgets = ()
+        self._savebuttons = None
+        self.plots_lin = None
+        self.fit_lines = None
+        self.rois_lin = None
+        self.iso_lines = ()
+        self.iso_levels = ()
+        self.xdata = None
+        self.ydatas = None
+        self.fit_results = None
+        self.current_image = None
+
+        if image_graphics_settings is None:
+            self.image_graphics_settings = dict(colormap=pg.ColorMap([0, 0.5, 1], [[1.0, 0.0, 0.0, 1.],
+                                                                                   [1.0, 1.0, 1.0, 1.],
+                                                                                   [0.0, 0.0, 1.0, 1.]]),
+                                                levels=[-0.5, 0.5]
+                                                )
+        else:
+            self.image_graphics_settings = image_graphics_settings
+
+        self.fitting_instance = fitting_instance
+        self.images = fitting_instance.images
         self.image_indxs = [0] * (len(self.images.shape) - 2)
         self.roi = pg.RectROI([0, 0], [30, 30], pen='r')
         self.roi.sigRegionChanged.connect(self.update_roi)
+        self.roi.sigRegionChangeFinished.connect(self.update_line_plots)
         self.graphics_image.addItem(self.roi)
-        self.graphics_image.setColorMap(cmap)
-        self.graphics_imagethresholded.setColorMap(cmap)
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_image.setColorMap(self.image_graphics_settings['colormap'])
 
-        self.iso_level = pg.IsocurveItem(level=0.0, pen='g')
-        self.graphics_imagethresholded.getView().addItem(self.iso_level)
-        self.iso_level.setZValue(1000)
-        self.iso_line = pg.InfiniteLine(angle=0, movable=True, pen='g')
-        self.graphics_imagethresholded.getHistogramWidget().vb.addItem(self.iso_line)
-        self.iso_line.setValue(0.0)
-        self.iso_line.setZValue(1000)  # bring iso line above contrast controls
-        self.iso_line.sigDragged.connect(self.update_isocurve)
-
-        self.linear_roi = pg.LinearRegionItem([400, 700])
-        self.graphics_linear.addItem(self.linear_roi)
-        self.log_roi = pg.LinearRegionItem([400, 700])
-        self.graphics_loglog.addItem(self.log_roi)
-        self.linear_roi.sigRegionChanged.connect(lambda x: self.update_plot_roi)
+        self.graphics_imagethresholded = pg.ImageView()
+        self.verticallayout_left.addWidget(self.graphics_imagethresholded)
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_imagethresholded.setColorMap(self.image_graphics_settings['colormap'])
 
         self.button_next.clicked.connect(self.next_image)
-        self.button_save.clicked.connect(self.save)
-        self.button_proceed.clicked.connect(self.fast_button)
+        self.button_previous.clicked.connect(self.previous_image)
+        self.button_save.clicked.connect(partial(self.save, None))
+        self.button_proceed.clicked.connect(self.proceed)
         self.button_fitlinear.clicked.connect(self.fit)
-        self.button_plot.clicked.connect(self.plot_lines)
-        self.spinbox_reps.valueChanged.connect(self.create_roi)
+        self.button_plot.clicked.connect(self.update_line_plots)
+        self.spinbox_reps.valueChanged.connect(self.setup_line_plots)
+        self.spinBox_noIsolines.valueChanged.connect(self.setup_isolines)
+        self.checkbox_randomize.stateChanged.connect(self.randomize)
+        self.checkbox_analysistype.stateChanged.connect(self.analysis_type)
 
         self.indx_spinboxes = []
         for idx in range(len(self.image_indxs)):
             sb = QtWidgets.QSpinBox()
             self.img_explorer.layout().addWidget(sb)
-            sb.valueChanged.connect(self.new_image)
+            sb.valueChanged.connect(self.update_image_indices)
             self.indx_spinboxes += [sb]
 
-        self.xdata = None
-        self.new_image()
-        self.create_roi()
+        self.setup_isolines()
+        self.update_image_indices()
 
-    def create_roi(self):
-        self.graphics_linear.clear()
-        self.graphics_loglog.clear()
-        self.graphics_linear.addItem(self.linear_roi)
-        self.graphics_loglog.addItem(self.log_roi)
-        self.fit_linear = self.graphics_linear.plot(pen=pg.mkPen(
-            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
-        self.fit_log = self.graphics_loglog.plot(pen=pg.mkPen(
-            color='w', width=3, style=QtCore.Qt.DashDotDotLine))
+    @staticmethod
+    def clear_layout(layout):
+        """Deletes all widgets in a layout"""
+        for i in reversed(range(layout.count())):
+            layout.itemAt(i).widget().deleteLater()
 
-        new_number = self.spinbox_reps.value()
+    def randomize(self):
+        """Toggles between having randomized thresholds or not"""
+        state = self.checkbox_randomize.isChecked()
+        self.lineEdit_thresholdvar.setEnabled(state)
+        self.spinbox_reps.setEnabled(state)
+        self.setup_line_plots()
+        self.setup_save_array()
+
+    def analysis_type(self):
+        """Toggles between plotting lineplots and having manual fits with lines on images"""
+        self.graphics_imagethresholded.deleteLater()
+
+        state = self.checkbox_analysistype.isChecked()
+        self.checkbox_randomize.setEnabled(state)
+
+        self.graphics_imagethresholded = pg.ImageView()
+        if 'colormap' in self.image_graphics_settings:
+            self.graphics_imagethresholded.setColorMap(self.image_graphics_settings['colormap'])
+        if state:
+            self.verticallayout_left.addWidget(self.graphics_imagethresholded)
+        else:
+            self.clear_layout(self.layout_plots)
+            self.layout_plots.addWidget(self.graphics_imagethresholded)
+
+        state = self.checkbox_randomize.isChecked()
+        self.lineEdit_thresholdvar.setEnabled(state)
+        self.spinbox_reps.setEnabled(state)
+        self.setup_isolines()
+
+    def setup_isolines(self):
+        """Creates a number of IsocurveItems (given by the spinbox). Places
+        them in the ROI image and links them to an InfiniteLine in the
+        HistogramWidget of the image"""
+        view = self.graphics_imagethresholded.getView()
+        hist = self.graphics_imagethresholded.getHistogramWidget()
+        for line, level in zip(self.iso_lines, self.iso_levels):
+            view.removeItem(level)
+            hist.vb.removeItem(line)
+
+        n_lines = self.spinBox_noIsolines.value()
+        self.iso_lines = ()
+        self.iso_levels = ()
+        for idx in range(n_lines):
+            pen = pg.mkPen(pg.intColor(idx, n_lines))
+            iso_level = pg.IsocurveItem(level=0.0,
+                                        pen=pen)
+            view.addItem(iso_level)
+            iso_level.setZValue(1000)
+            iso_line = pg.InfiniteLine(angle=0, movable=True, pen=pen)
+            hist.vb.addItem(iso_line)
+            iso_line.setValue(0.0)
+            iso_line.setZValue(1000)  # bring iso line above contrast controls
+            iso_line.sigDragged.connect(partial(self.update_isocurve, idx))
+            iso_line.sigPositionChangeFinished.connect(self.update_line_plots)
+            self.iso_lines += (iso_line, )
+            self.iso_levels += (iso_level, )
+        self.update_isocurve()
+        self.setup_line_widgets()
+
+    def setup_line_widgets(self):
+        """
+        For lineplot analysis, creates a number of PlotWidgets (given by spinbox). Places them in as close to a square
+        shape as possible inside the self.widget_replaceable.
+        For manually fitting lines, creates a number of LineSegmentROI and places them on the graphics_imagethresholded
+        Creates saving buttons, places them in the same arrangement, and links them to the save function with the
+        appropriate index
+        """
+        n_lines = self.spinBox_noIsolines.value()
+        state = self.checkbox_analysistype.isChecked()
+        roishape = self.get_roi().shape
+
+        for plot in self.lineplot_widgets:
+            plot.deleteLater()
+        self.clear_layout(self.layout_savebuttons)
+
+        self.lineplot_widgets = ()
+        self._savebuttons = ()
+        idx = 0
+        shape = square(n_lines)
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                if state:
+                    widgt = pg.PlotWidget()
+                    self.lineplot_widgets += (widgt, )
+                    self.layout_plots.addWidget(widgt, i, j)
+                else:
+                    pen = pg.mkPen(pg.intColor(idx, n_lines), width=3, style=QtCore.Qt.DashLine)
+                    widgt = pg.LineSegmentROI([[0, -5 * idx], [roishape[0], -5 * idx]], pen=pen)
+                    self.lineplot_widgets += (widgt, )
+                    self.graphics_imagethresholded.addItem(widgt)
+
+                # widgt = QtWidgets.QPushButton('Save %d' % idx)
+                widgt = QtWidgets.QCheckBox('Save %d' % idx)
+                self.layout_savebuttons.addWidget(widgt, i, j)
+                self._savebuttons += (widgt, )
+                # widgt.clicked.connect(partial(self.save, idx))
+                idx += 1
+        if state:
+            self.setup_line_plots()
+        self.setup_save_array()
+
+    def setup_line_plots(self):
+        """Makes one (or more, if random thresholds are active) line plots
+        inside each ot the PlotWidgets. Also makes a single fit line for each
+        widget and a single linear ROI.
+        Should only get called when performing line fits
+        """
+        if self.checkbox_randomize.isChecked():
+            n_thresholds = self.spinbox_reps.value()
+        else:
+            n_thresholds = 1
+
         self.plots_lin = ()
-        self.plots_log = ()
-        for idx2 in range(new_number):
-            color = pg.intColor(idx2, new_number)
-            plots_lin = self.graphics_linear.plot(pen=color)
-            plots_log = self.graphics_loglog.plot(pen=color)
-            self.plots_lin += (plots_lin, )
-            self.plots_log += (plots_log, )
+        self.fit_lines = ()
+        self.rois_lin = ()
+        for idx, widgt in enumerate(self.lineplot_widgets):
+            widgt.clear()
+            pen = pg.mkPen(pg.intColor(idx, len(self.lineplot_widgets)))
+            plots = ()
+            for idx2 in range(n_thresholds):
+                plots += (widgt.plot(pen=pen), )
+            self.plots_lin += (plots, )
+
+            pen = pg.mkPen(color='w', width=3, style=QtCore.Qt.DashDotDotLine)
+            self.fit_lines += (widgt.plot(pen=pen), )
+
+            if self.xdata is None:
+                roi_image = self.get_roi()
+                lims = [0, roi_image.shape[1]]
+            else:
+                lims = [np.min(self.xdata), np.max(self.xdata)]
+            linear_roi = pg.LinearRegionItem(lims)
+            widgt.addItem(linear_roi)
+            linear_roi.sigRegionChangeFinished.connect(self.fit)
+            self.rois_lin += (linear_roi, )
         self.plots_lin = np.array(self.plots_lin)
-        self.plots_log = np.array(self.plots_log)
-        self.fl.make_fits_array((new_number, 2))
 
-    def update_plot_roi(self, axis):
-        region = self.linear_roi.getRegion()
-        new_region = np.log(region)
-        self.log_roi.setRegion(new_region)
+    def setup_save_array(self):
+        """Sets up an array of the appropriate size to store the results of the analysis. Note that this resets the
+        arrays, so you should not do this half-way through analysing stuff"""
+        n_lines = self.spinBox_noIsolines.value()
+        n_thresholds = self.spinbox_reps.value()
+        self.fitting_instance.thresholds = self.fitting_instance.make_fits_array((n_lines, ))
 
-    def update_isocurve(self):
-        self.iso_level.setLevel(self.iso_line.value())
+        if self.checkbox_analysistype.isChecked() and self.checkbox_randomize.isChecked():
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, n_thresholds, 2))
+        elif not self.checkbox_analysistype.isChecked():
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, 2))
+        else:
+            self.fitting_instance.fits = self.fitting_instance.make_fits_array((n_lines, 1, 2))
 
-    def update_roi(self):
-        roi = self.get_roi()
-        self.graphics_imagethresholded.setImage(roi, levels=(-0.5, 0.5))
-        self.graphics_imagethresholded.getHistogramWidget().setHistogramRange(-0.5, 0.5)
-        self.iso_level.setData(roi)
+    def update_isocurve(self, index=None):
+        """Links the threshold value in the histogram widgets to the
+        IsocurveItems"""
+        if index is None:
+            for level, line in zip(self.iso_levels, self.iso_lines):
+                level.setLevel(line.value())
+        else:
+            self.iso_levels[index].setLevel(self.iso_lines[index].value())
+        self.update_image()  # ensures the data of the iso_levels is updated
 
-    def _plot(self):
+    def update_image(self):
+        """Selects an image according to self.image_indxs and displays it"""
         img = self._select_image(self.images, self.image_indxs)
         if self.checkbox_bkg.isChecked():
-            img -= self._select_image(self.fl.backgrounds, self.image_indxs)
+            img -= self._select_image(self.fitting_instance.backgrounds,
+                                      self.image_indxs)
         if self.checkbox_transpose.isChecked():
             img = img.transpose()
         self.current_image = img
         self.graphics_image.setImage(img, False, False)
-        self.graphics_image.setLevels(-0.5, 0.5)
-        self.graphics_image.getHistogramWidget().setHistogramRange(-0.5, 0.5)
+        if 'levels' in self.image_graphics_settings:
+            self.graphics_image.setLevels(*self.image_graphics_settings['levels'])
+            self.graphics_image.getHistogramWidget().setHistogramRange(*self.image_graphics_settings['levels'])
         self.update_roi()
 
-    def new_image(self):
+    def update_roi(self):
+        """Updates the GraphicsItem displaying the image ROI as wells as the
+        IsocurveItem's data"""
+        roi = self.get_roi()
+        widgt = self.graphics_imagethresholded
+        if 'levels' in self.image_graphics_settings:
+            widgt.setImage(roi, levels=self.image_graphics_settings['levels'])
+            widgt.getHistogramWidget().setHistogramRange(*self.image_graphics_settings['levels'])
+        else:
+            widgt.setImage(roi)
+        for iso_level in self.iso_levels:
+            iso_level.setData(roi)
+
+    def update_line_plots(self):
+        """Thresholds the ROI image and creates the ydata for the line plots"""
+        state = self.checkbox_analysistype.isChecked()
+        if not state:
+            return
+        try:
+            n_lines = self.spinBox_noIsolines.value()
+            if self.checkbox_randomize.isChecked():
+                n_thresholds = self.spinbox_reps.value()
+                thrsh_var = float(self.lineEdit_thresholdvar.text())
+            else:
+                n_thresholds = 1
+                thrsh_var = 0
+
+            self.ydatas = ()
+            for idx in range(n_lines):
+                iso_line = self.iso_lines[idx]
+                plots_lin = self.plots_lin[idx]
+                threshold = iso_line.value()
+
+                variation = np.random.uniform(-thrsh_var, thrsh_var,
+                                              n_thresholds)
+                ydatas = ()
+
+                for idx2, plot_lin in zip(range(n_thresholds), plots_lin):
+                    roi_image = self.get_roi()
+
+                    minval = np.min(roi_image) - 1
+                    roi_image[roi_image < (threshold+variation[idx2])] = minval
+                    roi_image[roi_image != minval] = 1
+                    roi_image[roi_image == minval] = 0
+                    ydata = np.sum(roi_image, 0)
+                    if self.xdata is None or len(self.xdata) != len(ydata):
+                        self.xdata = range(1, len(ydata)+1)
+
+                    plot_lin.setData(x=self.xdata, y=ydata)
+
+                    ydatas += (ydata, )
+                self.ydatas += (ydatas, )
+            self.ydatas = np.array(self.ydatas)
+
+        except Exception as e:
+            raise e
+
+    def fit(self):
+        """Iterates over all of the line plots and fits lines inside the
+        regions determined by the ROIs"""
+        state = self.checkbox_analysistype.isChecked()
+        if not state:
+            return
+        self.fit_results = ()
+        for roi_lin, ydatas, fit_line in zip(self.rois_lin,
+                                             self.ydatas,
+                                             self.fit_lines):
+            roi = tuple(map(int, roi_lin.getRegion()))
+            # Linear fit
+            xdata = self.xdata[roi[0]:roi[1]]
+            newxdata = np.linspace(0.9*xdata[0], 1.1*xdata[-1], 2)
+            results = ()
+            for ydata in ydatas[:, roi[0]:roi[1]]:
+                results += (np.polyfit(xdata, ydata, 1), )
+            results = np.array(results)
+            self.fit_results += (results, )
+            newfunc = np.poly1d(np.mean(results, 0))
+            newydata = newfunc(newxdata)
+            fit_line.setData(x=newxdata, y=newydata)
+            fit_line.setZValue(100)
+        self.fit_results = np.array(self.fit_results)
+        # Averaging over thresholds, display all the speeds
+        self.label_speed.setText(str(np.mean(self.fit_results, 1)[:, 0]))
+        # print 'Results shape: %s' % (self.fit_results.shape, )
+
+    def update_image_indices(self):
+        """Called every time the indx_spinboxes are triggered"""
         self.image_indxs = []
         for idx, sb in enumerate(self.indx_spinboxes):
             val = sb.value()
@@ -485,9 +716,13 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                 sb.setValue(0)
             else:
                 self.image_indxs += [val]
-        self._plot()
+        self.update_image()
 
-    def next_image(self, breaker=0):
+    def next_image(self):
+        """Finds the first spinbox to which we can add +1. If a spinbox has a
+        value already corresponding to the size of the array, it sets it back
+        to zero
+        """
         for idx, sb in enumerate(self.indx_spinboxes):
             val = sb.value()
             if val < self.images.shape[idx] - 1:
@@ -496,38 +731,68 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             else:
                 sb.setValue(0)
 
-        # if self.fl.fits[tuple(self.image_indxs) + (0, )] != np.nan:
-        #     if breaker < np.prod(self.images.shape[:-2]):
-        #         self.next_image(breaker+1)
-        #     else:
-        #         print "You've saved everything"
-
-    def prev_image(self):
-        if self.image_indx > 0:
-            self.image_indx -= 1
-            self._plot()
+    def previous_image(self):
+        """Opposite of next_image"""
+        for idx, sb in enumerate(self.indx_spinboxes):
+            val = sb.value()
+            if val > 0:
+                sb.setValue(val - 1)
+                break
+            else:
+                sb.setValue(self.images.shape[idx] - 1)
 
     def save(self):
+        """Saves the current fitting results at the correct indices inside the
+        FittingWavefronts instance
+        """
         try:
-            self.fl.fits[tuple(self.image_indxs)] = self.fit_results
+            indxs = tuple(self.image_indxs)
+            # print 'Saving: %s, %s' % (str(indxs), line_index)
+            thresholds = np.array([iso_line.value() for iso_line in self.iso_lines])
+            state = self.checkbox_analysistype.isChecked()
+            if state:
+                data_to_save = np.copy(self.fit_results)
+            else:
+                data_to_save = []
+                for line in self.lineplot_widgets:
+                    handles = line.getHandles()
+                    limits = np.array([(h.pos().x(), h.pos().y()) for h in handles], dtype=np.float)
+                    diff = np.diff(limits, axis=0)[0]
+                    slope = diff[1] / diff[0]
+                    offset = limits[0, 1] - slope * limits[0, 0]
+                    data_to_save += [(slope, offset)]
+                data_to_save = np.array(data_to_save)
+
+            for idx, widgt in enumerate(self._savebuttons):
+                indices = indxs + (idx,)
+                if widgt.isChecked():
+                    self.fitting_instance.fits[indices] = data_to_save[idx]
+                    self.fitting_instance.thresholds[indices] = thresholds[idx]
+                else:
+                    self.fitting_instance.fits[indices] = np.nan
+                    self.fitting_instance.thresholds[indices] = np.nan
         except Exception as e:
             print 'Failed saving: ', e
 
+    def proceed(self):
+        """Convenience function for quickly proceeding through a dataset"""
+        self.save()
+        self.next_image()
+        self.update_line_plots()
+        self.fit()
+
     @staticmethod
     def _select_image(images, indxs):
+        """Given a set of indices and a large array, return the sub-array
+        determined by the indices"""
         if len(indxs) > 1:
             return FittingWavefrontsUi._select_image(images[indxs[0]],
                                                      indxs[1:])
         else:
             return np.copy(images[indxs[0]])
 
-    def fast_button(self):
-        self.save()
-        self.next_image()
-        self.plot_lines()
-        self.fit()
-
     def get_roi(self, image=None):
+        """Returns the sub-image determined by the GUIs ROI"""
         if image is None:
             image = self.current_image
         roi = self.roi.getAffineSliceParams(image,
@@ -535,85 +800,3 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         roi_image = affineSlice(image, shape=roi[0], vectors=roi[1],
                                 origin=roi[2], axes=(0, 1))
         return roi_image
-
-    def plot_lines(self):
-        try:
-            threshold = self.iso_line.value()
-            thrsh_var = self.lineEdit_thresholdvar.text()
-            if len(thrsh_var) == 0:
-                thrsh_var = 0.1
-                self.lineEdit_thresholdvar.setText(str(thrsh_var))
-            else:
-                thrsh_var = float(thrsh_var)
-
-            reps = self.spinbox_reps.value()
-            variation = np.random.uniform(-thrsh_var, thrsh_var, reps)
-            reverse = self.checkbox_reverse.isChecked()
-            self.ydatas = ()
-            self.logydatas = ()
-            for idx, plot_lin, plot_log in zip(range(reps),
-                                               self.plots_lin,
-                                               self.plots_log):
-                roi_image = self.get_roi()
-
-                minval = np.min(roi_image) - 1
-                if reverse:
-                    roi_image[roi_image > (threshold+variation[idx])] = minval
-                    roi_image[roi_image != minval] = 1
-                    roi_image[roi_image == minval] = 0
-                else:
-                    roi_image[roi_image < (threshold+variation[idx])] = minval
-                    roi_image[roi_image != minval] = 1
-                    roi_image[roi_image == minval] = 0
-                ydata = np.sum(roi_image, 0)
-                if self.xdata is None or len(self.xdata) != len(ydata):
-                    self.xdata = range(1, len(ydata)+1)
-                    bnds = np.array([np.min(self.xdata), np.max(self.xdata)])
-                    self.linear_roi.setBounds(bnds)
-                    self.linear_roi.setRegion(0.9 * bnds)
-                    self.log_roi.setBounds(np.log(bnds))
-                    self.log_roi.setRegion(0.9 * np.log(bnds))
-                plot_lin.setData(x=self.xdata, y=ydata)
-                plot_log.setData(x=np.log(self.xdata), y=np.log(ydata))
-
-                self.ydatas += (ydata, )
-                self.logydatas += (np.log(ydata), )
-            self.ydatas = np.array(self.ydatas)
-            self.logydatas = np.array(self.logydatas)
-
-        except Exception as e:
-            print e
-            raise e
-
-    def fit(self):
-        roi = tuple(map(int, self.linear_roi.getRegion()))
-        self.fit_results = ()
-        # Linear fit
-        xdata = self.xdata[roi[0]:roi[1]]
-        newxdata = np.linspace(0.9*xdata[0], 1.1*xdata[-1], 2)
-        results = ()
-        for ydata in self.ydatas[:, roi[0]:roi[1]]:
-            results += (np.polyfit(xdata, ydata, 1), )
-        results = np.array(results)
-        self.fit_results += (results, )
-        newfunc = np.poly1d(np.mean(results, 0))
-        newydata = newfunc(newxdata)
-        self.fit_linear.setData(x=newxdata, y=newydata)
-        self.fit_linear.setZValue(100)
-        self.label_speed.setText(str(np.mean(results, 0)[0]))
-
-        # Loglog fit
-        xdata = np.log(self.xdata[roi[0]:roi[1]])
-        newxdata = np.linspace(0.9 * xdata[0], 1.1 * xdata[-1], 2)
-        results = ()
-        for ydata in self.logydatas[:, roi[0]:roi[1]]:
-            results += (np.polyfit(xdata, ydata, 1),)
-        results = np.array(results)
-        # self.fit_results += (results, )
-        newfunc = np.poly1d(np.mean(results, 0))
-        newydata = newfunc(newxdata)
-        self.fit_log.setData(x=newxdata, y=newydata)
-        self.fit_log.setZValue(100)
-        self.label_exponent.setText(str(np.mean(results, 0)[0]))
-
-        self.fit_results = np.array(self.fit_results)
