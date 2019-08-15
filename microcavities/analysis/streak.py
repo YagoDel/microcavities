@@ -523,21 +523,21 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         shape = square(n_lines)
         for i in range(shape[0]):
             for j in range(shape[1]):
+                color = pg.intColor(idx, n_lines)
+                pen = pg.mkPen(color, width=3, style=QtCore.Qt.DashLine)
                 if state:
-                    widgt = pg.PlotWidget()
+                    widgt = pg.PlotWidget(pen=pen)
                     self.lineplot_widgets += (widgt, )
                     self.layout_plots.addWidget(widgt, i, j)
                 else:
-                    pen = pg.mkPen(pg.intColor(idx, n_lines), width=3, style=QtCore.Qt.DashLine)
                     widgt = pg.LineSegmentROI([[0, -5 * idx], [roishape[0], -5 * idx]], pen=pen)
                     self.lineplot_widgets += (widgt, )
                     self.graphics_imagethresholded.addItem(widgt)
 
-                # widgt = QtWidgets.QPushButton('Save %d' % idx)
                 widgt = QtWidgets.QCheckBox('Save %d' % idx)
+                widgt.setStyleSheet("background-color: rgba%s" % (color.getRgb(), ))
                 self.layout_savebuttons.addWidget(widgt, i, j)
                 self._savebuttons += (widgt, )
-                # widgt.clicked.connect(partial(self.save, idx))
                 idx += 1
         if state:
             self.setup_line_plots()
