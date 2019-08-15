@@ -516,6 +516,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         for plot in self.lineplot_widgets:
             plot.deleteLater()
         self.clear_layout(self.layout_savebuttons)
+        if state:
+            self.clear_layout(self.layout_plots)
+        else:
+            for widgt in self.lineplot_widgets:
+                self.graphics_imagethresholded.removeItem(widgt)
 
         self.lineplot_widgets = ()
         self._savebuttons = ()
