@@ -211,6 +211,30 @@ class HierarchicalScan(object):
         else:
             self.final_function()
 
+    def _reshape_results(self, results):
+        """
+        Since sometimes results are stored as as flat-arrays, and that's not terribly useful, this reshapes them into
+        numpy arrays where each dimension corresponds to one of the parameters in the hierarchy
+
+        :return:
+        """
+        self._logger.debug('Reshaping results')
+
+        new_shape = tuple([len(var) for var in self.variables.values()])
+        self._logger.debug('New shape: %s' % (new_shape,))
+
+        new_results = dict()
+        for name, result in results.items():
+            if not isinstance(result, np.ndarray):
+                self._logger.debug('Making into array')
+                result = np.array(result)
+
+            current_shape = result.shape
+            self._logger.debug('Current %s shape: %s' % (name, current_shape))
+
+            new_results[name] = result.reshape(new_shape + current_shape[1:])
+        return new_results
+
 
 class ExperimentScan(HierarchicalScan):
     """
@@ -329,7 +353,11 @@ class ExperimentScan(HierarchicalScan):
             if not DRY_RUN:
                 self.instr_dict['HDF5'].create_dataset(file_name, data=data, attrs=attributes)
         elif self.save_type == 'local':
-            self.results += [data]
+            name = file_name.split('/')[-1]
+            if name in self.results:
+                self.results[name] += [data]
+            else:
+                self.results[name] = [data]
         elif self.save_type != 'None':
             lst = file_name.split('/')
             folder_name = '/'.join(lst[:-1])
@@ -390,7 +418,9 @@ class ExperimentScan(HierarchicalScan):
                 getattr(self.gui, 'actionScan' + button).setChecked(not value)
                 getattr(self.gui, 'actionScan' + button).trigger()
 
-            if 'raw_data_file' in self.settings_yaml:
+            if self.save_type == 'local':
+                self.results = dict()
+            elif 'raw_data_file' in self.settings_yaml:
                 path = self.settings_yaml['raw_data_file']
                 # self.base_path = os.path.dirname(path)
                 self.instr_dict['HDF5'] = df.DataFile(path)
@@ -401,7 +431,7 @@ class ExperimentScan(HierarchicalScan):
             elif self.instr_dict["HDF5"] is None:
                 self.gui.menuNewExperiment()
             else:
-                raise RuntimeError('Do not know how to handle instr_dict.HDF5: %g' % self.instr_dict['HDF5'])
+                raise RuntimeError('Do not know how to handle instr_dict.HDF5: %s' % self.instr_dict['HDF5'])
             self.instr_dict['HDF5'].make_current()
 
             # if 'file_name' in self.settings_yaml:
@@ -413,13 +443,13 @@ class ExperimentScan(HierarchicalScan):
             # if self.instr_dict["HDF5"] is None:
             #     self.gui.menuNewExperiment()
 
-        if self.save_type == 'local':
-            self.results = []
-
         super(ExperimentScan, self).run(level)
 
         if not DRY_RUN:
-            self.instr_dict['HDF5'].close()
+            if self.save_type == 'local':
+                self.results = self._reshape_results(self.results)
+            else:
+                self.instr_dict['HDF5'].close()
 
     def get_attributes(self, base_dictionary):
         attributes = None
@@ -503,7 +533,7 @@ class AnalysisScan(HierarchicalScan):
     def run(self, level=0):
         self.analysed_data = OrderedDict()
         super(AnalysisScan, self).run(level)
-        self._reshape_results()
+        self.analysed_data = self._reshape_results(self.analysed_data)
 
         if 'save_path' in self.analysis_yaml:
             print self.analysis_yaml['save_path']
@@ -557,28 +587,6 @@ class AnalysisScan(HierarchicalScan):
                     self.analysed_data[analysed_name] += [data]
                 else:
                     self.analysed_data[analysed_name] = [data]
-
-    def _reshape_results(self):
-        """
-        Since self.analyse stores results as flat-arrays, and that's not terribly useful, this reshapes them into numpy
-        arrays where each dimension corresponds to one of the parameters in the hierarchy
-
-        :return:
-        """
-        self._logger.debug('Reshaping results')
-
-        new_shape = tuple([len(var) for var in self.variables.values()])
-        self._logger.debug('New shape: %s' % (new_shape, ))
-
-        for name, result in self.analysed_data.items():
-            if not isinstance(result, np.ndarray):
-                self._logger.debug('Making into array')
-                result = np.array(result)
-
-            current_shape = result.shape
-            self._logger.debug('Current %s shape: %s' % (name, current_shape))
-
-            self.analysed_data[name] = result.reshape(new_shape + current_shape[1:])
 
     def extract_hierarchy(self):
         """Base call for the recursive iterator to get a file's hierarchy
