@@ -4,6 +4,7 @@ from nplab.utils.gui import get_qt_app
 from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
+from nplab.experiment.gui import ExperimentWithProgressBar
 from microcavities.analysis.utils import SortingKey
 from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number
@@ -21,7 +22,7 @@ from collections import OrderedDict
 DRY_RUN = False
 
 
-class HierarchicalScan(object):
+class HierarchicalScan(ExperimentWithProgressBar):
     """
     Base class for implementing general hierarchical scans, for both experiments and analysis.
 
@@ -167,6 +168,11 @@ class HierarchicalScan(object):
         """
         self._logger.debug("Called final_function. Folder_name: %s" % self.folder_name)
 
+    def run_modally(self, *args, **kwargs):
+        self.progress = 1
+        self.progress_maximum = np.prod([len(x) for x in self.variables.values()])
+        super(HierarchicalScan, self).run_modally(*args, **kwargs)
+
     def run(self, level=0):
         t0 = time.time()
         self._iterate(level)
@@ -197,6 +203,7 @@ class HierarchicalScan(object):
             self._logger.debug('Iterating %s' % name)
             level += 1
             for value in values:
+                self.update_progress(self.progress)
                 if self.abort_scan():
                     break
                 self._logger.debug('%s = %g' % (name, value))
@@ -209,6 +216,7 @@ class HierarchicalScan(object):
                 self.iteration_function(level, name, value)
                 self._iterate(level)
         else:
+            self.progress += 1
             self.final_function()
 
     def _reshape_results(self, results):
