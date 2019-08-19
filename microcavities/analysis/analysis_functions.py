@@ -5,7 +5,7 @@ from nplab.utils.show_gui_mixin import ShowGUIMixin
 import numpy as np
 import os
 from scipy.ndimage import gaussian_filter
-from lmfit.models import LorentzianModel, GaussianModel, ConstantModel
+from lmfit.models import LorentzianModel, ConstantModel
 import pyqtgraph as pg
 import pymsgbox
 import matplotlib.pyplot as plt
@@ -31,6 +31,7 @@ cdict = {'red': [(0.0, 0.0, 1.0),
                   (1.0, 0.0, 0.0)]}
 mycmap = LinearSegmentedColormap('Michael', cdict, 256)
 plt.register_cmap(cmap=mycmap)
+
 
 def gui_checkplot():
     plt.show()
@@ -182,7 +183,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
     else:
         k0_idx = int(np.argmin(np.abs(k_axis)))
         if np.abs(k0_idx - fitted_k0_pixel) > 3:
-            LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % k_axis[fitted_k0_pixel])
+            LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % k_axis[int(fitted_k0_pixel)])
 
     mass = find_mass(image, energy_axis, k_axis, plotting)
 
@@ -195,7 +196,9 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
 
     if plotting:
         fig, axs = plt.subplots(1, 2, figsize=(7, 6))
-        axs[0].imshow(image.transpose())
+        vmin = np.percentile(image, 0.1)
+        vmax = np.percentile(image, 99.9)
+        axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
         axs[1].plot(energy_axis, k0_spectra)
         axs[1].plot(energy_axis, result.init_fit)
         axs[1].plot(energy_axis, result.best_fit)
