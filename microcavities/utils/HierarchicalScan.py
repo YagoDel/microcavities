@@ -39,8 +39,6 @@ class HierarchicalScan(ExperimentWithProgressBar):
     We have abstracted those details by keeping a 'level' object and leaving the user to reimplement the necessary
     methods to address these objects.
     The user may re-implement self.iteration_function, self.final_function, and self.abort_scan
-
-    TODO: save yaml with file
     """
     def __init__(self, settings_yaml, **kwargs):
         super(HierarchicalScan, self).__init__()
@@ -457,6 +455,7 @@ class ExperimentScan(HierarchicalScan):
             if self.save_type == 'local':
                 self.results = self._reshape_results(self.results)
             else:
+                self.instr_dict['HDF5'][self.series_name].attrs['yaml'] = yaml.dump(self.settings_yaml)
                 self.instr_dict['HDF5'].close()
 
     def get_attributes(self, base_dictionary):
