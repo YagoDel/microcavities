@@ -3,6 +3,7 @@ from nplab.utils.gui import QtWidgets, QtCore, uic, get_qt_app
 from microcavities.utils.HierarchicalScan import ExperimentScan
 import time
 
+
 class BasicInput(QtWidgets.QMainWindow):
     def __init__(self):
         super(BasicInput, self).__init__()
@@ -14,17 +15,16 @@ class BasicInput(QtWidgets.QMainWindow):
         centralWidget = QtWidgets.QWidget()
         layout = QtWidgets.QGridLayout()
         centralWidget.setLayout(layout)
-        labels = ['Instrument', 'Minimum', 'Maximum', '# measurements']
-        defaults = ['power_wheel', '0.01', '0.15', '8']
+        labels = ['Instrument', 'Minimum', 'Maximum', '# measurements', '# images']
+        defaults = ['power_wheel', '0.01', '0.15', '8', '1']
         self.lineedits = [QtWidgets.QLineEdit(name) for name in defaults]
         self.labels = [QtWidgets.QLabel(name) for name in labels]
 
-        for idx, wdgt, lbl in zip(range(4), self.lineedits, self.labels):
+        for idx, wdgt, lbl in zip(range(5), self.lineedits, self.labels):
             layout.addWidget(wdgt, idx, 1)
             layout.addWidget(lbl, idx, 0)
         self.setCentralWidget(centralWidget)
 
-print 1
 
 app = get_qt_app()
 bi = BasicInput()
@@ -34,34 +34,35 @@ while not bi.isHidden():
     time.sleep(0.1)
     app.processEvents()
 
-values = [float(x.text()) for x in bi.lineedits[1:]]
+values = [float(x.text()) for x in bi.lineedits[1:-1]]
 instr = bi.lineedits[0].text()
-
-print 2
+n_images = int(bi.lineedits[-1].text())
 
 params = dict(save_type="local",
               variables=[dict(instrument=instr, property='power', values=['linear'] + values)],
               measurements=[
-                  dict(instrument='pvcam', function='raw_image', name='img1', kwargs=dict(update_latest_frame=True),
-                       save=True),
-                  # dict(instrument='pvcam', function='raw_image', name='img2', kwargs=dict(update_latest_frame=True),
-                  #      save=True),
-                  # dict(instrument='pvcam', function='raw_image', name='img3', kwargs=dict(update_latest_frame=True),
-                  #      save=True)
+                  dict(instrument='pvcam', function='raw_image', name='img%d' % (x + 1),
+                       kwargs=dict(update_latest_frame=True), save=True) for x in range(n_images)
               ],
               analysis_functions=[
-                  dict(data_name='img1', function_name='raw_img1'),
-                  # dict(data_name='img2', function_name='raw_img1'),
-                  # dict(data_name='img3', function_name='raw_img1')
+                  dict(data_name='img%d' % (x + 1), function_name='raw_img%d' % (x + 1)) for x in range(n_images)
               ]
               )
-
-print 3
-# TODO: analysis for finding k0 and plotting the k=0 spectra as a function of power
 scan = ExperimentScan(params, exper, gui)
+scan.run_modally()
+data = np.array([scan.results['img%d' % (x+1)] for x in range(n_images)])
 
-print 4
+# The following presumes you have run the dispersion script, which defines k0 and energy_axis
+mean_data = np.mean(data, 0)
+k0_data = mean_data[:, k0]
 
-scan.run()
+normalised = []
+for row in k0_data:
+    row = np.copy(row)
+    row -= np.percentile(row, 0.1)
+    row /= np.percentile(row, 99.9)
+    normalised += [row]
+normalised = np.array(normalised)
 
-print 5
+plt.imshow(normalised.transpose(), aspect='auto', extent=[values[0], values[1], energy_axis[-1], energy_axis[0]])
+
