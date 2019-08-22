@@ -44,6 +44,8 @@ class HierarchicalScan(ExperimentWithProgressBar):
         super(HierarchicalScan, self).__init__()
 
         self.variables = OrderedDict()
+        self.progress = 1
+        self.progress_maximum = None
 
         if isinstance(settings_yaml, str):
             full_yaml = yaml.load(open(settings_yaml, 'r'))
@@ -107,6 +109,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
                     values = variable['values']
 
             self.variables[name] = values
+        self.progress_maximum = np.prod([len(x) for x in self.variables.values()])
 
     @staticmethod
     def get_default_name(dictionary):
