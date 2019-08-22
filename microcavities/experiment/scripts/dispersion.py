@@ -22,3 +22,11 @@ k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
 k_axis *= 1e-6  # converting to inverse micron
 
 results, args, kwargs = dispersion(dispersion_img, k_axis, energy_axis, True)
+
+energy = results[0]
+lifetime = results[1]
+mass = results[2]
+
+print "Energy: %g" % results[0]
+print "Lifetime: %g" % results[1]
+print "Mass: %g" % results[2]
