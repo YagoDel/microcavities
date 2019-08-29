@@ -209,5 +209,11 @@ class Microcavity(Structure):
         """
 
         self.n_list = np.array(self.n_list)
-        self.n_list[layers[0]:layers[1]] *= damage
+        subsel = self.n_list[layers[0]:layers[1]]
+        low_index = np.min(subsel)
+        high_index = np.max(subsel)
+        contrast = high_index - low_index
+        damaged_contrast = contrast * (1 - damage)
+        subsel[subsel == low_index] += (contrast - damaged_contrast) / 2
+        subsel[subsel == high_index] -= (contrast - damaged_contrast) / 2
         self.n_list = list(self.n_list)
