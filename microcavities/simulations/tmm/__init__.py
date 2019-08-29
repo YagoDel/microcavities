@@ -3,6 +3,7 @@
 import numpy as np
 import yaml
 import tmm
+import matplotlib.pyplot as plt
 
 
 class Structure(object):
@@ -12,7 +13,7 @@ class Structure(object):
     useful functions dispersion and normal_incidence
     """
 
-    def __init__(self, wavelengths=np.linspace(730, 870, 100), angles=np.linspace(730, 870, 100)):
+    def __init__(self, wavelengths=np.linspace(730, 870, 100), angles=np.linspace(0, np.pi/4, 100)):
         super(Structure, self).__init__()
 
         self.n_list = None
@@ -65,6 +66,8 @@ class Structure(object):
                 _R += [tmm.coh_tmm(polarisation, self.n_list, self.d_list, angle, wvl)['R']]
             reflec += [_R]
         self.results['dispersion'] = np.array(reflec)
+        self.results['dispersion_wavelengths'] = np.copy(self.wavelengths)
+        self.results['dispersion_angles'] = np.copy(self.angles)
         return self.results['dispersion']
 
     def normal_incidence(self, polarisation='s', min_wvl=None, max_wvl=None, n_wvls=None):
@@ -81,7 +84,7 @@ class Structure(object):
         reflec = []
         for wvl in self.wavelengths:
             reflec += [tmm.coh_tmm(polarisation, self.n_list, self.d_list, 0, wvl)['R']]
-        self.results['normal_incidence'] = np.array(reflec)
+        self.results['normal_incidence'] = np.array([self.wavelengths, reflec])
         return self.results['normal_incidence']
 
     def field_distribution(self, wavelength, polarisation='s', n_points=1000):
@@ -104,6 +107,33 @@ class Structure(object):
         self.results['field_distribution'] = np.array([positions, electric_field])
         self.results['index_distribution'] = np.array([positions, refractive_index])
 
+    def plot(self):
+        if 'normal_incidence' in self.results:
+            fig, ax = plt.subplots(1, 1)
+            ax.plot(*self.results['normal_incidence'])
+            ax.set_xlabel('Wavelength / nm')
+            ax.set_ylabel('Reflectivity')
+            ax.set_title('Normal incidence')
+        if 'dispersion' in self.results:
+            fig, ax = plt.subplots(1, 1)
+            angles = self.results['dispersion_angles']
+            wvls = self.results['dispersion_wavelengths']
+            ax.imshow(self.results['dispersion'].transpose(), vmin=0, vmax=1, aspect='auto',
+                      extent=[np.min(angles), np.max(angles), np.max(wvls), np.min(wvls)])
+            ax.set_xlabel('Wavelength / nm')
+            ax.set_ylabel('Angle / rad')
+            ax.set_title('Dispersion')
+        if 'field_distribution' in self.results:
+            fig, ax = plt.subplots(1, 1)
+            ax.plot(*self.results['field_distribution'])
+            ax.set_ylabel('Electric field')
+            ax.set_xlabel('Structure depth / nm')
+            ax.set_title('Field distribution')
+            ax2 = ax.twinx()
+            ax2.plot(*self.results['index_distribution'], color='r')
+            ax2.set_ylabel('Refractive index', color='r')
+            ax2.tick_params(axis='y', colors='r')
+            ax2.set_ylim(bottom=0)
 
 class DBR(Structure):
     def __init__(self, layers, refractive_indices, thicknesses=None, center_wavelength=None):
