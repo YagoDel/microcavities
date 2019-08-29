@@ -120,8 +120,8 @@ class Structure(object):
             wvls = self.results['dispersion_wavelengths']
             ax.imshow(self.results['dispersion'].transpose(), vmin=0, vmax=1, aspect='auto',
                       extent=[np.min(angles), np.max(angles), np.max(wvls), np.min(wvls)])
-            ax.set_xlabel('Wavelength / nm')
-            ax.set_ylabel('Angle / rad')
+            ax.set_xlabel('Angle / rad')
+            ax.set_ylabel('Wavelength / nm')
             ax.set_title('Dispersion')
         if 'field_distribution' in self.results:
             fig, ax = plt.subplots(1, 1)
@@ -196,7 +196,7 @@ class Microcavity(Structure):
         self.n_list = dbr1.n_list + [cavity_index] + dbr2.n_list
         self.d_list = dbr1.d_list + [cavity_thickness] + dbr2.d_list
 
-    def dbr_damage(self, layers, damage):
+    def dbr_damage(self, layers, damage, mode='contrast'):
         """Simulates ion damage on the DBR layers
 
         Multiple options of doing this:
@@ -205,15 +205,26 @@ class Microcavity(Structure):
 
         :param layers: start and end indices of the layers to be damaged
         :param damage: contrast reduction factor
+        :param mode:
         :return:
         """
 
-        self.n_list = np.array(self.n_list)
-        subsel = self.n_list[layers[0]:layers[1]]
-        low_index = np.min(subsel)
-        high_index = np.max(subsel)
-        contrast = high_index - low_index
-        damaged_contrast = contrast * (1 - damage)
-        subsel[subsel == low_index] += (contrast - damaged_contrast) / 2
-        subsel[subsel == high_index] -= (contrast - damaged_contrast) / 2
-        self.n_list = list(self.n_list)
+        if mode == 'contrast':
+            self.n_list = np.array(self.n_list)
+            subsel = self.n_list[layers[0]:layers[1]]
+            low_index = np.min(subsel)
+            high_index = np.max(subsel)
+            contrast = high_index - low_index
+            damaged_contrast = contrast * (1 - damage)
+            subsel[subsel == low_index] += (contrast - damaged_contrast) / 2
+            subsel[subsel == high_index] -= (contrast - damaged_contrast) / 2
+            self.n_list = list(self.n_list)
+
+
+if __name__ == '__main__':
+    mcav = Microcavity('microcavity_example.yaml')
+    mcav.normal_incidence()
+    mcav.dispersion()
+    mcav.field_distribution(800)
+    mcav.plot()
+    plt.show()
