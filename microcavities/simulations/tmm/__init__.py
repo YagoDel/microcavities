@@ -219,6 +219,11 @@ class Microcavity(Structure):
             subsel[subsel == low_index] += (contrast - damaged_contrast) / 2
             subsel[subsel == high_index] -= (contrast - damaged_contrast) / 2
             self.n_list = list(self.n_list)
+        elif mode == 'thickness':
+            self.d_list = np.array(self.d_list)
+            self.d_list[layers[0]:layers[1]] += damage
+        else:
+            raise ValueError('Unrecognised damage mode: %s' % mode)
 
 
 if __name__ == '__main__':
