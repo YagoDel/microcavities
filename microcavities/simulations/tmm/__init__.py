@@ -135,6 +135,7 @@ class Structure(object):
             ax2.tick_params(axis='y', colors='r')
             ax2.set_ylim(bottom=0)
 
+
 class DBR(Structure):
     def __init__(self, layers, refractive_indices, thicknesses=None, center_wavelength=None):
         assert any(map(lambda x: x is not None, [thicknesses, center_wavelength]))
@@ -194,3 +195,19 @@ class Microcavity(Structure):
 
         self.n_list = dbr1.n_list + [cavity_index] + dbr2.n_list
         self.d_list = dbr1.d_list + [cavity_thickness] + dbr2.d_list
+
+    def dbr_damage(self, layers, damage):
+        """Simulates ion damage on the DBR layers
+
+        Multiple options of doing this:
+            - Reducing the contrast at those layers (only one implemented)
+            - Creating intermediary layers that smoothen the transition from low to high refractive index
+
+        :param layers: start and end indices of the layers to be damaged
+        :param damage: contrast reduction factor
+        :return:
+        """
+
+        self.n_list = np.array(self.n_list)
+        self.n_list[layers[0]:layers[1]] *= damage
+        self.n_list = list(self.n_list)
