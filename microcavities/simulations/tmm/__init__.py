@@ -84,6 +84,26 @@ class Structure(object):
         self.results['normal_incidence'] = np.array(reflec)
         return self.results['normal_incidence']
 
+    def field_distribution(self, wavelength, polarisation='s', n_points=1000):
+        """Electric field distribution inside the structure
+
+        :param wavelength:
+        :param polarisation:
+        :param n_points:
+        :return:
+        """
+        positions = np.linspace(0, np.sum(np.array(self.d_list)[1:-1]), n_points)
+        results = tmm.coh_tmm(polarisation, self.n_list, self.d_list, 0, wavelength)
+        electric_field = []
+        refractive_index = []
+        for pos in positions:
+            layer, d_in_layer = tmm.find_in_structure_with_inf(self.d_list, pos)
+            vals = tmm.position_resolved(layer, d_in_layer, results)
+            refractive_index += [self.n_list[layer]]
+            electric_field += [np.abs(vals['Ex']) ** 2 + np.abs(vals['Ey']) ** 2]
+        self.results['field_distribution'] = np.array([positions, electric_field])
+        self.results['index_distribution'] = np.array([positions, refractive_index])
+
 
 class DBR(Structure):
     def __init__(self, layers, refractive_indices, thicknesses=None, center_wavelength=None):
