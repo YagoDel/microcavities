@@ -7,7 +7,7 @@ import nplab.datafile as df
 from nplab.experiment.gui import ExperimentWithProgressBar
 from microcavities.analysis.utils import SortingKey
 from microcavities.analysis.streak import open_image
-from microcavities.utils import string_to_number
+from microcavities.utils import string_to_number, yaml_loader
 import h5py
 import yaml
 import pymsgbox
@@ -47,14 +47,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
         self.progress = 1
         self.progress_maximum = None
 
-        if isinstance(settings_yaml, str):
-            full_yaml = yaml.load(open(settings_yaml, 'r'))
-        elif isinstance(settings_yaml, dict):
-            full_yaml = settings_yaml
-        elif isinstance(settings_yaml, file):
-            full_yaml = yaml.load(settings_yaml)
-        else:
-            raise TypeError("settings_yaml cannot be %s. Needs to be str, dict or file" % type(settings_yaml))
+        full_yaml = yaml_loader(settings_yaml)
         self.settings_yaml = full_yaml
 
         logger_name = "HierarchicalScan"
@@ -325,7 +318,7 @@ class ExperimentScan(HierarchicalScan):
                     file_name = current_folder + [measure_name]
                     file_name = '/'.join(file_name)
                     # The next line allows one to access the file_name from the original yaml file
-                    measurement = yaml.load(str(measurement).replace("scan_file_name", file_name))
+                    measurement = yaml.full_load(str(measurement).replace("scan_file_name", file_name))
                     instr = self.instr_dict[measurement['instrument']]
 
                     # if 'repeat' in measurement and measurement['repeat'] > 1:
@@ -487,7 +480,7 @@ class AnalysisScan(HierarchicalScan):
           - {data_name: andor2_raw_image, function_name: fit_gaussian}
     """
     def __init__(self, settings_yaml, **kwargs):
-        full_yaml = yaml.load(open(settings_yaml, 'r'))
+        full_yaml = yaml_loader(settings_yaml)
         self.analysis_yaml = full_yaml
 
         if 'variables' in self.analysis_yaml:

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import yaml
 import tmm
 import matplotlib.pyplot as plt
+from microcavities.utils import yaml_loader
 
 
 class Structure(object):
@@ -162,14 +162,7 @@ class DBR(Structure):
 class Microcavity(Structure):
     def __init__(self, structure_yaml):
         super(Microcavity, self).__init__()
-        if isinstance(structure_yaml, str):
-            full_yaml = yaml.full_load(open(structure_yaml, 'r'))
-        elif isinstance(structure_yaml, dict):
-            full_yaml = structure_yaml
-        elif isinstance(structure_yaml, file):
-            full_yaml = yaml.full_load(structure_yaml)
-        else:
-            raise TypeError("structure_yaml cannot be %s. Needs to be str, dict or file" % type(structure_yaml))
+        full_yaml = yaml_loader(structure_yaml)
 
         dbr1_kwargs = full_yaml['DBR1']
         if 'thicknesses' not in dbr1_kwargs and 'center_wavelength' not in dbr1_kwargs:

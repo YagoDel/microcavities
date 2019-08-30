@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import numpy as np
+
+
 class Equations:
     def __init__(self, n_vars, var_types, parameters, plotting_parameters):
         """
@@ -36,7 +39,7 @@ class Equations:
         raise NotImplemented
 
 
-class single_reservoir(Equations):
+class ScalarNoReservoir(Equations):
     def __init__(self):
         plotting_parameters = dict(SubplotShape=(1, 1), titles=('',),
                                    xlabels=('Time',), ylabels=('a.u.',),

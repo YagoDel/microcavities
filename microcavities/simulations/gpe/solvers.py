@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from scipy.integrate import odeint, complex_ode, ode
+from scipy.integrate import odeint, complex_ode, ode, RK45
 import h5py, time, warnings
 import matplotlib.pyplot as plt
 
@@ -291,3 +291,11 @@ class SolverBaseClass:
             if plt.fignum_exists(self.figure.number):
                 plt.draw()
                 plt.pause(0.1)
+
+
+class FixedStepRK(RK45):
+    def __init__(self, step_size=0.1, *args, **kwargs):
+        super(FixedStepRK, self).__init__(*args, **kwargs)
+
+        self.h_abs = step_size
+        self.max_step = step_size

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-
+import yaml
 
 def depth(lst):
     """
@@ -76,3 +76,21 @@ def square(integer, _iter=0):
         return square(integer, _iter + 1)
     else:
         return np.max([int(a), int(integer / a)]), np.min([int(a), int(integer / a)])
+
+
+def yaml_loader(input_yaml):
+    """Parsing for creating dictionaries from yaml file paths, files, or dictionaries
+
+    :param input_yaml:
+    :return:
+    """
+    if isinstance(input_yaml, str):
+        output_yaml = yaml.full_load(open(input_yaml, 'r'))
+    elif isinstance(input_yaml, dict):
+        output_yaml = input_yaml
+    elif isinstance(input_yaml, file):
+        output_yaml = yaml.full_load(input_yaml)
+    else:
+        raise TypeError("yaml type cannot be %s. Needs to be str, dict or file" % type(input_yaml))
+
+    return output_yaml
