@@ -170,7 +170,6 @@ class Microcavity(Structure):
             full_yaml = yaml.full_load(structure_yaml)
         else:
             raise TypeError("structure_yaml cannot be %s. Needs to be str, dict or file" % type(structure_yaml))
-        print full_yaml
 
         dbr1_kwargs = full_yaml['DBR1']
         if 'thicknesses' not in dbr1_kwargs and 'center_wavelength' not in dbr1_kwargs:
@@ -208,15 +207,19 @@ class Microcavity(Structure):
         self.n_list = [n_in] + dbr1.n_list + [cavity_index] + dbr2.n_list + [n_subs]
         self.d_list = [np.inf] + dbr1.d_list + [cavity_thickness] + dbr2.d_list + [np.inf]
 
+        if 'disorder' in full_yaml:
+            self.disorder(**full_yaml['disorder'])
+
     def dbr_damage(self, layers, damage, mode='contrast'):
         """Simulates ion damage on the DBR layers
 
         Multiple options of doing this:
-            - Reducing the contrast at those layers (only one implemented)
-            - Creating intermediary layers that smoothen the transition from low to high refractive index
+            - Reducing the contrast at those layers
+            - Changing the thickness of the layers
+            - Creating intermediary layers that smoothen the transition from low to high refractive  (not implemented)
 
         :param layers: start and end indices of the layers to be damaged
-        :param damage: contrast reduction factor
+        :param damage: contrast reduction factor or nanometer thickness change
         :param mode:
         :return:
         """
@@ -236,6 +239,39 @@ class Microcavity(Structure):
             self.d_list[layers[0]:layers[1]] += damage
         else:
             raise ValueError('Unrecognised damage mode: %s' % mode)
+
+    def disorder(self, amplitude, mode='add', where='refractive'):
+        """Adds disorder to all layers
+
+        :param amplitude: amplitude of the noise
+        :param mode: if 'add', the noise is added to the appropriate list. If 'ratio', it multiplies the noise
+        :param where: whether the noise is on the refractive indices or the layer thicknesses
+        :return:
+        """
+        noise = np.random.random(len(self.n_list))
+        noise -= 0.5
+        noise *= amplitude
+
+        if where == 'refractive':
+            self.n_list = np.array(self.n_list)
+            to_change = self.n_list
+        elif where == 'thickness':
+            self.d_list = np.array(self.d_list)
+            to_change = self.d_list
+        else:
+            raise ValueError('Unrecognised disorder location: %s' % where)
+
+        if mode == 'add':
+            to_change += noise
+        elif mode == 'ratio':
+            to_change *= (1 + noise)
+        else:
+            raise ValueError('Unrecognised disorder mode: %s' % mode)
+
+        if where == 'refractive':
+            self.n_list = list(to_change)
+        elif where == 'thickness':
+            self.d_list = list(to_change)
 
 
 if __name__ == '__main__':
