@@ -56,6 +56,7 @@ class Structure(object):
         :param n_wvls:
         :return: 2D array of reflection coefficients
         """
+        self._pad_lists()
         self.wavelengths = self._redo_linspace(self.wavelengths, min_wvl, max_wvl, n_wvls)
         self.angles = self._redo_linspace(self.angles, min_angle, max_angle, n_angles)
         self._pad_lists()
@@ -95,6 +96,7 @@ class Structure(object):
         :param n_points:
         :return:
         """
+        self._pad_lists()
         positions = np.linspace(0, np.sum(np.array(self.d_list)[1:-1]), n_points)
         results = tmm.coh_tmm(polarisation, self.n_list, self.d_list, 0, wavelength)
         electric_field = []
@@ -161,11 +163,11 @@ class Microcavity(Structure):
     def __init__(self, structure_yaml):
         super(Microcavity, self).__init__()
         if isinstance(structure_yaml, str):
-            full_yaml = yaml.load(open(structure_yaml, 'r'))
+            full_yaml = yaml.full_load(open(structure_yaml, 'r'))
         elif isinstance(structure_yaml, dict):
             full_yaml = structure_yaml
         elif isinstance(structure_yaml, file):
-            full_yaml = yaml.load(structure_yaml)
+            full_yaml = yaml.full_load(structure_yaml)
         else:
             raise TypeError("structure_yaml cannot be %s. Needs to be str, dict or file" % type(structure_yaml))
         print full_yaml
@@ -193,8 +195,18 @@ class Microcavity(Structure):
         else:
             cavity_thickness = cavity['thickness']
 
-        self.n_list = dbr1.n_list + [cavity_index] + dbr2.n_list
-        self.d_list = dbr1.d_list + [cavity_thickness] + dbr2.d_list
+        if 'incoming' in full_yaml:
+            n_in = full_yaml['incoming']['refractive_index']
+        else:
+            n_in = 1
+
+        if 'substrate' in full_yaml:
+            n_subs = full_yaml['substrate']['refractive_index']
+        else:
+            n_subs = 3.6835
+
+        self.n_list = [n_in] + dbr1.n_list + [cavity_index] + dbr2.n_list + [n_subs]
+        self.d_list = [np.inf] + dbr1.d_list + [cavity_thickness] + dbr2.d_list + [np.inf]
 
     def dbr_damage(self, layers, damage, mode='contrast'):
         """Simulates ion damage on the DBR layers
