@@ -15,7 +15,7 @@ setup(name='microcavities',
           'numpy<2.0dev',
           'matplotlib<3.0dev',
           'h5py<3.0',
-          'pyyaml<4.0',
+          'pyyaml<6.0',
           'pymsgbox<2.0',
           'nidaqmx<1.0',
           'tmm<1.0'
