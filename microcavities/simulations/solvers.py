@@ -53,11 +53,11 @@ class SolverBaseClass:
         if 'realisations' not in self.solver_parameters:
             self.solver_parameters['realisations'] = 1
 
-        if 'Time step' not in self.solver_parameters.keys():
+        if 'Time step' not in list(self.solver_parameters.keys()):
             self.solver_parameters['Time step'] = 0.1
-        if 'Total time' not in self.solver_parameters.keys():
+        if 'Total time' not in list(self.solver_parameters.keys()):
             self.solver_parameters['Total time'] = 2000
-        if 'Sampling time' not in self.solver_parameters.keys():
+        if 'Sampling time' not in list(self.solver_parameters.keys()):
             self.solver_parameters['Sampling time'] = 25
         self.solver_parameters['Number of Steps'] = int(self.solver_parameters['Total time'] / self.solver_parameters['Time step'])
 
@@ -104,7 +104,7 @@ class SolverBaseClass:
             save_index = 0
             t = 0
             values = tuple(init_cond)
-            self.values = map(np.array, values)
+            self.values = list(map(np.array, values))
 
             '''Setting up the files, if we want to save continuously'''
             if self.save == 'Dynamic':
@@ -114,7 +114,7 @@ class SolverBaseClass:
                 elif file_extension == 'h5':
                     save_file = h5py.File(self.save_parameters['Filename'], 'a')
                     if 'DatasetName' not in self.save_parameters:
-                        current_names = save_file.keys()
+                        current_names = list(save_file.keys())
                         lastN = 0
                         for name in current_names:
                             if 'RungeKuttaSolution' in name:
@@ -127,9 +127,9 @@ class SolverBaseClass:
                     df = save_file.create_dataset(name, (
                     (self.solver_parameters['Number of Steps'] * self.solver_parameters['Time step']) /
                     self.solver_parameters['Sampling time'], len(values) + 1), complex)
-                    for parameter in self.save_parameters.keys():
+                    for parameter in list(self.save_parameters.keys()):
                         df.attrs.create(parameter, self.save_parameters[parameter])  # = dict(self.save_parameters)
-                    for parameter in self.equations.eq_parameters.keys():
+                    for parameter in list(self.equations.eq_parameters.keys()):
                         df.attrs.create(parameter, self.equations.eq_parameters[parameter])
                 else:
                     raise TypeError('Did not recognise file extension ', file_extension)
@@ -156,7 +156,7 @@ class SolverBaseClass:
                         elif file_extension == 'h5':
                             save_file = h5py.File(self.save_parameters['Filename'], 'a')
                             if 'DatasetName' not in self.save_parameters:
-                                current_names = save_file.keys()
+                                current_names = list(save_file.keys())
                                 lastN = 0
                                 for name in current_names:
                                     if 'RungeKuttaSolution' in name:
@@ -169,9 +169,9 @@ class SolverBaseClass:
                             save_array = np.append(times, np.asarray(self.values), axis=0)
                             save_array = save_array[..., save_array[0] >= self.save_parameters['Start save time']]
                             df = save_file.create_dataset(name, save_array.shape, save_array.dtype, save_array)
-                            for parameter in self.save_parameters.keys():
+                            for parameter in list(self.save_parameters.keys()):
                                 df.attrs.create(parameter, self.save_parameters[parameter])
-                            for parameter in self.equations.eq_parameters.keys():
+                            for parameter in list(self.equations.eq_parameters.keys()):
                                 df.attrs.create(parameter, self.equations.eq_parameters[parameter])
                         else:
                             raise TypeError('Did not recognise file extension ', file_extension)
@@ -185,7 +185,7 @@ class SolverBaseClass:
                     self._logger.info('%g%% after %g' % (np.round(100 * float(ii) / self.solver_parameters['Number of Steps']), time.time() - t0))
                 if self.solver_parameters['Sampling time'] is not None:
                     if np.abs(self.solver_parameters['Sampling time'] - t % self.solver_parameters['Sampling time']) < self.solver_parameters['Time step']:
-                        self.values = map(lambda x, y: np.append(x, y, 1), self.values, values)
+                        self.values = list(map(lambda x, y: np.append(x, y, 1), self.values, values))
 
                         if self.plott == 'Dynamic':
                             self.plot(self.values)
@@ -212,7 +212,7 @@ class SolverBaseClass:
                 elif file_extension == 'h5':
                     save_file = h5py.File(self.save_parameters['Filename'], 'a')
                     if 'DatasetName' not in self.save_parameters:
-                        current_names = save_file.keys()
+                        current_names = list(save_file.keys())
                         lastN = 0
                         for name in current_names:
                             if 'RungeKuttaSolution' in name:
@@ -222,16 +222,16 @@ class SolverBaseClass:
                     else:
                         name = str(self.save_parameters['DatasetName'])
 
-                    if 'Time' not in save_file.keys():
+                    if 'Time' not in list(save_file.keys()):
                         save_file.create_dataset('Time', times.shape, times.dtype, times)
                     save_array = np.asarray(self.values)  # np.append(times, np.asarray(self.values), axis=1)
 
                     save_array = np.take(save_array, np.nonzero(times >= self.save_parameters['Start save time'])[0], -1)
                     df = save_file.create_dataset(name, save_array.shape, save_array.dtype, save_array)
 
-                    for parameter in self.save_parameters.keys():
+                    for parameter in list(self.save_parameters.keys()):
                         df.attrs.create(parameter, self.save_parameters[parameter])
-                    for parameter in self.equations.eq_parameters.keys():
+                    for parameter in list(self.equations.eq_parameters.keys()):
                         df.attrs.create(parameter, self.equations.eq_parameters[parameter])
                 else:
                     raise TypeError('Did not recognise file extension ', file_extension)
@@ -253,7 +253,7 @@ class SolverBaseClass:
                     self.axes = (self.axes,)
 
                 if len(self.axes) != len(self.plotting_parameters['Plot']):
-                    self.axes = map(lambda x: (x, ), self.axes)
+                    self.axes = [(x, ) for x in self.axes]
                     positions = ()
                     for plot in self.plotting_parameters['Plot']:
                         if plot['Position'] in positions:

@@ -19,9 +19,9 @@ def SortingKey(pattern):
     returnval = (bool(len(splitpat) - 1),)
     if len(splitpat) > 1:
         if re.match('.\d*-\d+|.*0\.\d*-\d+', splitpat[1]):
-            returnval += tuple(map(lambda x: np.real(ast.literal_eval(x)), re.findall('(.+)-(\d+)', splitpat[1])[0]))
+            returnval += tuple([np.real(ast.literal_eval(x)) for x in re.findall('(.+)-(\d+)', splitpat[1])[0]])
         elif re.match('\(\d+\.*\d*, *\d+.*\d*\)', splitpat[1]):
-            returnval += tuple(map(lambda x: np.real(ast.literal_eval(x)), re.findall('(\d+\.*\d*),(\d+\.*\d*)', splitpat[1])[0]))
+            returnval += tuple([np.real(ast.literal_eval(x)) for x in re.findall('(\d+\.*\d*),(\d+\.*\d*)', splitpat[1])[0]])
         else:
             val = ast.literal_eval(splitpat[1])
             returnval += (np.sign(np.real(val)) * np.abs(val),)

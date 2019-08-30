@@ -46,14 +46,14 @@ def tile_array(image_array, position_array=None, offsets=None, normalize=True):
                                          dtype=np.int)
         else:
             # Equivalent to above if the horizontal offset is 0
-            vert_positions = range(0, image_array.shape[0] * (image_array.shape[1] + offsets),
-                                   image_array.shape[1] + offsets)
+            vert_positions = list(range(0, image_array.shape[0] * (image_array.shape[1] + offsets),
+                                   image_array.shape[1] + offsets))
             horz_positions = np.zeros_like(vert_positions)
-        position_array = np.array(zip(horz_positions, vert_positions))
+        position_array = np.array(list(zip(horz_positions, vert_positions)))
 
     # Ensures the position array starts at 0 so it doesn't go outside of the frame
-    position_array = np.array(zip(position_array[:, 0] - np.min(position_array[:, 0]),
-                                  position_array[:, 1] - np.min(position_array[:, 1])))
+    position_array = np.array(list(zip(position_array[:, 0] - np.min(position_array[:, 0]),
+                                  position_array[:, 1] - np.min(position_array[:, 1]))))
 
     image_size = (image_array.shape[2] + np.max(position_array[:, 0]) - np.min(position_array[:, 0]),
                   image_array.shape[1] + np.max(position_array[:, 1]) - np.min(position_array[:, 1]))

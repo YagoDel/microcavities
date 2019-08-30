@@ -9,7 +9,7 @@ bkg = pvcam.background
 try:
     dispersion_img -= bkg
 except Exception as e:
-    print 'Failed to background image. Should not matter'
+    print('Failed to background image. Should not matter')
 
 wvls = spectrometer_calibration(wavelength=wvl)
 energy_axis = 1240 / wvls
@@ -27,6 +27,6 @@ energy = results[0]
 lifetime = results[1]
 mass = results[2]
 
-print "Energy: %g" % results[0]
-print "Lifetime: %g" % results[1]
-print "Mass: %g" % results[2]
+print("Energy: %g" % results[0])
+print("Lifetime: %g" % results[1])
+print("Mass: %g" % results[2])
