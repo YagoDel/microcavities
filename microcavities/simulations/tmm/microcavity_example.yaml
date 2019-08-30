@@ -11,3 +11,9 @@ DBR2:
 cavity:
   fraction: 2.5
   refractive_index: 3.4
+
+incoming:
+  refractive_index: 1
+
+substrate:
+  refractive_index: 3.6835
