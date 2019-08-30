@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from nplab.instrument import Instrument
+from nplab.instrument.message_bus_instrument import queried_property
 from nplab.instrument.visa_instrument import VisaInstrument
 from nplab.instrument.server_instrument import create_client_class, create_server_class
 from nplab.instrument.stage.SigmaKoki import HIT, SHOT
@@ -9,7 +10,7 @@ from nplab.instrument.electronics.NewportPowermeter import NewportPowermeter
 from nplab.instrument.stage.wheel_of_power import PowerWheelMixin
 from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.ST133.pvcam import Pvcam, PvcamSdk
-from nplab.instrument.camera.Andor.andornplab import Andor
+from nplab.instrument.camera.Andor import Andor
 from microcavities.experiment.utils import spectrometer_calibration
 
 import nidaqmx
@@ -184,14 +185,14 @@ class AOM(Instrument):
 
 PvcamServer = create_server_class(Pvcam)
 PvcamClient = create_client_class(Pvcam,
-                                  PvcamSdk.__dict__.keys() + ["get_camera_parameter", "set_camera_parameter"],
+                                  list(PvcamSdk.__dict__.keys()) + ["get_camera_parameter", "set_camera_parameter"],
                                   ('get_qt_ui', "get_control_widget", "get_preview_widget", 'get_wavelength', 'set_wavelength'),
                                   ('latest_frame', 'latest_raw_frame'),
                                   ('_preview_widgets', 'wavelength'))
 
 AndorServer = create_server_class(Andor)
 AndorClient = create_client_class(Andor,
-                                  Andor.__dict__.keys() + ['get_camera_parameter', 'get_camera_parameter', 'raw_image'],
+                                  list(Andor.__dict__.keys()) + ['get_camera_parameter', 'get_camera_parameter', 'raw_image'],
                                   ('get_qt_ui',  "get_control_widget", "get_preview_widget"),
                                   ('parameters', 'latest_frame', 'latest_raw_frame'),
                                   ('_preview_widgets', ))
@@ -287,9 +288,9 @@ class NdWheel(SHOT, PowerWheelMixin):
 class PowerMeterFlipper(NewportPowermeter):
     def __init__(self, motor_address, *args, **kwargs):
         super(PowerMeterFlipper, self).__init__(*args, **kwargs)
-        print 'Newport opened'
+        print('Newport opened')
         self.flipper = ThorlabsMFF(motor_address)
-        print 'Flipper opened'
+        print('Flipper opened')
 
     @property
     def power(self):
@@ -317,9 +318,9 @@ class PowerMeterFlipper(NewportPowermeter):
 # sample_surface = 4221500  % 4220500 # 4220000
 class SampleMovement(HIT):
     axis_names = ['x', 'y']
-    axis_LUT = dict(zip(['x', 'y'], [2, 1]))
+    axis_LUT = dict(list(zip(['x', 'y'], [2, 1])))
     # axis_lim = dict(zip(['x', 'y'], [None, (3420000, 4420000)]))
-    axis_lim = dict(zip(['x', 'y'], [None, (-789000, 789000)]))
+    axis_lim = dict(list(zip(['x', 'y'], [None, None]))) #(-789000, 789000)]))
     # axis_lim = dict(zip(['x', 'y'], [None, None]))
 
     def __init__(self, address):
@@ -365,7 +366,7 @@ class SampleMovement(HIT):
         vec1 = xyz_points[0]-xyz_points[1]
         vec2 = xyz_points[0]-xyz_points[2]
         normal = np.cross(vec1, vec2)
-        print point, vec1, vec2, normal, normal[:2]
+        print(point, vec1, vec2, normal, normal[:2])
         def z_func(x, y):
             return (np.dot(point, normal) - np.dot([x,y], normal[:2])) / normal[2]
         self.plane = z_func
@@ -386,7 +387,7 @@ class Stages(HIT):
         super(Stages, self).__init__(address)
 
         self.axis_names = ("spectrometer_lens", "k_lens", "filter_x", "filter_y", "stokes", "interferometer_delay")
-        self.axis_LUT = dict(zip(self.axis_names, (3, 0, 4, 5, 1, 2)))
+        self.axis_LUT = dict(list(zip(self.axis_names, (3, 0, 4, 5, 1, 2))))
         for axis in range(6):
             self.set_speed(axis, 1, 500000, 1000)
 
@@ -404,7 +405,7 @@ class Stages(HIT):
             if state in dictionary:
                 self.move(dictionary[state], axis)
             else:
-                self._logger.warn('Unrecognised state %s. Needs to be one of %s' % (state, dictionary.keys()))
+                self._logger.warn('Unrecognised state %s. Needs to be one of %s' % (state, list(dictionary.keys())))
         else:
             self._logger.warn('Axis %s does not have toggle values' % axis)
 
@@ -417,3 +418,194 @@ class Stages(HIT):
         counts = np.interp(kvalue, np.linspace(-4, 4), np.linspace(self._tomography_limits[0],
                                                                    self._tomography_limits[1]))
         self.move(counts, 'spectrometer_lens')
+
+
+class RigolDG1022(VisaInstrument):
+    """http://www.produktinfo.conrad.com/datenblaetter/100000-124999/123963-an-01-en-PROGRAMMING_GUIDE_RIGOL_DG1022_FUNKTIONS.pdf"""
+    # TODO: make a queried_property subclass that uses the get_parameter/set_parameter options
+    def __init__(self, address, settings=dict(read_termination='\n')):
+        super(RigolDG1022, self).__init__(address, settings)
+
+    def status(self):
+        code, name = self.query('system:error?').split(',')
+        if code != '0':
+            self._logger.warn('Status error: %s' % name)
+
+    def get_parameter(self, name, channel=1):
+        """
+
+        :param name: can either be a string (e.g. FUNCtion), or an interable of strings (e.g. [FUNCtion, USER]). If an
+        iterable, the strings get joined using a colon
+        :param channel: either 1 or 2
+        :return:
+        """
+        assert channel in [1, 2]
+        if type(name) != str:
+            command = ':'.join(name)
+        else:
+            command = name
+
+        if channel == 2:
+            command += ':CH2'
+        command += '?'
+        self._logger.debug('get_parameter: %s' % command)
+        reply = self.query(command)
+        self.status()
+        return reply
+
+    def set_parameter(self, name, value, channel=1):
+        """
+
+        :param name: can either be a string (e.g. FUNCtion), or an iterable of strings (e.g. [FUNCtion, USER]). If an
+        iterable, the strings get joined using a colon
+        :param value: can either be a number/string (e.g. 1), or an list/tuple of numbers/strings (e.g. [1, 0, 0]). If
+        an iterable, the strings get joined using a comma
+        :param channel: either 1 or 2
+        :return:
+        """
+        assert channel in [1, 2]
+        if type(name) != str:
+            command = ':'.join(name)
+        else:
+            command = name
+        if type(value) in [list, tuple]:
+            value = ','.join(map(str, value))
+        elif type(value) != str:
+            value = str(value)
+
+        if channel != 1:
+            command += ':CH2'
+        command += ' %s' % value
+        self._logger.debug('set_parameter: %s' % command)
+        self.write(command)
+        self.status()
+
+    display = queried_property('DISPlay?', 'DISPlay %s', dtype='string')
+
+    """SDK functions"""
+    def apply(self, function=None, frequency=None, amplitude=None, offset=None, channel=1):
+        if function is None:
+            reply = self.get_parameter('APPLy', channel)
+            split_reply = reply.strip('"').split(',')
+            return dict(shape=split_reply[0], frequency=float(split_reply[1]),
+                        amplitude=float(split_reply[2]), offset=float(split_reply[3]))
+        else:
+            assert function in ['sinusoid', 'square', 'ramp', 'pulse', 'noise', 'dc', 'user']
+
+            if function == 'noise':
+                frequency = 'DEF'
+                # params = ('DEF', ) + params
+            if function == 'dc':
+                frequency = 'DEF'  # and len(params) == 1:
+                amplitude = 'DEF'
+                # params = ('DEF', 'DEF') + params
+            # assert len(params) == 3
+            if None in [frequency, amplitude, offset]:
+                raise ValueError("Missing frequency, amplitude and/or offset to set %s" % function)
+
+            self.set_parameter(['APPLy', function], (frequency, amplitude, offset), channel)
+
+    def function(self, function=None, channel=1, *params):
+        if function is None:
+            return self.get_parameter('FUNCtion', channel)
+        else:
+            assert function in ['user', 'square:dcycle', 'ramp:symmetry']
+            self.set_parameter(['FUNCtion', function], params, channel)
+
+    def frequency(self, value=None, channel=1, function=None):
+        assert function in [None, 'start', 'stop', 'center', 'span']
+
+        if function is None and value is None:
+            return self.get_parameter('FREQuency', channel)
+        elif function is None:
+            self.set_parameter('FREQuency', value, channel)
+        elif value is None:
+            return self.get_parameter(('FREQuency', function))
+        else:
+            self.set_parameter(('FREQuency', function), value)
+
+    def voltage(self, value=None, channel=1, function=None):
+        assert function in [None, 'high', 'low', 'offset', 'unit']
+
+        if function is None and value is None:
+            return self.get_parameter('VOLTage', channel)
+        elif function is None:
+            self.set_parameter('VOLTage', value, channel)
+        elif value is None:
+            return self.get_parameter(('VOLTage', function), channel)
+        else:
+            self.set_parameter(('VOLTage', function), value, channel)
+
+    def output(self, value=None, channel=1, function=None):
+        assert function in [None, 'load', 'polarity', 'sync', 'trigger', 'trigger:slope']
+
+        if function is None and value is None:
+            return self.get_parameter('output', channel)
+        elif function is None:
+            self.set_parameter('output', value, channel)
+        elif value is None:
+            return self.get_parameter(('output', function), channel)
+        else:
+            self.set_parameter(('output', function), value, channel)
+
+    def pulse(self, function, value=None, channel=1):
+        assert function in ['period', 'width', 'dcycle']
+        if value is None:
+            return self.get_parameter(('PULSe', function), channel)
+        else:
+            self.set_parameter(('PULSe', function), value, channel)
+
+    def am(self, function, value=None):
+        assert function in ['source', 'internal:function', 'internal:frequency', 'depth', 'state']
+        if value is None:
+            return self.get_parameter(('AM', function))
+        else:
+            self.set_parameter(('AM', function), value)
+
+    def fm(self):
+        raise NotImplementedError
+
+    def pm(self):
+        raise NotImplementedError
+
+    def fsk(self):
+        raise NotImplementedError
+
+    def sweep(self):
+        raise NotImplementedError
+
+    def trigger(self, function, value=None):
+        assert function in ['source', 'slope', 'delay']
+        if value is None:
+            return self.get_parameter(('TRIGger', function))
+        else:
+            self.set_parameter(('TRIGger', function), value)
+
+    def burst(self, function, value=None):
+        assert function in ['mode', 'ncycles', 'internal:period', 'phase', 'state', 'gate:polarity', 'gate:polarity?']
+        if value is None:
+            return self.get_parameter(('BURSt', function))
+        else:
+            self.set_parameter(('BURSt', function), value)
+
+    def data(self):
+        raise NotImplementedError
+
+    def memory(self, function, value=None):
+        assert function in ['state:name', 'state:delete', 'state:recall:auto', 'state:valid', 'nstates']
+        if value is None:
+            return self.get_parameter(('MEMory', function))
+        elif function in ['state:valid', 'nstates']:
+            raise ValueError('%s cannot be set' % function)
+        else:
+            self.set_parameter(('MEMory', function), value)
+
+    def system(self):
+        raise NotImplementedError
+
+    def phase(self):
+        raise NotImplementedError
+
+    def coupling(self):
+        raise NotImplementedError
+

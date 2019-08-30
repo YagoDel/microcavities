@@ -10,7 +10,7 @@ import os
 from functools import partial
 
 
-class Experiment(object, ShowGUIMixin):
+class Experiment(ShowGUIMixin):
 
     def __init__(self, settings_file="settings.yaml"):
         super(Experiment, self).__init__()
@@ -40,7 +40,7 @@ class Experiment(object, ShowGUIMixin):
         :param path: str
         :return:
         """
-        full_settings = yaml.load(open(path, 'r'))
+        full_settings = yaml.full_load(open(path, 'r'))
         self.settings = full_settings
         self.instrument_settings = full_settings['instruments']
         self.gui_settings = {}
@@ -64,15 +64,15 @@ class Experiment(object, ShowGUIMixin):
             exec("from %s import %s" % (location, class_name))
             return eval(class_name)(*setting['args'], **setting['kwargs'])
         except Exception as e:
-            print 'Failed to open %s because %s' % (setting['class'], e)
+            print(('Failed to open %s because %s' % (setting['class'], e)))
 
     def _open_instruments(self):
         _instr_dict = dict()
-        for name, setting in self.instrument_settings.items():
+        for name, setting in list(self.instrument_settings.items()):
             if 'use' in setting and not setting['use']:
                 continue
             else:
-                print 'Opening %s' % name
+                print(('Opening %s' % name))
                 instr = Experiment._open_instrument(setting)
                 if instr is not None:
                     if isinstance(instr, PvcamServer) or isinstance(instr, AndorServer):
@@ -80,7 +80,7 @@ class Experiment(object, ShowGUIMixin):
                         _instr_dict[name] = instr.instrument
                     else:
                         _instr_dict[name] = instr
-        print 'Instrument set up finished'
+        print('Instrument set up finished')
         return _instr_dict
 
     def get_qt_ui(self):
@@ -122,7 +122,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         self.menuInstruments = QtWidgets.QMenu('Instruments')
         self.menubar.addMenu(self.menuInstruments)
 
-        for name, setting in self.instrument_settings.items():
+        for name, setting in list(self.instrument_settings.items()):
             action = QtWidgets.QAction(name, self)
             self.menuInstruments.addAction(action)
             action.setCheckable(True)
@@ -134,7 +134,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
             self.actions['Instruments'][name] = action
 
     def _toggle_instr(self, name):
-        print 'Togelling %s' % name
+        print(('Togelling %s' % name))
         if name in self.instr_dict:
             self._close_instrument(name)
             # del self.instr_dict[name]
@@ -179,9 +179,9 @@ class ExperimentGUI(gui_generator.GuiGenerator):
 
         if 'calibrations' in self.experiment_settings:
             self.calibration_actions = []
-            for camera, cam_props in self.experiment_settings['calibrations'].items():
+            for camera, cam_props in list(self.experiment_settings['calibrations'].items()):
                 if camera in self.instr_dict:
-                    for name, cal_props in cam_props['calibrations'].items():
+                    for name, cal_props in list(cam_props['calibrations'].items()):
                         action = self._calibration_button(camera, name, cam_props, cal_props)
                         self.calibration_actions += [action]
 
@@ -208,7 +208,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         axes = dict(x=0, y=1)
         axes_names = dict(x='bottom', y='left')
 
-        for ax, props in calibration_properties.items():
+        for ax, props in list(calibration_properties.items()):
             ax_idx = axes[ax]
             name = axes_names[ax]
             if props == 'spectrometer':

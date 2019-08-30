@@ -77,7 +77,7 @@ def guess_peak(data, xaxis=None):
 
     # Guessing initial parameters for a fit
     if xaxis is None:
-        xaxis = range(len(data))
+        xaxis = list(range(len(data)))
     center_idx = np.argmax(data)
     center = xaxis[center_idx]
     bkg = np.percentile(data, 10)  # np.mean(data[10:100])
@@ -204,8 +204,8 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True, known_sample
         axs[1].plot(energy_axis, result.best_fit)
         gui_checkplot()
 
-    energy = result.best_values['center']  # energy_axis[int(result.best_values['center'])]
-    lifetime = hbar / result.best_values['sigma']
+    energy = result.best_values['center'] * 1e-3  # energy_axis[int(result.best_values['center'])]
+    lifetime = hbar / (2 * result.best_values['sigma'])
 
     results = (energy, lifetime, mass)
     args = ()  # (k_axis, energy_axis, plotting, known_sample_parameters)
@@ -245,7 +245,7 @@ class roi2d_GUI(QtWidgets.QMainWindow):
         self.rois = []
 
     def _make_single_ROI(self, pen):
-        print "ROI type: ", self.comboBox_roitype.text()
+        print("ROI type: ", self.comboBox_roitype.text())
         if self.comboBox_roitype.text() == 'Square':
             roi = pg.ROI([50, 10], [3, 3], pen=pen)
             roi.addScaleHandle([1, 0.5], [0.5, 0.5])

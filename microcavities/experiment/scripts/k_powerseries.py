@@ -20,7 +20,7 @@ class BasicInput(QtWidgets.QMainWindow):
         self.lineedits = [QtWidgets.QLineEdit(name) for name in defaults]
         self.labels = [QtWidgets.QLabel(name) for name in labels]
 
-        for idx, wdgt, lbl in zip(range(5), self.lineedits, self.labels):
+        for idx, wdgt, lbl in zip(list(range(5)), self.lineedits, self.labels):
             layout.addWidget(wdgt, idx, 1)
             layout.addWidget(lbl, idx, 0)
         self.setCentralWidget(centralWidget)
