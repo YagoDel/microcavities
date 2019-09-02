@@ -59,7 +59,7 @@ class Datastructure(object):
                     np.save(full_path, data, *args, **kwargs)
         elif self.data_type == 'xarray':
             if data is None:
-                print 'Nothing happened. Need to provide data to save as xarray'
+                print('Nothing happened. Need to provide data to save as xarray')
             else:
                 assert isinstance(data, xarray.Dataset)
                 full_path = self.top_level + location

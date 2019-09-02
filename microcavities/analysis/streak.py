@@ -37,7 +37,7 @@ def open_image(path, smooth=False):
         for line in open(path, 'r'):
             data_line = line.rstrip()
             data_list = re.findall(r"(\d+)\t", data_line)
-            data_numbers = map(lambda x: float(x), data_list)
+            data_numbers = [float(x) for x in data_list]
             if data_image is None:
                 data_image = np.array([data_numbers])
             else:
@@ -203,7 +203,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
             lvl = np.max(np.abs([np.percentile(img, 5), np.percentile(img, 95)]))
             self.ImageDisplay.getHistogramWidget().setLevels(-lvl, lvl)
         except Exception as e:
-            print e
+            print(e)
             raise e
 
     def new_image(self):
@@ -235,7 +235,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
                 if breaker < self.object.fits.shape[0]:
                     self.next_image(breaker+1)
                 else:
-                    print "You've saved everything"
+                    print("You've saved everything")
 
     def prev_image(self):
         # print "Previous image"
@@ -266,7 +266,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
             # # self.fl.fits[tuple(self.image_indxs)] = slopes
             # print 'Saved: ', self.image_indxs
         except Exception as e:
-            print 'Failed saving: ', e
+            print('Failed saving: ', e)
 
     @staticmethod
     def _select_array(array, indxs):
@@ -298,7 +298,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
         try:
             self.next_image()
         except Exception as e:
-            print e
+            print(e)
             raise e
         self.fit()
 
@@ -439,7 +439,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
     @staticmethod
     def clear_layout(layout):
         """Deletes all widgets in a layout"""
-        for i in reversed(range(layout.count())):
+        for i in reversed(list(range(layout.count()))):
             layout.itemAt(i).widget().deleteLater()
 
     def randomize(self):
@@ -516,6 +516,11 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         for plot in self.lineplot_widgets:
             plot.deleteLater()
         self.clear_layout(self.layout_savebuttons)
+        if state:
+            self.clear_layout(self.layout_plots)
+        else:
+            for widgt in self.lineplot_widgets:
+                self.graphics_imagethresholded.removeItem(widgt)
 
         self.lineplot_widgets = ()
         self._savebuttons = ()
@@ -523,20 +528,21 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         shape = square(n_lines)
         for i in range(shape[0]):
             for j in range(shape[1]):
+                color = pg.intColor(idx, n_lines)
+                pen = pg.mkPen(color, width=3, style=QtCore.Qt.DashLine)
                 if state:
-                    widgt = pg.PlotWidget()
+                    widgt = pg.PlotWidget(pen=pen)
                     self.lineplot_widgets += (widgt, )
                     self.layout_plots.addWidget(widgt, i, j)
                 else:
-                    pen = pg.mkPen(pg.intColor(idx, n_lines), width=3, style=QtCore.Qt.DashLine)
                     widgt = pg.LineSegmentROI([[0, -5 * idx], [roishape[0], -5 * idx]], pen=pen)
                     self.lineplot_widgets += (widgt, )
                     self.graphics_imagethresholded.addItem(widgt)
 
-                widgt = QtWidgets.QPushButton('Save %d' % idx)
+                widgt = QtWidgets.QCheckBox('Save %d' % idx)
+                widgt.setStyleSheet("background-color: rgba%s" % (color.getRgb(), ))
                 self.layout_savebuttons.addWidget(widgt, i, j)
                 self._savebuttons += (widgt, )
-                widgt.clicked.connect(partial(self.save, idx))
                 idx += 1
         if state:
             self.setup_line_plots()
@@ -654,7 +660,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                                               n_thresholds)
                 ydatas = ()
 
-                for idx2, plot_lin in zip(range(n_thresholds), plots_lin):
+                for idx2, plot_lin in zip(list(range(n_thresholds)), plots_lin):
                     roi_image = self.get_roi()
 
                     minval = np.min(roi_image) - 1
@@ -663,7 +669,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     roi_image[roi_image == minval] = 0
                     ydata = np.sum(roi_image, 0)
                     if self.xdata is None or len(self.xdata) != len(ydata):
-                        self.xdata = range(1, len(ydata)+1)
+                        self.xdata = list(range(1, len(ydata)+1))
 
                     plot_lin.setData(x=self.xdata, y=ydata)
 
@@ -740,7 +746,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
             else:
                 sb.setValue(self.images.shape[idx] - 1)
 
-    def save(self, line_index):
+    def save(self):
         """Saves the current fitting results at the correct indices inside the
         FittingWavefronts instance
         """
@@ -761,19 +767,21 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     offset = limits[0, 1] - slope * limits[0, 0]
                     data_to_save += [(slope, offset)]
                 data_to_save = np.array(data_to_save)
-            if line_index is None:
-                self.fitting_instance.fits[indxs] = data_to_save
-                self.fitting_instance.thresholds[indxs] = thresholds
-            else:
-                indxs += (line_index, )
-                self.fitting_instance.fits[indxs] = data_to_save[line_index]
-                self.fitting_instance.thresholds[indxs] = thresholds[line_index]
+
+            for idx, widgt in enumerate(self._savebuttons):
+                indices = indxs + (idx,)
+                if widgt.isChecked():
+                    self.fitting_instance.fits[indices] = data_to_save[idx]
+                    self.fitting_instance.thresholds[indices] = thresholds[idx]
+                else:
+                    self.fitting_instance.fits[indices] = np.nan
+                    self.fitting_instance.thresholds[indices] = np.nan
         except Exception as e:
-            print 'Failed saving: ', e
+            print('Failed saving: ', e)
 
     def proceed(self):
         """Convenience function for quickly proceeding through a dataset"""
-        # self.save()
+        self.save()
         self.next_image()
         self.update_line_plots()
         self.fit()
@@ -797,3 +805,19 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
         roi_image = affineSlice(image, shape=roi[0], vectors=roi[1],
                                 origin=roi[2], axes=(0, 1))
         return roi_image
+
+    # def key_pressed(self):
+    #     try:
+    #         event = QKeyEvent(QEvent.KeyPress, self.sender().event, Qt.NoModifier,
+    #                           self.sender().name, False)
+    #         QCoreApplication.postEvent(self.receiver, event)
+    #     except Exception as e:
+    #         print(e)
+
+    def keyPressEvent(self, evt):
+        print(evt.key())
+        super(FittingWavefrontsUi, self).keyPressEvent(evt)
+        # event = QKeyEvent(QEvent.KeyPress, evt.key(), evt.modifiers(),
+        #                   evt.text(), False)
+        # QCoreApplication.postEvent(self.receiver, event)
+        # evt.ignore()

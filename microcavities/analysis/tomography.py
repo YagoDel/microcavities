@@ -42,7 +42,7 @@ class Tomography(object, ShowGUIMixin):
             yaxis = attrs['y_axis']
         else:
             yaxis = np.linspace(-1, 1, data.shape[1])
-        zaxis = scan.variables.items()[0][1]
+        zaxis = list(scan.variables.items())[0][1]
 
         self.Im3D = None
         self.Im2D = None

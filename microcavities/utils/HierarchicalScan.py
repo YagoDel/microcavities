@@ -4,6 +4,7 @@ from nplab.utils.gui import get_qt_app
 from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
+from nplab.experiment.gui import ExperimentWithProgressBar
 from microcavities.analysis.utils import SortingKey
 from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number
@@ -21,7 +22,7 @@ from collections import OrderedDict
 DRY_RUN = False
 
 
-class HierarchicalScan(object):
+class HierarchicalScan(ExperimentWithProgressBar):
     """
     Base class for implementing general hierarchical scans, for both experiments and analysis.
 
@@ -38,24 +39,24 @@ class HierarchicalScan(object):
     We have abstracted those details by keeping a 'level' object and leaving the user to reimplement the necessary
     methods to address these objects.
     The user may re-implement self.iteration_function, self.final_function, and self.abort_scan
-
-    TODO: save yaml with file
     """
     def __init__(self, settings_yaml, **kwargs):
         super(HierarchicalScan, self).__init__()
 
         self.variables = OrderedDict()
+        self.progress = 1
+        self.progress_maximum = None
 
         if isinstance(settings_yaml, str):
-            full_yaml = yaml.load(open(settings_yaml, 'r'))
+            full_yaml = yaml.full_load(open(settings_yaml, 'r'))
         elif isinstance(settings_yaml, dict):
             full_yaml = settings_yaml
         elif isinstance(settings_yaml, file):
-            full_yaml = yaml.load(settings_yaml)
+            full_yaml = yaml.full_load(settings_yaml)
         else:
             raise TypeError("settings_yaml cannot be %s. Needs to be str, dict or file" % type(settings_yaml))
         self.settings_yaml = full_yaml
-
+        print(full_yaml)
         logger_name = "HierarchicalScan"
         if "logger_name" in full_yaml:
             logger_name = full_yaml["logger_name"]
@@ -94,7 +95,7 @@ class HierarchicalScan(object):
                     self._logger.warn("Repeated variable name. Are you sure you know what you're doing?")
 
             if name == 'repeat':
-                values = range(variable['values'])
+                values = list(range(variable['values']))
             else:
                 first_value = variable['values'][0]
                 if type(first_value) == str:
@@ -108,6 +109,7 @@ class HierarchicalScan(object):
                     values = variable['values']
 
             self.variables[name] = values
+        self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
 
     @staticmethod
     def get_default_name(dictionary):
@@ -129,7 +131,7 @@ class HierarchicalScan(object):
     @staticmethod
     def save_array(name, array, save_type):
         if DRY_RUN:
-            print 'Save array: ', name, array, save_type
+            print('Save array: ', name, array, save_type)
             return
         if save_type == 'npy':
             np.save(name, array)
@@ -139,7 +141,7 @@ class HierarchicalScan(object):
     @staticmethod
     def load_array(name, save_type):
         if DRY_RUN:
-            print 'Loading array: ', name, save_type
+            print('Loading array: ', name, save_type)
             return
         if save_type == 'npy':
             array = np.load(name)
@@ -167,6 +169,11 @@ class HierarchicalScan(object):
         """
         self._logger.debug("Called final_function. Folder_name: %s" % self.folder_name)
 
+    def run_modally(self, *args, **kwargs):
+        self.progress = 1
+        self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
+        super(HierarchicalScan, self).run_modally(*args, **kwargs)
+
     def run(self, level=0):
         t0 = time.time()
         self._iterate(level)
@@ -193,10 +200,11 @@ class HierarchicalScan(object):
             self.folder_name = [self.series_name]
 
         if level < len(self.variables):
-            name, values = self.variables.items()[level]
+            name, values = list(self.variables.items())[level]
             self._logger.debug('Iterating %s' % name)
             level += 1
             for value in values:
+                self.update_progress(self.progress)
                 if self.abort_scan():
                     break
                 self._logger.debug('%s = %g' % (name, value))
@@ -209,7 +217,32 @@ class HierarchicalScan(object):
                 self.iteration_function(level, name, value)
                 self._iterate(level)
         else:
+            self.progress += 1
             self.final_function()
+
+    def _reshape_results(self, results):
+        """
+        Since sometimes results are stored as as flat-arrays, and that's not terribly useful, this reshapes them into
+        numpy arrays where each dimension corresponds to one of the parameters in the hierarchy
+
+        :return:
+        """
+        self._logger.debug('Reshaping results')
+
+        new_shape = tuple([len(var) for var in list(self.variables.values())])
+        self._logger.debug('New shape: %s' % (new_shape,))
+
+        new_results = dict()
+        for name, result in list(results.items()):
+            if not isinstance(result, np.ndarray):
+                self._logger.debug('Making into array')
+                result = np.array(result)
+
+            current_shape = result.shape
+            self._logger.debug('Current %s shape: %s' % (name, current_shape))
+
+            new_results[name] = result.reshape(new_shape + current_shape[1:])
+        return new_results
 
 
 class ExperimentScan(HierarchicalScan):
@@ -286,7 +319,7 @@ class ExperimentScan(HierarchicalScan):
                 if 'wait' in measurement:
                     time.sleep(measurement['wait'])
 
-                if len(measurement.keys()) > 1:
+                if len(list(measurement.keys())) > 1:
                     measure_name = self.get_default_name(measurement)
                     current_folder = list(self.folder_name[:level+1])
                     file_name = current_folder + [measure_name]
@@ -329,7 +362,11 @@ class ExperimentScan(HierarchicalScan):
             if not DRY_RUN:
                 self.instr_dict['HDF5'].create_dataset(file_name, data=data, attrs=attributes)
         elif self.save_type == 'local':
-            self.results += [data]
+            name = file_name.split('/')[-1]
+            if name in self.results:
+                self.results[name] += [data]
+            else:
+                self.results[name] = [data]
         elif self.save_type != 'None':
             lst = file_name.split('/')
             folder_name = '/'.join(lst[:-1])
@@ -390,7 +427,9 @@ class ExperimentScan(HierarchicalScan):
                 getattr(self.gui, 'actionScan' + button).setChecked(not value)
                 getattr(self.gui, 'actionScan' + button).trigger()
 
-            if 'raw_data_file' in self.settings_yaml:
+            if self.save_type == 'local':
+                self.results = dict()
+            elif 'raw_data_file' in self.settings_yaml:
                 path = self.settings_yaml['raw_data_file']
                 # self.base_path = os.path.dirname(path)
                 self.instr_dict['HDF5'] = df.DataFile(path)
@@ -401,7 +440,7 @@ class ExperimentScan(HierarchicalScan):
             elif self.instr_dict["HDF5"] is None:
                 self.gui.menuNewExperiment()
             else:
-                raise RuntimeError('Do not know how to handle instr_dict.HDF5: %g' % self.instr_dict['HDF5'])
+                raise RuntimeError('Do not know how to handle instr_dict.HDF5: %s' % self.instr_dict['HDF5'])
             self.instr_dict['HDF5'].make_current()
 
             # if 'file_name' in self.settings_yaml:
@@ -413,13 +452,14 @@ class ExperimentScan(HierarchicalScan):
             # if self.instr_dict["HDF5"] is None:
             #     self.gui.menuNewExperiment()
 
-        if self.save_type == 'local':
-            self.results = []
-
         super(ExperimentScan, self).run(level)
 
         if not DRY_RUN:
-            self.instr_dict['HDF5'].close()
+            if self.save_type == 'local':
+                self.results = self._reshape_results(self.results)
+            else:
+                self.instr_dict['HDF5'][self.series_name].attrs['yaml'] = yaml.dump(self.settings_yaml)
+                self.instr_dict['HDF5'].close()
 
     def get_attributes(self, base_dictionary):
         attributes = None
@@ -503,12 +543,12 @@ class AnalysisScan(HierarchicalScan):
     def run(self, level=0):
         self.analysed_data = OrderedDict()
         super(AnalysisScan, self).run(level)
-        self._reshape_results()
+        self.analysed_data = self._reshape_results(self.analysed_data)
 
         if 'save_path' in self.analysis_yaml:
-            print self.analysis_yaml['save_path']
+            print(self.analysis_yaml['save_path'])
             h5file = df.DataFile(self.analysis_yaml['save_path'])
-            for name, data in self.analysed_data.items():
+            for name, data in list(self.analysed_data.items()):
                 self._logger.debug('Creating dataset %s %s %s' % (name, data.shape, data.dtype))
                 h5file.create_dataset(name, data=data)
             h5file.flush()
@@ -558,28 +598,6 @@ class AnalysisScan(HierarchicalScan):
                 else:
                     self.analysed_data[analysed_name] = [data]
 
-    def _reshape_results(self):
-        """
-        Since self.analyse stores results as flat-arrays, and that's not terribly useful, this reshapes them into numpy
-        arrays where each dimension corresponds to one of the parameters in the hierarchy
-
-        :return:
-        """
-        self._logger.debug('Reshaping results')
-
-        new_shape = tuple([len(var) for var in self.variables.values()])
-        self._logger.debug('New shape: %s' % (new_shape, ))
-
-        for name, result in self.analysed_data.items():
-            if not isinstance(result, np.ndarray):
-                self._logger.debug('Making into array')
-                result = np.array(result)
-
-            current_shape = result.shape
-            self._logger.debug('Current %s shape: %s' % (name, current_shape))
-
-            self.analysed_data[name] = result.reshape(new_shape + current_shape[1:])
-
     def extract_hierarchy(self):
         """Base call for the recursive iterator to get a file's hierarchy
 
@@ -589,8 +607,8 @@ class AnalysisScan(HierarchicalScan):
         """
         if 'series_name' in self.analysis_yaml:
             self.series_name = self.analysis_yaml['series_name']
-        elif self.save_type == 'HDF5' and len(self.HDF5.keys()) == 1:
-            self.series_name = self.HDF5.keys()[0]
+        elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
+            self.series_name = list(self.HDF5.keys())[0]
         else:
             raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data file with '
                              'just one key at the top level, or a series_name')
@@ -638,7 +656,7 @@ class AnalysisScan(HierarchicalScan):
         :return:
         """
         assert self.save_type == 'HDF5'
-        keys = self.HDF5[level_name].keys()
+        keys = list(self.HDF5[level_name].keys())
         keys.sort(key=SortingKey)
         return [level_name + '/' + key for key in keys]
 
@@ -685,13 +703,13 @@ class AnalysisScan(HierarchicalScan):
             return level
         else:
             levels = self.next_levels(level)
-            indices = range(len(levels))
+            indices = list(range(len(levels)))
             return self.get_random_group(levels[np.random.choice(indices)])
 
 
 def call_dictionary(obj, dictionary):
     if DRY_RUN:
-        print "call_dictionary: %s %s" % (obj, dictionary)
+        print("call_dictionary: %s %s" % (obj, dictionary))
         return 1
 
     if 'name' in dictionary and dictionary['name'] == 'repeat':

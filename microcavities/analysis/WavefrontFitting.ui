@@ -234,6 +234,30 @@
         </widget>
        </item>
        <item>
+        <widget class="QPushButton" name="button_save">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>1000</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Save</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="widget_savebuttons" native="true">
+         <layout class="QGridLayout" name="layout_savebuttons"/>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="button_proceed">
          <property name="sizePolicy">
           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
@@ -250,31 +274,6 @@
          <property name="text">
           <string>Proceed</string>
          </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="button_save">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>1000</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>Save
-all</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QWidget" name="widget_savebuttons" native="true">
-         <layout class="QGridLayout" name="layout_savebuttons"/>
         </widget>
        </item>
       </layout>

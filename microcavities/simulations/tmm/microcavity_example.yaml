@@ -1,0 +1,19 @@
+center_wavelength: 800.0
+
+DBR1:
+  refractive_indices: [3.5, 3.]
+  layers: 32
+
+DBR2:
+  refractive_indices: [3., 3.5]
+  layers: 35
+
+cavity:
+  fraction: 2.5
+  refractive_index: 3.4
+
+incoming:
+  refractive_index: 1
+
+substrate:
+  refractive_index: 3.6835
