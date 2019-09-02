@@ -4,6 +4,7 @@ import numpy as np
 import h5py
 import os
 import xarray
+from microcavities.analysis.utils import SortingKey
 
 
 class Datastructure(object):
@@ -48,13 +49,12 @@ class Datastructure(object):
             if data is None:
                 os.makedirs(full_path)
             else:
-                previous_level = '/'.join(full_path.split('/')[:-1])
+                previous_level = os.path.dirname(full_path)
                 if not os.path.exists(previous_level):
                     os.makedirs(previous_level)
-
                 if full_path.endswith('.h5'):
-                    # CHECK THIS
-                    xarray.save(data, *args, **kwargs)
+                    if isinstance(data, xarray.Dataset) or isinstance(data, xarray.DataArray):
+                        data.to_netcdf(full_path, *args, **kwargs)
                 elif full_path.endswith('.npy'):
                     np.save(full_path, data, *args, **kwargs)
         elif self.data_type == 'xarray':
@@ -97,3 +97,18 @@ class Datastructure(object):
             return xarray.load(full_path, *args, **kwargs)
         else:
             raise ValueError('This should never happen...')
+
+
+def h5py_to_xarray(group):
+    keys = group.keys()
+    keys.sort(key=SortingKey)
+    array = 0
+    return array
+
+
+if __name__ == '__main__':
+    powers = [0, 1]
+    positions = [2, 3]
+    for power in powers:
+        for pos in positions:
+            os.makedirs('Desktop/testing/power=%g/position=%g' % (power, pos))
