@@ -159,6 +159,17 @@ class DBR(Structure):
         return n_list, d_list
 
 
+def convert_refractive_index(something):
+    """Parsing the different options for the values of refractive indices: a material name, a value, etc."""
+    if type(something) in [float, int]:
+        return something
+    else:
+        import importlib
+        mymodule = importlib.import_module("microcavities.simulations.tmm.materials")
+        mat_func = getattr(mymodule, something[0])
+        return mat_func(*something[1:])
+
+
 class Microcavity(Structure):
     def __init__(self, structure_yaml):
         super(Microcavity, self).__init__()
@@ -167,10 +178,12 @@ class Microcavity(Structure):
         dbr1_kwargs = full_yaml['DBR1']
         if 'thicknesses' not in dbr1_kwargs and 'center_wavelength' not in dbr1_kwargs:
             dbr1_kwargs['center_wavelength'] = full_yaml['center_wavelength']
+        dbr1_kwargs['refractive_indices'] = [convert_refractive_index(x) for x in dbr1_kwargs['refractive_indices']]
 
         dbr2_kwargs = full_yaml['DBR2']
         if 'thicknesses' not in dbr2_kwargs and 'center_wavelength' not in dbr2_kwargs:
             dbr2_kwargs['center_wavelength'] = full_yaml['center_wavelength']
+        dbr2_kwargs['refractive_indices'] = [convert_refractive_index(x) for x in dbr2_kwargs['refractive_indices']]
         dbr1 = DBR(**dbr1_kwargs)
         dbr2 = DBR(**dbr2_kwargs)
 
