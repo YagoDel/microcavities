@@ -284,7 +284,7 @@ class roi2d_GUI(QtWidgets.QMainWindow):
         self._current_image = self.images[self._index]
         self.graphicsView.setImage(self.images[self._index])
 
-class roi2d(object, ShowGUIMixin):
+class roi2d(ShowGUIMixin):
     def __init__(self, images):
         super(roi2d, self).__init__()
 

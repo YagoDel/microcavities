@@ -10,7 +10,7 @@ import os
 from functools import partial
 
 
-class Experiment(object, ShowGUIMixin):
+class Experiment(ShowGUIMixin):
 
     def __init__(self, settings_file="settings.yaml"):
         super(Experiment, self).__init__()
@@ -40,7 +40,7 @@ class Experiment(object, ShowGUIMixin):
         :param path: str
         :return:
         """
-        full_settings = yaml.load(open(path, 'r'))
+        full_settings = yaml.full_load(open(path, 'r'))
         self.settings = full_settings
         self.instrument_settings = full_settings['instruments']
         self.gui_settings = {}

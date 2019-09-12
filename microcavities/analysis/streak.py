@@ -80,7 +80,7 @@ def open_images(directory, smooth=False):
 
 
 # Fitting program for k-filtered, spatial images on the streak
-class FittingLinear(object, ShowGUIMixin):
+class FittingLinear(ShowGUIMixin):
     def __init__(self, images, masks=None):
         super(FittingLinear, self).__init__()
         self._original_shape = images.shape
