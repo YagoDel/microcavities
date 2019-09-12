@@ -46,10 +46,10 @@ class HierarchicalScan(ExperimentWithProgressBar):
         self.variables = OrderedDict()
         self.progress = 1
         self.progress_maximum = None
-
         full_yaml = yaml_loader(settings_yaml)
-        self.settings_yaml = full_yaml
 
+        self.settings_yaml = full_yaml
+        print(full_yaml)
         logger_name = "HierarchicalScan"
         if "logger_name" in full_yaml:
             logger_name = full_yaml["logger_name"]
@@ -88,7 +88,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
                     self._logger.warn("Repeated variable name. Are you sure you know what you're doing?")
 
             if name == 'repeat':
-                values = range(variable['values'])
+                values = list(range(variable['values']))
             else:
                 first_value = variable['values'][0]
                 if type(first_value) == str:
@@ -102,7 +102,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
                     values = variable['values']
 
             self.variables[name] = values
-        self.progress_maximum = np.prod([len(x) for x in self.variables.values()])
+        self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
 
     @staticmethod
     def get_default_name(dictionary):
@@ -124,7 +124,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
     @staticmethod
     def save_array(name, array, save_type):
         if DRY_RUN:
-            print 'Save array: ', name, array, save_type
+            print('Save array: ', name, array, save_type)
             return
         if save_type == 'npy':
             np.save(name, array)
@@ -134,7 +134,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
     @staticmethod
     def load_array(name, save_type):
         if DRY_RUN:
-            print 'Loading array: ', name, save_type
+            print('Loading array: ', name, save_type)
             return
         if save_type == 'npy':
             array = np.load(name)
@@ -164,7 +164,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
 
     def run_modally(self, *args, **kwargs):
         self.progress = 1
-        self.progress_maximum = np.prod([len(x) for x in self.variables.values()])
+        self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
         super(HierarchicalScan, self).run_modally(*args, **kwargs)
 
     def run(self, level=0):
@@ -193,7 +193,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
             self.folder_name = [self.series_name]
 
         if level < len(self.variables):
-            name, values = self.variables.items()[level]
+            name, values = list(self.variables.items())[level]
             self._logger.debug('Iterating %s' % name)
             level += 1
             for value in values:
@@ -222,11 +222,11 @@ class HierarchicalScan(ExperimentWithProgressBar):
         """
         self._logger.debug('Reshaping results')
 
-        new_shape = tuple([len(var) for var in self.variables.values()])
+        new_shape = tuple([len(var) for var in list(self.variables.values())])
         self._logger.debug('New shape: %s' % (new_shape,))
 
         new_results = dict()
-        for name, result in results.items():
+        for name, result in list(results.items()):
             if not isinstance(result, np.ndarray):
                 self._logger.debug('Making into array')
                 result = np.array(result)
@@ -312,7 +312,7 @@ class ExperimentScan(HierarchicalScan):
                 if 'wait' in measurement:
                     time.sleep(measurement['wait'])
 
-                if len(measurement.keys()) > 1:
+                if len(list(measurement.keys())) > 1:
                     measure_name = self.get_default_name(measurement)
                     current_folder = list(self.folder_name[:level+1])
                     file_name = current_folder + [measure_name]
@@ -539,9 +539,9 @@ class AnalysisScan(HierarchicalScan):
         self.analysed_data = self._reshape_results(self.analysed_data)
 
         if 'save_path' in self.analysis_yaml:
-            print self.analysis_yaml['save_path']
+            print(self.analysis_yaml['save_path'])
             h5file = df.DataFile(self.analysis_yaml['save_path'])
-            for name, data in self.analysed_data.items():
+            for name, data in list(self.analysed_data.items()):
                 self._logger.debug('Creating dataset %s %s %s' % (name, data.shape, data.dtype))
                 h5file.create_dataset(name, data=data)
             h5file.flush()
@@ -600,8 +600,8 @@ class AnalysisScan(HierarchicalScan):
         """
         if 'series_name' in self.analysis_yaml:
             self.series_name = self.analysis_yaml['series_name']
-        elif self.save_type == 'HDF5' and len(self.HDF5.keys()) == 1:
-            self.series_name = self.HDF5.keys()[0]
+        elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
+            self.series_name = list(self.HDF5.keys())[0]
         else:
             raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data file with '
                              'just one key at the top level, or a series_name')
@@ -649,7 +649,7 @@ class AnalysisScan(HierarchicalScan):
         :return:
         """
         assert self.save_type == 'HDF5'
-        keys = self.HDF5[level_name].keys()
+        keys = list(self.HDF5[level_name].keys())
         keys.sort(key=SortingKey)
         return [level_name + '/' + key for key in keys]
 
@@ -696,13 +696,13 @@ class AnalysisScan(HierarchicalScan):
             return level
         else:
             levels = self.next_levels(level)
-            indices = range(len(levels))
+            indices = list(range(len(levels)))
             return self.get_random_group(levels[np.random.choice(indices)])
 
 
 def call_dictionary(obj, dictionary):
     if DRY_RUN:
-        print "call_dictionary: %s %s" % (obj, dictionary)
+        print("call_dictionary: %s %s" % (obj, dictionary))
         return 1
 
     if 'name' in dictionary and dictionary['name'] == 'repeat':

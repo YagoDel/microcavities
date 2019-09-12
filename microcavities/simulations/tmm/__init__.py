@@ -140,8 +140,8 @@ class Structure(object):
 
 class DBR(Structure):
     def __init__(self, layers, refractive_indices, thicknesses=None, center_wavelength=None):
-        assert any(map(lambda x: x is not None, [thicknesses, center_wavelength]))
-        assert not all(map(lambda x: x is not None, [thicknesses, center_wavelength]))
+        assert any([x is not None for x in [thicknesses, center_wavelength]])
+        assert not all([x is not None for x in [thicknesses, center_wavelength]])
         super(DBR, self).__init__()
 
         refractive_indices = np.array(refractive_indices)  # to make use of distributive maths

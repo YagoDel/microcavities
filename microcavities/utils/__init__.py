@@ -11,7 +11,7 @@ def depth(lst):
     :param lst: list or list of lists
     :return: int. Depth of the list of lists provided
     """
-    return isinstance(lst, list) and max(map(depth, lst)) + 1
+    return isinstance(lst, list) and max(list(map(depth, lst))) + 1
 
 
 def run_once(f):
@@ -22,7 +22,7 @@ def run_once(f):
     :return:
     """
     def wrapper(*args, **kwargs):
-        if args[1] not in wrapper.dicc.keys():
+        if args[1] not in list(wrapper.dicc.keys()):
             wrapper.dicc[args[1]] = False
         if not wrapper.dicc[args[1]]:
             wrapper.dicc[args[1]] = True
@@ -53,7 +53,7 @@ def is_prime(integer):
     :param integer: int
     :return: bool. True if a is prime, False otherwise
     """
-    return all(integer % i for i in xrange(2, integer))
+    return all(integer % i for i in range(2, integer))
 
 
 def square(integer, _iter=0):
