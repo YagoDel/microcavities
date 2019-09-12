@@ -21,6 +21,7 @@ class BasicInput(QtWidgets.QMainWindow):
         self.lineedits = None
         self.labels = None
         self.setup_ui()
+        self.setWindowModality(QtCore.Qt.ApplicationModal)
 
     def setup_ui(self):
         central_widget = QtWidgets.QWidget()
@@ -39,9 +40,10 @@ class BasicInput(QtWidgets.QMainWindow):
         self.setCentralWidget(central_widget)
 
 
-app = get_qt_app()
+# app = get_qt_app()
 bi = BasicInput()
 bi.show()
+# Block here
 
 x_range = float(bi.lineedits[0].text())
 min_steps = int(center_steps - x_range/(2*stage_steps_to_inverse_micron))
@@ -63,6 +65,7 @@ params = dict(save_type="local",
 
 scan = ExperimentScan(params, exper, gui)
 scan.run_modally()
+# Block here
 
 
 data = np.array([scan.results['img%d' % (x+1)] for x in range(n_images)])
