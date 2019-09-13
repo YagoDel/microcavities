@@ -339,7 +339,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
 
 
 # Fitting program for linear wavefronts (thresholding)
-class FittingWavefronts(object, ShowGUIMixin):
+class FittingWavefronts(ShowGUIMixin):
     def __init__(self, images, backgrounds=None, image_graphics_settings=None):
         super(FittingWavefronts, self).__init__()
         self.images = images
