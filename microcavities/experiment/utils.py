@@ -40,6 +40,6 @@ def magnification(focus_array, wavelength=780e-9):
 
 def spectrometer_calibration(pixel=None, wavelength=800):
     if pixel is None:
-        pixel = np.arange(1340)
+        pixel = np.arange(-670, 670)
     return (-7.991E-06 * wavelength + 2.454E-02) * pixel + (-2.131E-04 * wavelength + 1.937E-01) + wavelength
 
