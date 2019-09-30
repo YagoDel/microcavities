@@ -40,7 +40,8 @@ class Experiment(ShowGUIMixin):
         :param path: str
         :return:
         """
-        full_settings = yaml.full_load(open(path, 'r'))
+        with open(path, 'r') as settings_file:
+            full_settings = yaml.full_load(settings_file)
         self.settings = full_settings
         self.instrument_settings = full_settings['instruments']
         self.gui_settings = {}
