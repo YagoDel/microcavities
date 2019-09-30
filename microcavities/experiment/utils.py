@@ -32,7 +32,7 @@ def magnification(focus_array, wavelength=780e-9):
         # For an even number of lenses, you are measuring real space
         m = 1
         m_array = [m]
-        for idx in range(len(focus_array)/2):
+        for idx in range(int(len(focus_array)/2)):
             m *= focus_array[2*idx + 1] / focus_array[2*idx]
             m_array += [m]
     return m, m_array
