@@ -42,9 +42,8 @@ class ExtendedImageView(pg.ImageView):
         super(ExtendedImageView, self).__init__(*args, **kwargs)
         self.imageItem.axisOrder = 'row-major'
 
-        self.level_percentiles = None
-
         # Setting up the autoleveling GUI
+        self.level_percentiles = None
         self.levelGroup = uic.loadUi(os.path.join(os.path.dirname(__file__), 'autolevel.ui'))
         self.ui.gridLayout_3.addWidget(self.levelGroup, 2, 0, 1, 1)
         self.levelGroup.setVisible(False)
@@ -62,21 +61,16 @@ class ExtendedImageView(pg.ImageView):
             lambda: self.view.setAspectLocked(self.tools.checkbox_aspectratio.isChecked()))
         self.tools.checkbox_axes.stateChanged.connect(self.hide_axes)
 
-    def get_axes(self):
-        """Returns the AxisItems"""
-        axes_dict = self.getView().axes
-        names = ["bottom", "left", "top", "right"]  # Ensures its always in the same order
-        axs = [axes_dict[name]['item'] for name in names]
-        return axs
-
-    def hide_axes(self):
-        boolean = self.tools.checkbox_axes.isChecked()
-        if boolean:
-            for ax in self.get_axes():
-                ax.hide()
-        else:
-            for ax in self.get_axes():
-                ax.show()
+        # Setting up the crosshairs
+        for idx, color in enumerate(['r', 'g']):
+            crosshair = Crosshair(color)
+            self.getView().addItem(crosshair)
+            crosshair.Released.connect(self.crosshair_moved)
+            setattr(self, 'CrossHair%d' % (idx + 1), crosshair)
+        self.label_crosshairpos = QtWidgets.QLabel()
+        self.ui.gridLayout.addWidget(self.label_crosshairpos, 2, 0, 1, 3)
+        self.label_crosshairpos.hide()
+        self.crosshair_moved()
 
     def show_tools(self):
         boolean = self.tools.checkbox_tools.isChecked()
@@ -98,11 +92,35 @@ class ExtendedImageView(pg.ImageView):
     def buildMenu(self):
         """Adds an action to the existing pyqtgraph.ImageView menu to toggle the visibility of the new GUI"""
         super(ExtendedImageView, self).buildMenu()
+        # Percentiles
         self.levelAction = QtWidgets.QAction("Autolevel", self.menu)
         self.levelAction.setCheckable(True)
         self.levelAction.toggled.connect(lambda boolean: self.levelGroup.setVisible(boolean))
         self.menu.addAction(self.levelAction)
+        # Crosshair label
+        self.labelAction = QtWidgets.QAction("Crosshair label", self.menu)
+        self.labelAction.setCheckable(True)
+        self.labelAction.toggled.connect(lambda boolean: self.label_crosshairpos.setVisible(boolean))
+        self.menu.addAction(self.labelAction)
 
+    # Scaled axis functions
+    def get_axes(self):
+        """Returns the AxisItems"""
+        axes_dict = self.getView().axes
+        names = ["bottom", "left", "top", "right"]  # Ensures its always in the same order
+        axs = [axes_dict[name]['item'] for name in names]
+        return axs
+
+    def hide_axes(self):
+        boolean = self.tools.checkbox_axes.isChecked()
+        if boolean:
+            for ax in self.get_axes():
+                ax.hide()
+        else:
+            for ax in self.get_axes():
+                ax.show()
+
+    # Percentile functions
     def getProcessedImage(self):
         """Checks if we want to autolevel for each image and does it"""
         image = super(ExtendedImageView, self).getProcessedImage()
@@ -151,6 +169,92 @@ class ExtendedImageView(pg.ImageView):
         levelmax = minval + rng * percentiles[1] / 100.
 
         return levelmin, levelmax
+
+    # Crosshairs
+    def pos_to_unit(self, positions):
+        """
+        Given an iterable of positions (bottom, left, top, right) returns the scaled values on those axes
+
+        :param positions: 2- or 4-tuple of floats.
+        :return:
+        """
+        axs = self.get_axes()
+        units = ()
+        # If only 2-tuple given, it corresponds to (bottom, left) axes
+        if len(positions) == 2:
+            axs = axs[:2]
+        for ax, pos in zip(axs, positions):
+            if hasattr(ax, 'pos_to_unit'):
+                units += (ax.pos_to_unit(pos), )
+            else:
+                units += (pos, )
+
+        return units
+
+    def crosshair_moved(self):
+        """
+        Displays the current position of the two cross-hairs, as well as the distance between them, in pixels and in
+        units (when given)
+        :return:
+        """
+        try:
+            # First gets the crosshair positions, and finds the distance between them
+            positions = ()
+            for idx in [1, 2]:
+                xhair = getattr(self, "CrossHair%d" % idx)
+                pos = tuple(xhair.referenced_pos())
+                positions += pos
+            diff = np.linalg.norm(np.array(positions[:2]) - np.array(positions[2:]))
+            positions += (diff, )
+
+            display_string = "Pixels: <span style='color: red'>[%i,%i] </span> " \
+                             "<span style='color: green'> [%i,%i] </span> " \
+                             u"\u0394px=%g" % positions
+
+            # If any units are given, get the positions and scale them using pos_to_unit
+            if any([self.axis_units[x] is not None for x in ['bottom', 'left']]):
+                scaled_positions = ()
+                for idx in [1, 2]:
+                    xhair = getattr(self, "CrossHair%d" % idx)
+                    pos = tuple(xhair.referenced_pos())
+                    scaled_positions += self.pos_to_unit(pos)
+                units = ()
+                for ax in ['bottom', 'left']:
+                    if self.axis_units[ax] is None:
+                        units += ('px', )
+                    else:
+                        units += (self.axis_units[ax],)
+                display_string += "\t(%s, %s):" \
+                                  "<span style='color: red'> (%g, %g)</span> " \
+                                  "<span style='color: green'> (%g, %g)</span> " % (units + scaled_positions)
+
+                # If the bottom and left axis have the same units, display the distance between the crosshairs
+                if self.axis_units['bottom'] == self.axis_units['left']:
+                    difft = np.linalg.norm(np.array(scaled_positions[:2]) - np.array(scaled_positions[2:]))
+                    unit = self.axis_units['bottom']
+                    display_string += u"\u0394%s=%g" % (unit, difft)
+
+            self.label_crosshairpos.setText(display_string)
+        except Exception as e:
+            print('Failed updating crosshair position: %s' % e)
+
+    def get_roi(self):
+        """
+        Pixel positions of the edges of the rectangle bound by the crosshairs
+        :return: 4-tuple of integers. left, right, top, and bottom edges
+        """
+        assert hasattr(self, 'CrossHair1')
+        assert hasattr(self, 'CrossHair2')
+
+        pos1 = self.CrossHair1.referenced_pos()
+        pos2 = self.CrossHair2.referenced_pos()
+        if pos1 == pos2:
+            return None
+
+        min_x, max_x = [int(x) for x in (min(pos1[0], pos2[0]), max(pos1[0], pos2[0]))]
+        min_y, max_y = [int(x) for x in (min(pos1[1], pos2[1]), max(pos1[1], pos2[1]))]
+
+        return min_x, max_x, min_y, max_y
 
 
 class TomographyDisplay(ExtendedImageView):
