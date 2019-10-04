@@ -2,7 +2,7 @@
 
 from nplab.utils.gui import get_qt_app, QtGui, QtCore, QtWidgets, uic
 from nplab.utils.show_gui_mixin import ShowGUIMixin
-from nplab.instrument.camera.camera_scaled_roi import DisplayWidgetRoiScale
+from nplab.instrument.camera.camera_scaled_roi import DisplayWidgetRoiScale, ArbitraryAxis, Crosshair
 import numpy as np
 import pyqtgraph as pg
 import os
@@ -26,14 +26,22 @@ class myROI(pg.PolyLineROI):
         return selection
 
 
-class AutolevelingImageView(pg.ImageView):
+class ExtendedImageView(pg.ImageView):
     """
     Extension of the pyqtgraph ImageView so that it's possible to put percentile levels instead of playing around with
     the histogram. Also adds the possibility of normalising each image when given a 3D array, instead of normalising to
     the maximum of the whole array.
     """
     def __init__(self, *args, **kwargs):
-        super(AutolevelingImageView, self).__init__(*args, **kwargs)
+        self.axis_values = dict(bottom=None, left=None, top=None, right=None)
+        self.axis_units = dict(bottom=None, left=None, top=None, right=None)
+        kwargs['view'] = pg.PlotItem(axisItems=dict(bottom=ArbitraryAxis(orientation="bottom"),
+                                                    left=ArbitraryAxis(orientation="left"),
+                                                    top=ArbitraryAxis(orientation="top"),
+                                                    right=ArbitraryAxis(orientation="right")))
+        super(ExtendedImageView, self).__init__(*args, **kwargs)
+        self.imageItem.axisOrder = 'row-major'
+
         self.level_percentiles = None
 
         # Setting up the autoleveling GUI
@@ -52,6 +60,23 @@ class AutolevelingImageView(pg.ImageView):
         self.tools.checkbox_tools.stateChanged.connect(self.show_tools)
         self.tools.checkbox_aspectratio.stateChanged.connect(
             lambda: self.view.setAspectLocked(self.tools.checkbox_aspectratio.isChecked()))
+        self.tools.checkbox_axes.stateChanged.connect(self.hide_axes)
+
+    def get_axes(self):
+        """Returns the AxisItems"""
+        axes_dict = self.getView().axes
+        names = ["bottom", "left", "top", "right"]  # Ensures its always in the same order
+        axs = [axes_dict[name]['item'] for name in names]
+        return axs
+
+    def hide_axes(self):
+        boolean = self.tools.checkbox_axes.isChecked()
+        if boolean:
+            for ax in self.get_axes():
+                ax.hide()
+        else:
+            for ax in self.get_axes():
+                ax.show()
 
     def show_tools(self):
         boolean = self.tools.checkbox_tools.isChecked()
@@ -64,9 +89,15 @@ class AutolevelingImageView(pg.ImageView):
             self.ui.roiBtn.hide()
             self.ui.menuBtn.hide()
 
+    def roiClicked(self):
+        """Ensures that the new widget in the splitter is displayed"""
+        super(ExtendedImageView, self).roiClicked()
+        if self.hasTimeAxis() and not self.ui.roiBtn.isChecked():
+            self.ui.splitter.setSizes([self.height()-70, 35, 35])
+
     def buildMenu(self):
         """Adds an action to the existing pyqtgraph.ImageView menu to toggle the visibility of the new GUI"""
-        super(AutolevelingImageView, self).buildMenu()
+        super(ExtendedImageView, self).buildMenu()
         self.levelAction = QtWidgets.QAction("Autolevel", self.menu)
         self.levelAction.setCheckable(True)
         self.levelAction.toggled.connect(lambda boolean: self.levelGroup.setVisible(boolean))
@@ -74,7 +105,7 @@ class AutolevelingImageView(pg.ImageView):
 
     def getProcessedImage(self):
         """Checks if we want to autolevel for each image and does it"""
-        image = super(AutolevelingImageView, self).getProcessedImage()
+        image = super(ExtendedImageView, self).getProcessedImage()
         if self.levelGroup.checkbox_singleimagelevel.isChecked() and self.hasTimeAxis():
             cur_image = image[self.currentIndex]
             self.levelMin, self.levelMax = self._percentile(cur_image, self.level_percentiles)
@@ -122,7 +153,7 @@ class AutolevelingImageView(pg.ImageView):
         return levelmin, levelmax
 
 
-class TomographyDisplay(AutolevelingImageView):
+class TomographyDisplay(ExtendedImageView):
     def __init__(self, data, wavelength, *args, **kwargs):
         super(TomographyDisplay, self).__init__(*args, **kwargs)
         self.wavelength = wavelength
