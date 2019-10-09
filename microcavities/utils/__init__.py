@@ -85,7 +85,8 @@ def yaml_loader(input_yaml):
     :return:
     """
     if isinstance(input_yaml, str):
-        output_yaml = yaml.full_load(open(input_yaml, 'r'))
+        with open(input_yaml, 'r') as yaml_file:
+            output_yaml = yaml.full_load(yaml_file)
     elif isinstance(input_yaml, dict):
         output_yaml = input_yaml
     elif isinstance(input_yaml, file):
