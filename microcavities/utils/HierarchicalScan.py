@@ -49,7 +49,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
         full_yaml = yaml_loader(settings_yaml)
 
         self.settings_yaml = full_yaml
-        print(full_yaml)
+
         logger_name = "HierarchicalScan"
         if "logger_name" in full_yaml:
             logger_name = full_yaml["logger_name"]
@@ -483,12 +483,13 @@ class AnalysisScan(HierarchicalScan):
         full_yaml = yaml_loader(settings_yaml)
         self.analysis_yaml = full_yaml
 
+        # Sometimes you want to let the analysis figure out on its own what the variables are, instead of reading them
+        # from the yaml (if you've lost the yaml for example)
         if 'variables' in self.analysis_yaml:
             passing_yaml = full_yaml
         else:
             passing_yaml = dict(variables=[])
-        super(AnalysisScan, self).__init__(passing_yaml,
-                                           logger_name="AnalysisScan", **kwargs)
+        super(AnalysisScan, self).__init__(passing_yaml, logger_name="AnalysisScan", **kwargs)
 
         self.save_type = 'HDF5'
         if "save_type" in self.settings_yaml:
@@ -500,10 +501,6 @@ class AnalysisScan(HierarchicalScan):
             elif 'raw_data_file' in self.analysis_yaml:
                 self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
 
-        # if 'experiment_yaml_path' not in self.analysis_yaml:
-        if 'variables' not in self.analysis_yaml:
-            self.extract_hierarchy()
-
         self.analysed_data = OrderedDict()
         if "analysis_functions" in self.analysis_yaml:
             self.analysis_functions = self.analysis_yaml["analysis_functions"]
@@ -514,9 +511,6 @@ class AnalysisScan(HierarchicalScan):
                 self.analysis_functions += [dict(function_name='raw_%s' % dataname, data_name=dataname)]
         else:
             raise RuntimeError("Neither analysis_functions or measurements were provided in the yaml")
-
-        if isinstance(self.analysis_functions, list):
-            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
 
     def get_data(self, file_name):
         if DRY_RUN:
@@ -534,6 +528,10 @@ class AnalysisScan(HierarchicalScan):
         return data, attrs
 
     def run(self, level=0):
+        if 'variables' not in self.analysis_yaml:
+            self.extract_hierarchy()
+        if isinstance(self.analysis_functions, list):
+            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
         self.analysed_data = OrderedDict()
         super(AnalysisScan, self).run(level)
         self.analysed_data = self._reshape_results(self.analysed_data)
@@ -598,13 +596,16 @@ class AnalysisScan(HierarchicalScan):
 
         :return:
         """
-        if 'series_name' in self.analysis_yaml:
-            self.series_name = self.analysis_yaml['series_name']
-        elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
-            self.series_name = list(self.HDF5.keys())[0]
-        else:
-            raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data file with '
-                             'just one key at the top level, or a series_name')
+        if self.series_name == 'DefaultSeriesName':
+            reply = pymsgbox.confirm('The series name is DefaultSeriesName. Is that what you want?')
+            if reply == 'Cancel':
+                if 'series_name' in self.analysis_yaml:
+                    self.series_name = self.analysis_yaml['series_name']
+                elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
+                    self.series_name = list(self.HDF5.keys())[0]
+                else:
+                    raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data'
+                                     'file with just one key at the top level, or a series_name in the')
         self.variables = OrderedDict()
         self._extract_hierarchy(self.series_name)
 
