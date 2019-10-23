@@ -9,8 +9,28 @@ from lmfit.models import LorentzianModel, ConstantModel
 import pyqtgraph as pg
 import pymsgbox
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
 LOGGER = create_logger("analysis_functions")
+
+
+cdict = {'red': [(0.0, 0.0, 1.0),
+                 (0.25, 0.0, 0.0),
+                 (0.5, 1.0, 1.0),
+                 (0.75, 1.0, 1.0),
+                 (1.0, 0.0, 0.0)],
+         'green': [(0.0, 0.0, 1.0),
+                   (0.25, 0.4, 0.4),
+                   (0.5, 1.0, 1.0),
+                   (0.75, 0.0, 0.0),
+                   (1.0, 0.0, 0.0)],
+         'blue': [(0.0, 1.0, 1.0),
+                  (0.25, 0.0, 0.0),
+                  (0.5, 0.0, 0.0),
+                  (0.75, 0.0, 0.0),
+                  (1.0, 0.0, 0.0)]}
+mycmap = LinearSegmentedColormap('Michael', cdict, 256)
+plt.register_cmap(cmap=mycmap)
 
 
 def gui_checkplot():
@@ -55,7 +75,7 @@ def find_smooth_region(data, threshold=0.1):
     return boundaries, data[boundaries[0]:boundaries[1]]
 
 
-def guess_peak(data):
+def guess_peak(data, xaxis=None):
 
     # if x is None:
     #     x = np.arange(len(data))
@@ -64,17 +84,20 @@ def guess_peak(data):
     # model = LorentzianModel() + ConstantModel()
 
     # Guessing initial parameters for a fit
-    center = np.argmax(data)
+    if xaxis is None:
+        xaxis = list(range(len(data)))
+    center_idx = np.argmax(data)
+    center = xaxis[center_idx]
     bkg = np.percentile(data, 10)  # np.mean(data[10:100])
 
-    minima = np.argsort(np.abs(data - bkg - (data[center] - bkg) / 2))
+    minima = np.argsort(np.abs(data - bkg - (data[center_idx] - bkg) / 2))
     minimum_1 = minima[0]
     for dum in minima[1:]:
         if np.abs(dum - minimum_1) > 5:
             minimum_2 = dum
             break
-    width = np.abs(minimum_1 - minimum_2) / 2
-    ampl = np.pi * width * (data[center] - bkg)
+    width = np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2
+    ampl = np.pi * width * (data[center_idx] - bkg)
 
     return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
 
@@ -180,6 +203,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         energy_axis = np.arange(image.shape[1])
 
     fitted_k0_pixel = find_k0(image)
+    LOGGER.debug('Center pixel: %d' % fitted_k0_pixel)
 
     x_pixels = np.arange(image.shape[0])
     if k_axis is None or isinstance(k_axis, float):
@@ -191,31 +215,28 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     else:
         k0_idx = int(np.argmin(np.abs(k_axis)))
         if np.abs(k0_idx - fitted_k0_pixel) > 3:
-            LOGGER.warn(
-                "Fitted bottom of the dispersion occurs at k=%g not at k=0" %
-                k_axis[fitted_k0_pixel])
-
+            LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % k_axis[int(fitted_k0_pixel)])
     mass = find_mass(image, energy_axis, k_axis, plotting)
 
-    k0_spectra = image[k0_idx + 20]
+    k0_spectra = image[k0_idx]
     model = LorentzianModel() + ConstantModel()
-    my_guess = guess_peak(k0_spectra)
-    params_guess = model.make_params(sigma=my_guess['sigma'],
-                                     center=my_guess['center'],
-                                     amplitude=my_guess['amplitude'],
-                                     c=my_guess['background'])
+    my_guess = guess_peak(k0_spectra, energy_axis)
+    params_guess = model.make_params(sigma=my_guess['sigma'], center=my_guess['center'],
+                                     amplitude=my_guess['amplitude'], c=my_guess['background'])
     result = model.fit(k0_spectra, params_guess, x=energy_axis)
 
     if plotting:
         fig, axs = plt.subplots(1, 2, figsize=(7, 6))
-        axs[0].imshow(image.transpose())
+        vmin = np.percentile(image, 0.1)
+        vmax = np.percentile(image, 99.9)
+        axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
         axs[1].plot(energy_axis, k0_spectra)
         axs[1].plot(energy_axis, result.init_fit)
         axs[1].plot(energy_axis, result.best_fit)
         gui_checkplot()
 
-    energy = result.best_values['center']
-    lifetime = hbar / result.best_values['sigma']
+    energy = result.best_values['center'] * 1e-3  # energy_axis[int(result.best_values['center'])]
+    lifetime = hbar / (2 * result.best_values['sigma'])
 
     results = (energy, lifetime, mass)
     args = ()  # (k_axis, energy_axis, plotting, known_sample_parameters)

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-
+import yaml
 
 def depth(lst):
     """
@@ -11,7 +11,7 @@ def depth(lst):
     :param lst: list or list of lists
     :return: int. Depth of the list of lists provided
     """
-    return isinstance(lst, list) and max(map(depth, lst)) + 1
+    return isinstance(lst, list) and max(list(map(depth, lst))) + 1
 
 
 def run_once(f):
@@ -22,7 +22,7 @@ def run_once(f):
     :return:
     """
     def wrapper(*args, **kwargs):
-        if args[1] not in wrapper.dicc.keys():
+        if args[1] not in list(wrapper.dicc.keys()):
             wrapper.dicc[args[1]] = False
         if not wrapper.dicc[args[1]]:
             wrapper.dicc[args[1]] = True
@@ -53,7 +53,7 @@ def is_prime(integer):
     :param integer: int
     :return: bool. True if a is prime, False otherwise
     """
-    return all(integer % i for i in xrange(2, integer))
+    return all(integer % i for i in range(2, integer))
 
 
 def square(integer, _iter=0):
@@ -76,3 +76,22 @@ def square(integer, _iter=0):
         return square(integer, _iter + 1)
     else:
         return np.max([int(a), int(integer / a)]), np.min([int(a), int(integer / a)])
+
+
+def yaml_loader(input_yaml):
+    """Parsing for creating dictionaries from yaml file paths, files, or dictionaries
+
+    :param input_yaml:
+    :return:
+    """
+    if isinstance(input_yaml, str):
+        with open(input_yaml, 'r') as yaml_file:
+            output_yaml = yaml.full_load(yaml_file)
+    elif isinstance(input_yaml, dict):
+        output_yaml = input_yaml
+    elif isinstance(input_yaml, file):
+        output_yaml = yaml.full_load(input_yaml)
+    else:
+        raise TypeError("yaml type cannot be %s. Needs to be str, dict or file" % type(input_yaml))
+
+    return output_yaml

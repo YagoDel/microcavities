@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from scipy.integrate import odeint, complex_ode, ode
+from scipy.integrate import odeint, complex_ode, ode, RK45, OdeSolver
 import h5py, time, warnings
 import matplotlib.pyplot as plt
 
@@ -291,3 +291,97 @@ class SolverBaseClass:
             if plt.fignum_exists(self.figure.number):
                 plt.draw()
                 plt.pause(0.1)
+
+
+class PlottingMixin(object):
+    def __init__(self, analysis_func=None, plotting_step=10):
+        super(PlottingMixin, self).__init__()
+
+        if analysis_func is not None:
+            self.plotting = True
+        self.analysis_function = analysis_func
+        self.plotting_step = plotting_step
+
+    def plot(self, values=None):
+        if not self.plotting:
+            return
+        if not self.t % self.plotting_step == 0:
+            return
+        if values is None:
+            values = self.values
+        for realisation in range(self.solver_parameters['realisations']):
+            self.figure = None
+            if self.figure is None:
+                first_time = True
+                self.figure, self.axes = plt.subplots(*self.plotting_parameters['SubplotShape'])
+                if not hasattr(self.axes, '__iter__'):
+                    self.axes = (self.axes,)
+
+                if len(self.axes) != len(self.plotting_parameters['Plot']):
+                    self.axes = map(lambda x: (x, ), self.axes)
+                    positions = ()
+                    for plot in self.plotting_parameters['Plot']:
+                        if plot['Position'] in positions:
+                            self.axes[plot['Position']] += (self.axes[plot['Position']][0].twinx(),)
+                        else:
+                            positions += (plot['Position'], )
+            else:
+                first_time = False
+
+
+            plot_values = self.equations.to_plot([val[realisation] for val in values])
+            indices = [0] * np.prod(self.plotting_parameters['SubplotShape'])
+            self.lines = [(),] * np.prod(self.plotting_parameters['SubplotShape'])
+            for plot in self.plotting_parameters['Plot']:
+                index = plot['Position']
+                ax = self.axes[index][indices[index]]
+                line = getattr(ax, plot['Function'])(plot_values[np.sum(indices)], *plot['args'], **plot['kwargs'])
+                self.lines[index] += (line[0],)
+                for tl in ax.get_yticklabels():
+                    tl.set_color(plot['kwargs']['color'])
+                indices[index] += 1
+            if first_time:
+                index = 0
+                for ax in self.axes:
+                    if 'xlabels' in self.plotting_parameters:
+                        ax[0].set_xlabel(self.plotting_parameters['xlabels'][index])
+                    if 'ylabels' in self.plotting_parameters:
+                        ax[0].set_ylabel(self.plotting_parameters['ylabels'][index])
+                    if 'titles' in self.plotting_parameters:
+                        ax[0].set_title(self.plotting_parameters['titles'][index])
+
+                    labels = [l.get_label() for l in self.lines[index]]
+                    ax[-1].legend(self.lines[index], labels, bbox_to_anchor=(0.2, 1.1))
+                    index += 1
+            if plt.fignum_exists(self.figure.number):
+                plt.draw()
+                plt.pause(0.1)
+
+
+class FixedStepRK(RK45):
+    def __init__(self, step_size=0.1, *args, **kwargs):
+        super(FixedStepRK, self).__init__(*args, **kwargs)
+
+        self.h_abs = step_size
+        self.max_step = step_size
+        # if analysis_func is not None:
+        #     self.plotting = True
+        #     self.analysis_function = analysis_func
+
+params = {'Same-spin nonlinearity': 0, 'Same-spin reservoir nonlinearity': 0, 'Pump': 0, 'Pump nonlinearity': 0,
+          'Condensation rate': 0, 'Saturation': 0, 'polariton_decay': 0, 'exciton_decay': 0}
+
+def ScalarNoReservoir(t, psi, **parameters):
+    nonlin = parameters['Same-spin nonlinearity'] * np.abs(psi[0]) ** 2 + \
+             parameters['Same-spin reservoir nonlinearity'] * psi[1] + \
+             parameters['Pump'] * parameters['Pump nonlinearity']
+    gain = 0.5 * (parameters['Condensation rate'] * psi[1] - parameters['Saturation'] * np.abs(psi[1]) ** 2 -
+                  parameters['polariton_decay'])
+
+    condensate = (gain - 1j * nonlin) * psi[0]
+    reservoir = parameters['Pump'] - parameters['exciton_decay'] * psi[1] - \
+                psi[1] * (parameters['Condensation rate'] * np.abs(psi[0]) ** 2)
+
+    return np.array([condensate, reservoir])
+
+# USE THE SCIPY EVENTS OPTION FOR PLOTTING
