@@ -80,7 +80,7 @@ def open_images(directory, smooth=False):
 
 
 # Fitting program for k-filtered, spatial images on the streak
-class FittingLinear(object, ShowGUIMixin):
+class FittingLinear(ShowGUIMixin):
     def __init__(self, images, masks=None):
         super(FittingLinear, self).__init__()
         self._original_shape = images.shape
@@ -203,7 +203,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
             lvl = np.max(np.abs([np.percentile(img, 5), np.percentile(img, 95)]))
             self.ImageDisplay.getHistogramWidget().setLevels(-lvl, lvl)
         except Exception as e:
-            print e
+            print(e)
             raise e
 
     def new_image(self):
@@ -235,7 +235,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
                 if breaker < self.object.fits.shape[0]:
                     self.next_image(breaker+1)
                 else:
-                    print "You've saved everything"
+                    print("You've saved everything")
 
     def prev_image(self):
         # print "Previous image"
@@ -266,7 +266,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
             # # self.fl.fits[tuple(self.image_indxs)] = slopes
             # print 'Saved: ', self.image_indxs
         except Exception as e:
-            print 'Failed saving: ', e
+            print('Failed saving: ', e)
 
     @staticmethod
     def _select_array(array, indxs):
@@ -298,7 +298,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
         try:
             self.next_image()
         except Exception as e:
-            print e
+            print(e)
             raise e
         self.fit()
 
@@ -339,7 +339,7 @@ class FittingLinearUi(QtWidgets.QMainWindow):
 
 
 # Fitting program for linear wavefronts (thresholding)
-class FittingWavefronts(object, ShowGUIMixin):
+class FittingWavefronts(ShowGUIMixin):
     def __init__(self, images, backgrounds=None, image_graphics_settings=None):
         super(FittingWavefronts, self).__init__()
         self.images = images
@@ -772,7 +772,7 @@ class FittingWavefrontsUi(QtWidgets.QMainWindow):
                     self.fitting_instance.fits[indices] = np.nan
                     self.fitting_instance.thresholds[indices] = np.nan
         except Exception as e:
-            print 'Failed saving: ', e
+            print('Failed saving: ', e)
 
     def proceed(self):
         """Convenience function for quickly proceeding through a dataset"""

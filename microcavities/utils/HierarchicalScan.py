@@ -129,7 +129,7 @@ class HierarchicalScan(object):
     @staticmethod
     def save_array(name, array, save_type):
         if DRY_RUN:
-            print 'Save array: ', name, array, save_type
+            print('Save array: ', name, array, save_type)
             return
         if save_type == 'npy':
             np.save(name, array)
@@ -139,7 +139,7 @@ class HierarchicalScan(object):
     @staticmethod
     def load_array(name, save_type):
         if DRY_RUN:
-            print 'Loading array: ', name, save_type
+            print('Loading array: ', name, save_type)
             return
         if save_type == 'npy':
             array = np.load(name)
@@ -193,7 +193,7 @@ class HierarchicalScan(object):
             self.folder_name = [self.series_name]
 
         if level < len(self.variables):
-            name, values = self.variables.items()[level]
+            name, values = list(self.variables.items())[level]
             self._logger.debug('Iterating %s' % name)
             level += 1
             for value in values:
@@ -506,7 +506,7 @@ class AnalysisScan(HierarchicalScan):
         self._reshape_results()
 
         if 'save_path' in self.analysis_yaml:
-            print self.analysis_yaml['save_path']
+            print(self.analysis_yaml['save_path'])
             h5file = df.DataFile(self.analysis_yaml['save_path'])
             for name, data in self.analysed_data.items():
                 self._logger.debug('Creating dataset %s %s %s' % (name, data.shape, data.dtype))
@@ -638,7 +638,7 @@ class AnalysisScan(HierarchicalScan):
         :return:
         """
         assert self.save_type == 'HDF5'
-        keys = self.HDF5[level_name].keys()
+        keys = list(self.HDF5[level_name].keys())
         keys.sort(key=SortingKey)
         return [level_name + '/' + key for key in keys]
 
@@ -691,7 +691,7 @@ class AnalysisScan(HierarchicalScan):
 
 def call_dictionary(obj, dictionary):
     if DRY_RUN:
-        print "call_dictionary: %s %s" % (obj, dictionary)
+        print("call_dictionary: %s %s" % (obj, dictionary))
         return 1
 
     if 'name' in dictionary and dictionary['name'] == 'repeat':

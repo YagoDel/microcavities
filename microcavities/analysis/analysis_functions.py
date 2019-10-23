@@ -255,7 +255,7 @@ class roi2d_GUI(QtWidgets.QMainWindow):
         self.rois = []
 
     def _make_single_ROI(self, pen):
-        print "ROI type: ", self.comboBox_roitype.text()
+        print("ROI type: ", self.comboBox_roitype.text())
         if self.comboBox_roitype.text() == 'Square':
             roi = pg.ROI([50, 10], [3, 3], pen=pen)
             roi.addScaleHandle([1, 0.5], [0.5, 0.5])
@@ -296,7 +296,7 @@ class roi2d_GUI(QtWidgets.QMainWindow):
         self.graphicsView.setImage(self.images[self._index])
 
 
-class roi2d(object, ShowGUIMixin):
+class roi2d(ShowGUIMixin):
     def __init__(self, images):
         super(roi2d, self).__init__()
 
