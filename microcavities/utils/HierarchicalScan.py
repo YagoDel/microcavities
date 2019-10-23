@@ -41,6 +41,16 @@ class HierarchicalScan(ExperimentWithProgressBar):
     The user may re-implement self.iteration_function, self.final_function, and self.abort_scan
     """
     def __init__(self, settings_yaml, **kwargs):
+        """
+
+        :param settings_yaml: yaml with at least the following keys
+            - logger_name (opt)
+            - logger_level (opt)
+            - series_name (opt)
+            - email_when_done (opt)
+            - variables (required)
+        :param kwargs:
+        """
         super(HierarchicalScan, self).__init__()
 
         self.variables = OrderedDict()
@@ -72,7 +82,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
             if 'email' in full_yaml:
                 self.email_address = full_yaml['email']
             else:
-                self.email_address = pymsgbox.prompt('Message box!', 'Title')
+                self.email_address = pymsgbox.prompt('What email do you want to notify?', 'Email')
                 if self.email_address is None:
                     self.email_when_done = False
 
@@ -128,6 +138,15 @@ class HierarchicalScan(ExperimentWithProgressBar):
             return
         if save_type == 'npy':
             np.save(name, array)
+        elif save_type == 'HDF5':
+            with h5py.File(name[0]) as data_file:
+                data_file.create_dataset(name[1], array.shape, array.dtype, array)
+        # elif save_type == 'local':
+        #     name = file_name.split('/')[-1]
+        #     if name in self.results:
+        #         self.results[name] += [array]
+        #     else:
+        #         self.results[name] = [array]
         else:
             np.savetxt(name + '.' + save_type, array)
 
@@ -137,12 +156,15 @@ class HierarchicalScan(ExperimentWithProgressBar):
             print('Loading array: ', name, save_type)
             return
         if save_type == 'npy':
-            array = np.load(name)
+            return np.load(name)
+        elif save_type == 'HDF5':
+            with h5py.File(name[0]) as data_file:
+                array = data_file[name[1]][...]
+            return array
         elif save_type == 'streak':
-            array = open_image(name + '.tif')[0]
+            return open_image(name + '.tif')[0]
         else:
-            array = np.loadtxt(name + '.' + save_type)
-        return array
+            return np.loadtxt(name + '.' + save_type)
 
     def iteration_function(self, level, name, value):
         """Function that runs at each level of the scan. Needs overwriting
@@ -167,9 +189,13 @@ class HierarchicalScan(ExperimentWithProgressBar):
         self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
         super(HierarchicalScan, self).run_modally(*args, **kwargs)
 
-    def run(self, level=0):
+    def run(self):
+        """Starts the recursive iteration, timing it and emailing when done
+
+        :return:
+        """
         t0 = time.time()
-        self._iterate(level)
+        self._iterate(level=0)
         total_time = time.time() - t0
         self._logger.info("Scan finished after %s" % datetime.timedelta(seconds=total_time))
         if self.email_when_done:
@@ -179,14 +205,19 @@ class HierarchicalScan(ExperimentWithProgressBar):
                               datetime.timedelta(seconds=total_time)))
 
     def abort_scan(self):
+        """Utility function to abort HierarchicalScan
+
+        :return: bool. If True, the scan will be aborted at the next iteration.
+        """
         return False
 
     def _iterate(self, level):
-        """
-        Recursive function to iterate over a hierarchical dataset. Given an input level, it will either perform analysis
-        on it, or perform recursion over it's sublevels
+        """Utility function to recursively iterate over a hierarchy of variables
 
-        :param level: level over which you want to act
+        Given an input level, if there are sublevels, it will call self.iteration_function on each of the sublevels and
+        then call self._iterate on those sublevels. If there are no sublevels, it will call self.final_function
+
+        :param level: int. level over which to iterate
         :return:
         """
         if level == 0:
@@ -321,18 +352,10 @@ class ExperimentScan(HierarchicalScan):
                     measurement = yaml.full_load(str(measurement).replace("scan_file_name", file_name))
                     instr = self.instr_dict[measurement['instrument']]
 
-                    # if 'repeat' in measurement and measurement['repeat'] > 1:
-                    #     for idx in range(measurement['repeat']):
-                    #         data = call_dictionary(instr, measurement)
-                    #         self.pyqt_app.processEvents()
-                    #         if 'save' in measurement and measurement['save']:
-                    #             self.save(data, file_name + str(idx), measurement)
-                    # else:
                     data = call_dictionary(instr, measurement)
                     self.pyqt_app.processEvents()
                     if 'save' in measurement and measurement['save']:
                         self.save(data, file_name, measurement)
-
                 else:
                     self._logger.warn('Measurement is an empty dictionary: %s' % measurement)
 
@@ -413,7 +436,7 @@ class ExperimentScan(HierarchicalScan):
         else:
             return False
 
-    def run(self, level=0):
+    def run(self):
         # Ensures that the scan pause and abort options are False
         if not DRY_RUN:
             for button, value in zip(['Abort', 'Play'], [False, True]):
@@ -445,7 +468,7 @@ class ExperimentScan(HierarchicalScan):
             # if self.instr_dict["HDF5"] is None:
             #     self.gui.menuNewExperiment()
 
-        super(ExperimentScan, self).run(level)
+        super(ExperimentScan, self).run()
 
         if not DRY_RUN:
             if self.save_type == 'local':
@@ -527,13 +550,13 @@ class AnalysisScan(HierarchicalScan):
             attrs = {}
         return data, attrs
 
-    def run(self, level=0):
+    def run(self):
         if 'variables' not in self.analysis_yaml:
             self.extract_hierarchy()
         if isinstance(self.analysis_functions, list):
             self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
         self.analysed_data = OrderedDict()
-        super(AnalysisScan, self).run(level)
+        super(AnalysisScan, self).run()
         self.analysed_data = self._reshape_results(self.analysed_data)
 
         if 'save_path' in self.analysis_yaml:
@@ -702,12 +725,20 @@ class AnalysisScan(HierarchicalScan):
 
 
 def call_dictionary(obj, dictionary):
+    """Utility function to get/set properties or call functions
+
+    :param obj: object containing the properties/methods to be called
+    :param dictionary: dict. Keys should have one of either 'function' or 'property'. If 'function', can also provide
+    list (args) and named (kwargs) arguments to be passed when calling the method. If 'property' and 'value' given, the
+    property is set; otherwise it returns the value of the property
+    :return:
+    """
     if DRY_RUN:
         print("call_dictionary: %s %s" % (obj, dictionary))
         return 1
 
-    if 'name' in dictionary and dictionary['name'] == 'repeat':
-        return None
+    # if 'name' in dictionary and dictionary['name'] == 'repeat':
+    #     return None
 
     if 'function' in dictionary and 'property' in dictionary:
         raise ValueError("Provided a function and a property. Please provide only one.")
@@ -728,7 +759,7 @@ def call_dictionary(obj, dictionary):
         else:
             return getattr(obj, dictionary['property'])
     else:
-        raise ValueError
+        raise ValueError("Neither function nor property provided. Please provide only one.")
 
 
 if __name__ == "__main__":
