@@ -30,7 +30,7 @@ def dispersion_power_series(yaml_path, series_names, bkg=0):
     indxs = np.argmax(k0_img, 1)
     lims2 = [np.min(indxs)-40, np.max(indxs) + 40]
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-    axs[0].imshow(np.mean(np.log(dispersion_img[..., lims[0]:lims[1]]), 0).transpose(),  aspect='auto',
+    axs[0].imshow(np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose(),  aspect='auto',
                   extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims[1]], energy_axis[lims[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')

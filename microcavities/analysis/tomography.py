@@ -27,11 +27,16 @@ class myROI(pg.PolyLineROI):
 
 
 class TomographyDisplay(ExtendedImageView):
-    def __init__(self, data, wavelength, *args, **kwargs):
+    def __init__(self, data, wavelength=None, *args, **kwargs):
         super(TomographyDisplay, self).__init__(*args, **kwargs)
-        self.wavelength = wavelength
-        z_axis = spectrometer_calibration(wavelength=wavelength)
+
+        if wavelength is not None:
+            z_axis = spectrometer_calibration(wavelength=wavelength)
+        else:
+            z_axis = np.linspace(-1, 1, data.shape[0])
+        print(z_axis.shape)
         spectra = np.mean(data, (1, 2))
+        print(spectra.shape)
         self.imageItem.axisOrder = 'col-major'  # without this, the LineROIs don't select the right region (not sure why)
 
         self.setImage(data, xvals=z_axis)
@@ -57,7 +62,7 @@ class TomographyDisplay(ExtendedImageView):
             self.Im2D.setImage(img)
             self.Im2D.autoRange()
         except Exception as e:
-            print e
+            print(e)
 
 
 class Tomography(ShowGUIMixin):
@@ -76,9 +81,11 @@ class Tomography(ShowGUIMixin):
         scan = AnalysisScan(yaml_path)
         scan.run()
 
-        keys = scan.analysed_data.keys()
+        keys = list(scan.analysed_data.keys())
         images = scan.analysed_data[keys[0]]
-        data, attrs = scan.get_data(scan.get_random_group(scan.series_name))
+        rnd_grp = scan.get_random_group(scan.series_name)
+        data, attrs = scan.get_data(rnd_grp)
+        print(rnd_grp, data.shape)
         if 'x_axis' in attrs:
             xaxis = attrs['x_axis']
         else:
@@ -89,13 +96,32 @@ class Tomography(ShowGUIMixin):
             yaxis = np.linspace(-1, 1, data.shape[1])
         zaxis = list(scan.variables.items())[0][1]
 
-        self.images = np.swapaxes(images, 0, -1)
+        self.images = self.prepare_images(images)
 
         self.Im3D = None
         self.Im2D = None
 
-    def get_qt_ui(self):
-        return TomographyDisplay(self.images, 800)
+    def prepare_images(self, images):
+        return images
+
+    def get_qt_ui(self, wavelength=None):
+        return TomographyDisplay(self.images, wavelength)
+
+
+class SpectrometerTomography(Tomography):
+    def __init__(self, yaml_path):
+        super(SpectrometerTomography, self).__init__(yaml_path)
+
+    def prepare_images(self, images):
+        return np.swapaxes(images, 0, -1)
+
+
+class StreakTomography(Tomography):
+    def __init__(self, yaml_path):
+        super(StreakTomography, self).__init__(yaml_path)
+
+    def prepare_images(self, images):
+        return np.swapaxes(images, 0, 1)
 
 
 if __name__ == '__main__':
