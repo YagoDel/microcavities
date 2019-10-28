@@ -26,15 +26,27 @@ def dispersion_power_series(yaml_path, series_names, bkg=0):
     yaxis = (energy_axis - np.mean(k0_energy) * 1000) * 1000
 
     indx = np.argmin(np.abs(yaxis))
-    lims = [indx - 200, indx + 40]
+    lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
     indxs = np.argmax(k0_img, 1)
     lims2 = [np.min(indxs)-40, np.max(indxs) + 40]
+
+    condensate_img = np.mean(photolum[-1][:, -1, :, lims[0]:lims[1]], 0).transpose()
+    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
+    dispersion_img -= np.percentile(dispersion_img, 1)
+    condensate_img -= np.percentile(condensate_img, 1)
+    dispersion_img /= np.percentile(dispersion_img, 99.9)
+    condensate_img /= np.percentile(condensate_img, 99.9)
+
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-    axs[0].imshow(np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose(),  aspect='auto',
+    img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
+    axs[0].imshow(img, aspect='auto',
                   extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims[1]], energy_axis[lims[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
-    axs[0].text(0, energy_axis[lims[0] + 50], r'(%.4f $\pm$ %.4f) m$_e$' % (np.mean(masses), np.std(masses)), ha='center')
+    axs[0].text(0, energy_axis[lims[0] + 30], r'(%.4f $\pm$ %.4f) m$_e$' % (np.mean(masses), np.std(masses)),
+                ha='center', color='w')
+    axs[0].text(0, energy_axis[lims[0] + 42], 'Low power', ha='center', color='r')
+    axs[0].text(0, energy_axis[lims[0] + 54], 'High power', ha='center', color='g')
     axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
                                                                                    yaxis[lims2[1]],
                                                                                    yaxis[lims2[0]]])
@@ -76,7 +88,7 @@ def get_calibrated_mass(photolum):
     masses = []
     energies = []
     for img in dispersion_img:
-        results, args, kwargs = dispersion(img, k_axis, energy_axis, True)
+        results, args, kwargs = dispersion(img, k_axis, energy_axis, False)
         masses += [results[-1]]
         energies += [results[0]]
     masses = np.array(masses)
@@ -94,7 +106,6 @@ def get_k0_image(photolum, powers):
     xaxis = np.copy(powers[0])
     for indx in range(len(powers) - 1):
         overlap_index = np.sum(powers[indx + 1] <= np.max(powers[indx]))
-        # print(overlap_index)
         dummy2 = np.mean(np.copy(photolum[indx + 1][overlap_index:, k0 - 5:k0 + 5]), 1)
         dummy = np.concatenate((dummy, dummy2), 0)
         xaxis = np.concatenate((xaxis, powers[indx + 1][overlap_index:]))
@@ -122,15 +133,14 @@ def realspace_power_series(yaml_path, bkg=0):
     dummy = np.asarray([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data))], np.float)
     realspace = dummy - bkg
     emission = np.percentile(realspace, 99.9, (-2, -1))
-    powers = scan.variables['power_wheel_power'] * 1000
+    powers = np.array(scan.variables['power_wheel_power']) * 1000
 
     yval = np.mean(emission, 0)
     yerr = np.std(emission, 0)
 
     shp = realspace.shape
     figratio = shp[-2] / float(shp[-1])
-    print(figratio, shp)
-    fig = plt.figure(figsize=(8, 4*figratio))
+    fig = plt.figure(figsize=(8/figratio, 4))
     gs = gridspec.GridSpec(1, 2)
     gs_sub = gridspec.GridSpecFromSubplotSpec(2, 2, gs[0], hspace=0.01, wspace=0.01)
 
