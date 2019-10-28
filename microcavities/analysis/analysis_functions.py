@@ -96,7 +96,7 @@ def guess_peak(data, xaxis=None):
         if np.abs(dum - minimum_1) > 5:
             minimum_2 = dum
             break
-    width = np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2
+    width = np.min([np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2, 0.001])
     ampl = np.pi * width * (data[center_idx] - bkg)
 
     return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
