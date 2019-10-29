@@ -86,8 +86,6 @@ class HierarchicalScan(ExperimentWithProgressBar):
                 if self.email_address is None:
                     self.email_when_done = False
 
-        self.make_variables(full_yaml)
-
     def make_variables(self, yaml_file):
         for variable in yaml_file['variables']:
             if 'name' in variable:
@@ -195,6 +193,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
         :return:
         """
         t0 = time.time()
+        self.make_variables(self.settings_yaml)
         self._iterate(level=0)
         total_time = time.time() - t0
         self._logger.info("Scan finished after %s" % datetime.timedelta(seconds=total_time))
@@ -504,15 +503,8 @@ class AnalysisScan(HierarchicalScan):
     """
     def __init__(self, settings_yaml, **kwargs):
         full_yaml = yaml_loader(settings_yaml)
-        self.analysis_yaml = full_yaml
 
-        # Sometimes you want to let the analysis figure out on its own what the variables are, instead of reading them
-        # from the yaml (if you've lost the yaml for example)
-        if 'variables' in self.analysis_yaml:
-            passing_yaml = full_yaml
-        else:
-            passing_yaml = dict(variables=[])
-        super(AnalysisScan, self).__init__(passing_yaml, logger_name="AnalysisScan", **kwargs)
+        super(AnalysisScan, self).__init__(full_yaml, logger_name="AnalysisScan", **kwargs)
 
         self.save_type = 'HDF5'
         if "save_type" in self.settings_yaml:
@@ -521,15 +513,15 @@ class AnalysisScan(HierarchicalScan):
         if self.save_type == 'HDF5' and not DRY_RUN:
             if 'file_name' in self.settings_yaml:
                 self.HDF5 = h5py.File(self.settings_yaml['file_name'], 'r')
-            elif 'raw_data_file' in self.analysis_yaml:
-                self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
+            elif 'raw_data_file' in self.settings_yaml:
+                self.HDF5 = h5py.File(self.settings_yaml['raw_data_file'], 'r')
 
-        self.analysed_data = OrderedDict()
-        if "analysis_functions" in self.analysis_yaml:
-            self.analysis_functions = self.analysis_yaml["analysis_functions"]
-        elif "measurements" in self.analysis_yaml:
+        self.analysed_data = None
+        if "analysis_functions" in self.settings_yaml:
+            self.analysis_functions = self.settings_yaml["analysis_functions"]
+        elif "measurements" in self.settings_yaml:
             self.analysis_functions = []
-            for idx, measurement in enumerate(self.analysis_yaml['measurements']):
+            for idx, measurement in enumerate(self.settings_yaml['measurements']):
                 dataname = self.get_default_name(measurement)
                 self.analysis_functions += [dict(function_name='raw_%s' % dataname, data_name=dataname)]
         else:
@@ -551,17 +543,13 @@ class AnalysisScan(HierarchicalScan):
         return data, attrs
 
     def run(self):
-        if 'variables' not in self.analysis_yaml:
-            self.extract_hierarchy()
-        if isinstance(self.analysis_functions, list):
-            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
         self.analysed_data = OrderedDict()
         super(AnalysisScan, self).run()
         self.analysed_data = self._reshape_results(self.analysed_data)
 
-        if 'save_path' in self.analysis_yaml:
-            print(self.analysis_yaml['save_path'])
-            h5file = df.DataFile(self.analysis_yaml['save_path'])
+        if 'save_path' in self.settings_yaml:
+            self._logger.debug('Save path: %s' % self.settings_yaml['save_path'])
+            h5file = df.DataFile(self.settings_yaml['save_path'])
             for name, data in list(self.analysed_data.items()):
                 self._logger.debug('Creating dataset %s %s %s' % (name, data.shape, data.dtype))
                 h5file.create_dataset(name, data=data)
@@ -612,6 +600,14 @@ class AnalysisScan(HierarchicalScan):
                 else:
                     self.analysed_data[analysed_name] = [data]
 
+    def make_variables(self, yaml_file):
+        if 'variables' in yaml_file:
+            super(AnalysisScan, self).make_variables(yaml_file)
+        else:
+            self.extract_hierarchy()
+        if isinstance(self.analysis_functions, list):
+            self.analysis_functions = {'depth%d' % len(self.variables): self.analysis_functions}
+
     def extract_hierarchy(self):
         """Base call for the recursive iterator to get a file's hierarchy
 
@@ -622,8 +618,8 @@ class AnalysisScan(HierarchicalScan):
         if self.series_name == 'DefaultSeriesName':
             reply = pymsgbox.confirm('The series name is DefaultSeriesName. Is that what you want?')
             if reply == 'Cancel':
-                if 'series_name' in self.analysis_yaml:
-                    self.series_name = self.analysis_yaml['series_name']
+                if 'series_name' in self.settings_yaml:
+                    self.series_name = self.settings_yaml['series_name']
                 elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
                     self.series_name = list(self.HDF5.keys())[0]
                 else:
@@ -647,7 +643,8 @@ class AnalysisScan(HierarchicalScan):
         next_levels = self.next_levels(level_name)
         for level in next_levels:
             if not self.is_lowest_level(level):
-                last_level = level.split('/')[-1]
+                # last_level = level.split('/')[-1]
+                last_level = os.path.split(level)[-1]
                 name, value = re.findall(r'(.+)=(\d+(?:\.\d*)?(?:e[+-]\d+)?)', last_level)[0]
                 value = string_to_number(value)
                 self._logger.debug('Extracted variable and value: %s = %g' % (name, value))
@@ -661,7 +658,8 @@ class AnalysisScan(HierarchicalScan):
                 if var_name not in self.variables:
                     self.variables[var_name] = [value]
                 else:
-                    self.variables[var_name] += [value]
+                    if value not in self.variables[var_name]:
+                        self.variables[var_name] += [value]
 
                 self._extract_hierarchy(level)
 
@@ -672,15 +670,25 @@ class AnalysisScan(HierarchicalScan):
         :param level_name:
         :return:
         """
-        assert self.save_type == 'HDF5'
-        keys = list(self.HDF5[level_name].keys())
-        keys.sort(key=SortingKey)
-        return [level_name + '/' + key for key in keys]
+        if self.save_type == 'HDF5':
+            keys = list(self.HDF5[level_name].keys())
+            keys.sort(key=SortingKey)
+            return [level_name + '/' + key for key in keys]
+        elif self.save_type == 'streak':
+            directory = os.listdir(level_name)
+            directory.sort(key=SortingKey)
+            return [os.path.join(level_name, x) for x in directory]
+        else:
+            raise ValueError('Unrecognised save_type: %s' % self.save_type)
 
     def is_lowest_level(self, level_name):
         """Returns whether a level is a Dataset (True) or a Group (False)"""
-        assert self.save_type == 'HDF5'
-        return isinstance(self.HDF5[level_name], h5py.Dataset)
+        if self.save_type == 'HDF5':
+            return isinstance(self.HDF5[level_name], h5py.Dataset)
+        elif self.save_type == 'streak':
+            return os.path.isfile(level_name)
+        else:
+            raise ValueError('Unrecognised save_type: %s' % self.save_type)
 
     def get_random_group(self, level):
         """
