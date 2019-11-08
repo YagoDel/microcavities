@@ -2,10 +2,12 @@ center_wavelength: 800.0
 
 DBR1:
   refractive_indices: [3.5, 3.]
+#  refractive_indices: [[static_AlGaAs, 0], [static_AlGaAs, 1]]
   layers: 32
 
 DBR2:
   refractive_indices: [3., 3.5]
+#  refractive_indices: [[static_AlGaAs, 1], [static_AlGaAs, 0]]
   layers: 35
 
 cavity:

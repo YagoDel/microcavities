@@ -42,6 +42,16 @@ class Structure(object):
             self.d_list = self.d_list + [np.inf]
             self.n_list = self.n_list + [1]
 
+    def _refractive_index(self, refractive_index, wavelength=None):
+        """Parsing the different options for the values of refractive indices: a material name, a value, etc."""
+        if type(refractive_index) in [float, int, np.float64]:
+            return refractive_index
+        else:
+            import importlib
+            mymodule = importlib.import_module("microcavities.simulations.tmm.materials")
+            mat_func = getattr(mymodule, refractive_index[0])
+            return mat_func(*refractive_index[1:])
+
     def dispersion(self, polarisation='s',
                    min_angle=None, max_angle=None, n_angles=None,
                    min_wvl=None, max_wvl=None, n_wvls=None):
@@ -64,7 +74,8 @@ class Structure(object):
         for angle in self.angles:
             _R = []
             for wvl in self.wavelengths:
-                _R += [tmm.coh_tmm(polarisation, self.n_list, self.d_list, angle, wvl)['R']]
+                n_list = [self._refractive_index(x, wvl) for x in self.n_list]
+                _R += [tmm.coh_tmm(polarisation, n_list, self.d_list, angle, wvl)['R']]
             reflec += [_R]
         self.results['dispersion'] = np.array(reflec)
         self.results['dispersion_wavelengths'] = np.copy(self.wavelengths)
@@ -84,7 +95,8 @@ class Structure(object):
         self._pad_lists()
         reflec = []
         for wvl in self.wavelengths:
-            reflec += [tmm.coh_tmm(polarisation, self.n_list, self.d_list, 0, wvl)['R']]
+            n_list = [self._refractive_index(x, wvl) for x in self.n_list]
+            reflec += [tmm.coh_tmm(polarisation, n_list, self.d_list, 0, wvl)['R']]
         self.results['normal_incidence'] = np.array([self.wavelengths, reflec])
         return self.results['normal_incidence']
 
@@ -98,7 +110,8 @@ class Structure(object):
         """
         self._pad_lists()
         positions = np.linspace(0, np.sum(np.array(self.d_list)[1:-1]), n_points)
-        results = tmm.coh_tmm(polarisation, self.n_list, self.d_list, 0, wavelength)
+        n_list = [self._refractive_index(x, wavelength) for x in self.n_list]
+        results = tmm.coh_tmm(polarisation, n_list, self.d_list, 0, wavelength)
         electric_field = []
         refractive_index = []
         for pos in positions:
@@ -144,7 +157,7 @@ class DBR(Structure):
         assert not all([x is not None for x in [thicknesses, center_wavelength]])
         super(DBR, self).__init__()
 
-        refractive_indices = np.array(refractive_indices)  # to make use of distributive maths
+        refractive_indices = np.array([self._refractive_index(x) for x in refractive_indices])
         if thicknesses is None:
             thicknesses = center_wavelength / (4 * refractive_indices)
 
@@ -159,17 +172,6 @@ class DBR(Structure):
         return n_list, d_list
 
 
-def convert_refractive_index(something):
-    """Parsing the different options for the values of refractive indices: a material name, a value, etc."""
-    if type(something) in [float, int]:
-        return something
-    else:
-        import importlib
-        mymodule = importlib.import_module("microcavities.simulations.tmm.materials")
-        mat_func = getattr(mymodule, something[0])
-        return mat_func(*something[1:])
-
-
 class Microcavity(Structure):
     def __init__(self, structure_yaml):
         super(Microcavity, self).__init__()
@@ -178,12 +180,10 @@ class Microcavity(Structure):
         dbr1_kwargs = full_yaml['DBR1']
         if 'thicknesses' not in dbr1_kwargs and 'center_wavelength' not in dbr1_kwargs:
             dbr1_kwargs['center_wavelength'] = full_yaml['center_wavelength']
-        dbr1_kwargs['refractive_indices'] = [convert_refractive_index(x) for x in dbr1_kwargs['refractive_indices']]
 
         dbr2_kwargs = full_yaml['DBR2']
         if 'thicknesses' not in dbr2_kwargs and 'center_wavelength' not in dbr2_kwargs:
             dbr2_kwargs['center_wavelength'] = full_yaml['center_wavelength']
-        dbr2_kwargs['refractive_indices'] = [convert_refractive_index(x) for x in dbr2_kwargs['refractive_indices']]
         dbr1 = DBR(**dbr1_kwargs)
         dbr2 = DBR(**dbr2_kwargs)
 
@@ -192,9 +192,8 @@ class Microcavity(Structure):
         if 'thickness' not in cavity:
             if 'center_wavelength' not in cavity:
                 cavity['center_wavelength'] = full_yaml['center_wavelength']
-            n1 = dbr1_kwargs['refractive_indices'][0]
-            n2 = dbr1_kwargs['refractive_indices'][1]
-            n3 = cavity['refractive_index']
+            n1, n2 = [self._refractive_index(x) for x in dbr1_kwargs['refractive_indices']]
+            n3 = self._refractive_index(cavity['refractive_index'])
             l_dbr = (cavity['center_wavelength'] * n1 * n2) / (2 * n3 * (n1 - n2))
             cavity_thickness = np.abs(cavity['center_wavelength'] * cavity['fraction'] - l_dbr)
         else:
