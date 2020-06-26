@@ -92,6 +92,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
     def __init__(self, experiment, *args, **kwargs):
         # self._instr_dict = self._open_instruments()
         # super(ExperimentGUI, self).__init__(weakref.WeakValueDictionary(self._instr_dict), *args, **kwargs)
+        kwargs['terminal'] = True
         super(ExperimentGUI, self).__init__(experiment.instr_dict, *args, **kwargs)
 
         self.instrument_settings = experiment.instrument_settings
