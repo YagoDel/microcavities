@@ -7,8 +7,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 
+"""
+Utility functions that wrap underlying analysis functionality
+"""
 
-def dispersion_power_series(yaml_path, series_names, bkg=0):
+
+def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
@@ -20,7 +24,7 @@ def dispersion_power_series(yaml_path, series_names, bkg=0):
     """
     photolum, powers = get_dispersion_data(yaml_path, series_names, bkg)
 
-    masses, k0_energy, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum)
+    masses, k0_energy, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
     yaxis = (energy_axis - np.mean(k0_energy) * 1000) * 1000
@@ -72,15 +76,15 @@ def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(photolum):
+def get_calibrated_mass(photolum, wavelength=780):
     dispersion_img = np.copy(photolum[0][:, 0])
 
-    wvls = spectrometer_calibration(wavelength=780)
+    wvls = spectrometer_calibration(wavelength=wavelength)
     energy_axis = 1240 / wvls
 
     mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
     k0 = int(np.mean(list(map(find_k0, dispersion_img))))
-    k_axis = np.linspace(-200, 200, 400)
+    k_axis = np.linspace(-200, 200, 400)  # pixel units
     k_axis -= -200 + k0
     k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
     k_axis *= 1e-6  # converting to inverse micron
