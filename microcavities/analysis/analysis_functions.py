@@ -127,7 +127,7 @@ def find_k0(image):
     return fitted_k0_pixel
 
 
-def find_mass(image, energy, wavevector, plotting=False):
+def find_mass(image, energy, wavevector, plotting=False, return_fit=False):
     # Finding the mass (in physical units) by quadratically fitting the bottom
     # of the dispersion. We do not want to include high-k values in the fitting
     # so we limit the fitting to at most a 141 pixel wide region, which we
@@ -158,7 +158,10 @@ def find_mass(image, energy, wavevector, plotting=False):
         axs[0].imshow(image.transpose())
         axs[1].plot(wavevector, energies)
         axs[1].plot(fitting_x, np.poly1d(quad_fit)(fitting_x))
-    return mass
+    if return_fit:
+        return mass, quad_fit
+    else:
+        return mass
 
 
 def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
@@ -201,6 +204,8 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
 
     if energy_axis is None:
         energy_axis = np.arange(image.shape[1])
+    if known_sample_parameters is None:
+        known_sample_parameters = dict()
 
     fitted_k0_pixel = find_k0(image)
     LOGGER.debug('Center pixel: %d' % fitted_k0_pixel)
@@ -235,15 +240,37 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         axs[1].plot(energy_axis, result.best_fit)
         gui_checkplot()
 
-    energy = result.best_values['center'] * 1e-3  # energy_axis[int(result.best_values['center'])]
+    energy = result.best_values['center']  # * 1e-3  # energy_axis[int(result.best_values['center'])]
     lifetime = hbar / (2 * result.best_values['sigma'])
 
     results = (energy, lifetime, mass)
     args = ()  # (k_axis, energy_axis, plotting, known_sample_parameters)
     kwargs = dict(plotting=plotting)
 
+    if 'exciton_energy' in known_sample_parameters and 'rabi_splitting' in known_sample_parameters:
+        rabi = known_sample_parameters['rabi_splitting']
+        ex_energy = known_sample_parameters['exciton_energy']
+
+        cav_energy = energy + rabi**2 / (4 * (ex_energy - energy))
+        detuning = ex_energy - cav_energy
+        exciton_fraction, _ = hopfield_coefficients(rabi, detuning)
+        results += (detuning, exciton_fraction)
+
     return results, args, kwargs
 
+
+def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=None, photon_energy=None,
+                          exciton_mass=None, photon_mass=None, polariton_mass=None):
+    if rabi_splitting is not None:
+        if detuning is None:
+            detuning = exciton_energy - photon_energy
+        exciton_fraction = 0.5 * (1 + detuning / np.sqrt(detuning**2 + rabi_splitting**2))
+    elif exciton_mass is not None:
+        exciton_fraction = (exciton_mass * (photon_mass - polariton_mass)) / (polariton_mass * (photon_mass - exciton_mass))
+    else:
+        raise ValueError('Need to give either energies or masses')
+    photon_fraction = 1 - exciton_fraction
+    return exciton_fraction, photon_fraction
 
 # IMAGE ANALYSIS
 # Functions to be used on real- and k-space images
