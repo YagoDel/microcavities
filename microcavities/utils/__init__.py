@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import yaml
+from io import IOBase
+import os
+import datetime
+
 
 def depth(lst):
     """
@@ -89,9 +93,33 @@ def yaml_loader(input_yaml):
             output_yaml = yaml.full_load(yaml_file)
     elif isinstance(input_yaml, dict):
         output_yaml = input_yaml
-    elif isinstance(input_yaml, file):
+    elif isinstance(input_yaml, IOBase):
         output_yaml = yaml.full_load(input_yaml)
     else:
         raise TypeError("yaml type cannot be %s. Needs to be str, dict or file" % type(input_yaml))
 
     return output_yaml
+
+
+def get_data_path(filename=None):
+    """Returns a path
+
+    Utility function for returning default file locations when working with different computers
+    Looks inside a settings.yaml that should be placed one level higher in the directories for default data directories
+
+    :param filename: by default points to an HDF5 file called raw_data.h5 inside a folder called year_month_day
+    :return:
+    """
+    yml_dict = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
+    computer_name = os.environ['COMPUTERNAME']
+    computer_names = yml_dict['data_directory'].keys()
+    if computer_name not in computer_names:
+        print('No default directory provided for the computer: %s. Using default home path' % computer_name)
+        directory = os.path.abspath(os.environ['HOMEPATH'])
+    else:
+        directory = yml_dict['data_directory'][computer_name]
+
+    if filename is None:
+        filename = os.path.join(datetime.date.today().strftime('%Y_%m_%d'), 'raw_data.h5')
+
+    return os.path.join(directory, filename)
