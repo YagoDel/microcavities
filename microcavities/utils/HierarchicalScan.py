@@ -16,6 +16,7 @@ import time
 import datetime
 import os
 import re
+import sys
 from collections import OrderedDict
 
 
@@ -508,10 +509,12 @@ class AnalysisScan(HierarchicalScan):
 
         # Sometimes you want to let the analysis figure out on its own what the variables are, instead of reading them
         # from the yaml (if you've lost the yaml for example)
-        if 'variables' in self.analysis_yaml:
-            passing_yaml = full_yaml
-        else:
-            passing_yaml = dict(variables=[])
+        passing_yaml = full_yaml
+        if 'variables' not in self.analysis_yaml:
+            passing_yaml['variables'] = []
+        #     full_yaml
+        # else:
+        #     passing_yaml = dict(variables=[])
         super(AnalysisScan, self).__init__(passing_yaml, logger_name="AnalysisScan", **kwargs)
 
         self.save_type = 'HDF5'
@@ -519,10 +522,24 @@ class AnalysisScan(HierarchicalScan):
             self.save_type = self.settings_yaml["save_type"]
 
         if self.save_type == 'HDF5' and not DRY_RUN:
+            file_name = None
             if 'file_name' in self.settings_yaml:
-                self.HDF5 = h5py.File(self.settings_yaml['file_name'], 'r')
+                file_name = self.settings_yaml['file_name']
             elif 'raw_data_file' in self.analysis_yaml:
-                self.HDF5 = h5py.File(self.analysis_yaml['raw_data_file'], 'r')
+                file_name = self.settings_yaml['raw_data_file']
+            if file_name is not None:
+                if os.path.isabs(file_name):
+                    self.HDF5 = h5py.File(file_name, 'r')
+                elif 'directory' in self.settings_yaml:
+                    self.HDF5 = h5py.File(os.path.join(self.settings_yaml['directory'], file_name), 'r')
+                else:
+                    if sys.platform == 'win32':
+                        directory = 'D:/'
+                    elif sys.platform == 'darwin':
+                        directory = '/Volumes/Samsung_T5'
+                    else:
+                        raise ValueError("Unrecognised platform. Can't automatically recognise default location")
+                    self.HDF5 = h5py.File(os.path.join(directory, file_name), 'r')
 
         self.analysed_data = OrderedDict()
         if "analysis_functions" in self.analysis_yaml:
