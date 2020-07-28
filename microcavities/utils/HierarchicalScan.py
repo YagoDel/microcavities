@@ -187,13 +187,16 @@ class HierarchicalScan(ExperimentWithProgressBar):
         self.progress_maximum = np.prod([len(x) for x in list(self.variables.values())])
         super(HierarchicalScan, self).run_modally(*args, **kwargs)
 
+    def prepare_run(self):
+        self.make_variables(self.settings_yaml)
+
     def run(self):
         """Starts the recursive iteration, timing it and emailing when done
 
         :return:
         """
         t0 = time.time()
-        self.make_variables(self.settings_yaml)
+        self.prepare_run()
         self._iterate(level=0)
         total_time = time.time() - t0
         self._logger.info("Scan finished after %s" % datetime.timedelta(seconds=total_time))
@@ -292,10 +295,7 @@ class ExperimentScan(HierarchicalScan):
         if not DRY_RUN:
             self.gui = gui
             self.gui.abortScan = False
-
         self.measurements = self.settings_yaml["measurements"]
-        if isinstance(self.measurements, list):
-            self.measurements = {'depth%d' % len(self.variables): self.measurements}
 
         self.save_type = 'HDF5'
         if "save_type" in self.settings_yaml:
@@ -434,6 +434,11 @@ class ExperimentScan(HierarchicalScan):
             return False
         else:
             return False
+
+    def prepare_run(self):
+        super(ExperimentScan, self).prepare_run()
+        if isinstance(self.measurements, list):
+            self.measurements = {'depth%d' % len(self.variables): self.measurements}
 
     def run(self):
         # Ensures that the scan pause and abort options are False
