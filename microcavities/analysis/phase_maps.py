@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from scipy.signal import convolve
+from scipy.signal import convolve, fftconvolve
 from skimage.restoration import unwrap_phase
 from nplab.instrument.electronics.SLM import zernike_polynomial
 
@@ -107,3 +107,53 @@ def remove_vortex(phase_map, approximate_vortex_position=None):
         raise ValueError('There is a vortex and an antivortex equidistant from the approximate position')
 
     return unwrap_phase(phase_map - _theta), _theta
+
+
+def low_pass(image, cutoff=0.02, filter_order=4):
+    """Low pass radial Butterworth filter
+
+    https://en.wikipedia.org/wiki/Butterworth_filter
+
+    :param image:
+    :param cutoff:
+    :param filter_order:
+    :return:
+    """
+    _x = np.linspace(-1, 1, image.shape[0])
+    _y = np.linspace(-1, 1, image.shape[1])
+    _x, _y = np.meshgrid(_y, _x)
+    _r = np.sqrt(_x ** 2 + _y ** 2)
+    filter_kernel = 1 / np.sqrt(1 + (_r / cutoff) ** (2 * filter_order))
+
+    frequency_space = np.fft.fftshift(np.fft.fft2(image))
+    filtered = filter_kernel * frequency_space
+    real_space = np.fft.ifft2(filtered)
+    passed = np.abs(real_space) * np.sign(image)
+
+    return passed
+
+
+def remove_fringes(image, center_offset, sigma):
+    """
+
+    TODO: rather than completely remove the frequency peak, erode it onto the background
+    :param image:
+    :param center_offset:
+    :param sigma:
+    :return:
+    """
+    center_offset = np.array(center_offset)
+    sigma = np.array(sigma)
+    _xy = [np.arange(image.shape[idx]) for idx in range(2)[::-1]]
+    _x, _y = np.meshgrid(*_xy)
+    image_center = np.array([x/2 for x in image.shape[::-1]])
+    fltr = np.ones(image.shape)
+    for sign in [-1, 1]:
+        center = image_center + sign * center_offset
+        fltr -= np.exp(-((_x - center[0])**2)/(2*sigma[0]**2)-((_y - center[1])**2)/(2*sigma[1]**2))
+
+    frequency_space = np.fft.fftshift(np.fft.fft2(image))
+    filtered = fltr * frequency_space
+    real_space = np.fft.ifft2(filtered)
+    return np.abs(real_space) * np.sign(image)
+
