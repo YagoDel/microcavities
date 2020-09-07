@@ -12,7 +12,7 @@ Utility functions that wrap underlying analysis functionality
 """
 
 
-def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780):
+def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
@@ -20,14 +20,17 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780):
     :param yaml_path: str. Location of the yaml used to run the ExperimentScan
     :param series_names:
     :param bkg:
+    :param wavelength:
+    :param grating:
+    :param known_sample_parameters:
     :return:
     """
     photolum, powers = get_dispersion_data(yaml_path, series_names, bkg)
 
-    masses, k0_energy, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength)
+    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength, grating, known_sample_parameters)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
-    yaxis = (energy_axis - np.mean(k0_energy) * 1000) * 1000
+    yaxis = (energy_axis - np.mean(k0_energy))
 
     indx = np.argmin(np.abs(yaxis))
     lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
@@ -47,7 +50,9 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780):
                   extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims[1]], energy_axis[lims[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
-    axs[0].text(0, energy_axis[lims[0] + 30], r'(%.4f $\pm$ %.4f) m$_e$' % (np.mean(masses), np.std(masses)),
+    axs[0].text(0, energy_axis[lims[0] + 18], r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)),
+                ha='center', color='w')
+    axs[0].text(0, energy_axis[lims[0] + 30], r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)),
                 ha='center', color='w')
     axs[0].text(0, energy_axis[lims[0] + 42], 'Low power', ha='center', color='r')
     axs[0].text(0, energy_axis[lims[0] + 54], 'High power', ha='center', color='g')
@@ -66,6 +71,7 @@ def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
     for series_name in series_names:
         scan = AnalysisScan(yaml_path)
         scan.series_name = series_name
+        scan.extract_hierarchy()
         scan.run()
         scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))])
         scan_data -= bkg
@@ -76,10 +82,10 @@ def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(photolum, wavelength=780):
+def get_calibrated_mass(photolum, wavelength=780, grating='1200', known_sample_parameters=None):
     dispersion_img = np.copy(photolum[0][:, 0])
 
-    wvls = spectrometer_calibration(wavelength=wavelength)
+    wvls = spectrometer_calibration(wavelength=wavelength, grating=grating)
     energy_axis = 1240 / wvls
 
     mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
@@ -89,16 +95,26 @@ def get_calibrated_mass(photolum, wavelength=780):
     k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
     k_axis *= 1e-6  # converting to inverse micron
 
-    masses = []
     energies = []
+    lifetimes = []
+    masses = []
+    exciton_fractions = []
     for img in dispersion_img:
-        results, args, kwargs = dispersion(img, k_axis, energy_axis, False)
-        masses += [results[-1]]
+        results, args, kwargs = dispersion(img, k_axis, energy_axis, False, known_sample_parameters)
         energies += [results[0]]
-    masses = np.array(masses)
+        lifetimes += [results[1]]
+        masses += [results[2]]
+        if len(results) > 3:
+            exciton_fractions += [results[3]]
     energies = np.array(energies)
-    print("Mass = %.4f (%.4f)" % (np.mean(masses), np.std(masses)))
-    return masses, energies, dispersion_img, energy_axis, k_axis
+    lifetimes = np.array(lifetimes)
+    masses = np.array(masses)
+    exciton_fractions = np.array(exciton_fractions)
+    # print("Energy = %.4f (%.4f)" % (np.mean(energies), np.std(energies)))
+    # print("Lifetime = %.4f (%.4f)" % (np.mean(lifetimes), np.std(lifetimes)))
+    # print("Mass = %g (%g)" % (np.mean(masses), np.std(masses)))
+    # print("X = %.4f (%.4f)" % (np.mean(exciton_fractions), np.std(exciton_fractions)))
+    return energies, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis
 
 
 def get_k0_image(photolum, powers):

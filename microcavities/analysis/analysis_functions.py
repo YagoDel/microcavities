@@ -204,8 +204,9 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
 
     if energy_axis is None:
         energy_axis = np.arange(image.shape[1])
-    if known_sample_parameters is None:
-        known_sample_parameters = dict()
+    elif np.mean(energy_axis) < 100:
+        # Transforming it into meV
+        energy_axis *= 1e3
 
     fitted_k0_pixel = find_k0(image)
     LOGGER.debug('Center pixel: %d' % fitted_k0_pixel)
@@ -236,7 +237,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         vmax = np.percentile(image, 99.9)
         axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
         axs[1].plot(energy_axis, k0_spectra)
-        axs[1].plot(energy_axis, result.init_fit)
+        axs[1].plot(energy_axis, result.init_fit, '--')
         axs[1].plot(energy_axis, result.best_fit)
         gui_checkplot()
 
@@ -247,15 +248,13 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     args = ()  # (k_axis, energy_axis, plotting, known_sample_parameters)
     kwargs = dict(plotting=plotting)
 
-    if 'exciton_energy' in known_sample_parameters and 'rabi_splitting' in known_sample_parameters:
-        rabi = known_sample_parameters['rabi_splitting']
-        ex_energy = known_sample_parameters['exciton_energy']
-
-        cav_energy = energy + rabi**2 / (4 * (ex_energy - energy))
-        detuning = ex_energy - cav_energy
-        exciton_fraction, _ = hopfield_coefficients(rabi, detuning)
-        results += (detuning, exciton_fraction)
-
+    if known_sample_parameters is not None:
+        known_sample_parameters['polariton_mass'] = mass
+        try:
+            exciton_fraction, _ = hopfield_coefficients(**known_sample_parameters)
+            results += (exciton_fraction, )
+        except:
+            pass
     return results, args, kwargs
 
 
