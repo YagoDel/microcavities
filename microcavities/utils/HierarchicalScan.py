@@ -513,8 +513,11 @@ class AnalysisScan(HierarchicalScan):
         # Sometimes you want to let the analysis figure out on its own what the variables are, instead of reading them
         # from the yaml (if you've lost the yaml for example)
         passing_yaml = full_yaml
-        if 'variables' not in self.analysis_yaml:
+        if 'variables' not in passing_yaml:
+            extract_hierarchy = True
             passing_yaml['variables'] = []
+        else:
+            extract_hierarchy = False
 
         super(AnalysisScan, self).__init__(passing_yaml, logger_name="AnalysisScan", **kwargs)
 
@@ -526,7 +529,7 @@ class AnalysisScan(HierarchicalScan):
             file_name = None
             if 'file_name' in self.settings_yaml:
                 file_name = self.settings_yaml['file_name']
-            elif 'raw_data_file' in self.analysis_yaml:
+            elif 'raw_data_file' in self.settings_yaml:
                 file_name = self.settings_yaml['raw_data_file']
             if file_name is not None:
                 if os.path.isabs(file_name):
@@ -546,6 +549,9 @@ class AnalysisScan(HierarchicalScan):
                 self.analysis_functions += [dict(function_name='raw_%s' % dataname, data_name=dataname)]
         else:
             raise RuntimeError("Neither analysis_functions or measurements were provided in the yaml")
+
+        if extract_hierarchy:
+            self.extract_hierarchy()
 
     def get_data(self, file_name):
         if DRY_RUN:
@@ -643,8 +649,9 @@ class AnalysisScan(HierarchicalScan):
                 elif self.save_type == 'HDF5' and len(list(self.HDF5.keys())) == 1:
                     self.series_name = list(self.HDF5.keys())[0]
                 else:
-                    raise ValueError('series_name could not be determined. Please provide an experiment yaml, a data'
-                                     'file with just one key at the top level, or a series_name in the')
+                    self._logger.warn('series_name could not be determined. Please provide an experiment yaml, a data '
+                                      'file with just one key at the top level, or a series_name in the')
+                    return
         self.variables = OrderedDict()
         self._extract_hierarchy(self.series_name)
 
