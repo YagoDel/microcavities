@@ -383,7 +383,7 @@ class Stages(HIT):
         for axis in range(6):
             self.set_speed(axis, 1, 500000, 1000)
 
-        self.axis_toggle = dict(k_lens=dict(on=2330000, off=7000000),
+        self.axis_toggle = dict(k_lens=dict(on=2430000, off=7000000),
                                 filter_y=dict(off=8604180, small=338640, medium=3394640, big=6475000),
                                 filter_x=dict(off=6000000, small=2204000, medium=1983000, big=2030000))
         # 20um pinhole x,y = [2204000, 338640]
