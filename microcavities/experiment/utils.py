@@ -38,8 +38,13 @@ def magnification(focus_array, wavelength=780e-9):
     return m, m_array
 
 
-def spectrometer_calibration(pixel=None, wavelength=800):
+def spectrometer_calibration(pixel=None, wavelength=800, grating='1200'):
     if pixel is None:
         pixel = np.arange(-670, 670)
-    return (-7.991E-06 * wavelength + 2.454E-02) * pixel + (-2.131E-04 * wavelength + 1.937E-01) + wavelength
-
+        # pixel = np.arange(1, 1341)
+        # pixel = np.arange(-1340, 0)
+    # return (-7.991E-06 * wavelength + 2.454E-02) * pixel + (-2.131E-04 * wavelength + 1.937E-01) + wavelength
+    if grating == '1200':
+        return (-9.04865e-06 * wavelength + 2.53741e-02) * pixel + 0.18 + wavelength
+    elif grating == '1800':
+        return (-1.38343e-05 * wavelength + 2.0021e-02) * pixel + wavelength
