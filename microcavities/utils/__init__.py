@@ -111,11 +111,18 @@ def get_data_path(filename=None):
     :return:
     """
     yml_dict = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
-    computer_name = os.environ['COMPUTERNAME']
+    if os.sys.platform == 'win32':
+        computer_name = os.environ['COMPUTERNAME']
+        home_path = os.environ['HOMEPATH']
+    elif os.sys.platform == 'darwin':
+        computer_name = os.uname()[1]
+        home_path = os.environ['HOME']
+    else:
+        raise ValueError('Unrecognised platform %s' % os.sys.platform)
     computer_names = yml_dict['data_directory'].keys()
     if computer_name not in computer_names:
         print('No default directory provided for the computer: %s. Using default home path' % computer_name)
-        directory = os.path.abspath(os.environ['HOMEPATH'])
+        directory = os.path.abspath(home_path)
     else:
         directory = yml_dict['data_directory'][computer_name]
 
