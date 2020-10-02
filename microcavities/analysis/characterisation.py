@@ -12,7 +12,7 @@ Utility functions that wrap underlying analysis functionality
 """
 
 
-def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
+def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
@@ -65,10 +65,15 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grat
     return fig, axs
 
 
-def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
+def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
     photolum = []
     powers = []
-    for series_name in series_names:
+    if type(yaml_paths) == str:
+        yaml_paths = [yaml_paths] * len(series_names)
+    else:
+        if series_names is None:
+            series_names = [None] * len(yaml_paths)
+    for series_name, yaml_path in zip(series_names, yaml_paths):
         scan = AnalysisScan(yaml_path)
         scan.series_name = series_name
         scan.extract_hierarchy()
