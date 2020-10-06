@@ -71,6 +71,11 @@ def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780,
 
 
 def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
+    if type(yaml_paths) == str:
+        yaml_paths = [yaml_paths] * len(series_names)
+    elif series_names is None:
+        series_names = [None] * len(yaml_paths)
+
     try:
         if len(bkg) == len(series_names):
             pass
@@ -80,11 +85,6 @@ def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
             bkg = [bkg] * len(series_names)
     except:
         bkg = [bkg] * len(series_names)
-
-    if type(yaml_paths) == str:
-        yaml_paths = [yaml_paths] * len(series_names)
-    elif series_names is None:
-        series_names = [None] * len(yaml_paths)
 
     photolum = []
     powers = []
