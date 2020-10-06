@@ -17,6 +17,8 @@ def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780,
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
 
+    TODO: prevent overlapping power values
+
     :param yaml_path: str. Location of the yaml used to run the ExperimentScan
     :param series_names:
     :param bkg:
@@ -70,12 +72,12 @@ def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
     powers = []
     if type(yaml_paths) == str:
         yaml_paths = [yaml_paths] * len(series_names)
-    else:
-        if series_names is None:
-            series_names = [None] * len(yaml_paths)
+    elif series_names is None:
+        series_names = [None] * len(yaml_paths)
     for series_name, yaml_path in zip(series_names, yaml_paths):
         scan = AnalysisScan(yaml_path)
-        scan.series_name = series_name
+        if series_name is not None:
+            scan.series_name = series_name
         scan.extract_hierarchy()
         scan.run()
         scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))])
