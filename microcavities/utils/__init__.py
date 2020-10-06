@@ -101,7 +101,7 @@ def yaml_loader(input_yaml):
     return output_yaml
 
 
-def get_data_path(filename=None):
+def get_data_path(filename=None, create_folder=True):
     """Returns a path
 
     Utility function for returning default file locations when working with different computers
@@ -129,7 +129,14 @@ def get_data_path(filename=None):
     if filename is None:
         filename = os.path.join(datetime.date.today().strftime('%Y_%m_%d'), 'raw_data.h5')
 
-    return os.path.join(directory, filename)
+    full_path = os.path.join(directory, filename)
+    
+    if create_folder:
+        folder_name = os.path.dirname(full_path)
+        if not os.path.exists(folder_name):
+            os.mkdir(folder_name)
+
+    return full_path
 
 
 def label_grid(figure, grid, label, position, offset=0.07):

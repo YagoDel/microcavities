@@ -12,10 +12,12 @@ Utility functions that wrap underlying analysis functionality
 """
 
 
-def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
+def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
+
+    TODO: prevent overlapping power values
 
     :param yaml_path: str. Location of the yaml used to run the ExperimentScan
     :param series_names:
@@ -68,7 +70,7 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grat
     return fig, axs
 
 
-def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
+def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
     try:
         if len(bkg) == len(series_names):
             pass
@@ -78,14 +80,22 @@ def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
             bkg = [bkg] * len(series_names)
     except:
         bkg = [bkg] * len(series_names)
+
+    if type(yaml_paths) == str:
+        yaml_paths = [yaml_paths] * len(series_names)
+    elif series_names is None:
+        series_names = [None] * len(yaml_paths)
+
     photolum = []
     powers = []
-    for idx, series_name in enumerate(series_names):
+    for idx, series_name, yaml_path in zip(range(len(series_names)), series_names, yaml_paths):
         scan = AnalysisScan(yaml_path)
-        scan.series_name = series_name
+        if series_name is not None:
+            scan.series_name = series_name
         scan.extract_hierarchy()
         scan.run()
-        scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))], np.float)
+        scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))],
+                             np.float)
         scan_data -= bkg[idx]
         if average:
             scan_data = np.mean(scan_data, 0)

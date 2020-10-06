@@ -253,7 +253,8 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         try:
             exciton_fraction, _ = hopfield_coefficients(**known_sample_parameters)
             results += (exciton_fraction, )
-        except:
+        except Exception as e:
+            print(e)
             pass
     return results, args, kwargs
 

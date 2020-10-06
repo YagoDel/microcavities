@@ -452,6 +452,8 @@ class ExperimentScan(HierarchicalScan):
                 self.results = dict()
             elif 'raw_data_file' in self.settings_yaml:
                 path = self.settings_yaml['raw_data_file']
+                if not os.path.isabs(path):
+                    path = get_data_path(path)
                 # self.base_path = os.path.dirname(path)
                 self.instr_dict['HDF5'] = df.DataFile(path)
             elif 'base_path' in self.settings_yaml:
