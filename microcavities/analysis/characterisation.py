@@ -2,7 +2,7 @@
 
 from microcavities.utils.HierarchicalScan import AnalysisScan
 from microcavities.experiment.utils import spectrometer_calibration, magnification
-from microcavities.analysis.analysis_functions import find_k0, dispersion
+from microcavities.analysis.analysis_functions import find_k0, dispersion, find_mass
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -28,6 +28,7 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grat
     photolum, powers = get_dispersion_data(yaml_path, series_names, bkg)
 
     k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength, grating, known_sample_parameters)
+    _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis, return_fit=True)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
     yaxis = (energy_axis - np.mean(k0_energy))
@@ -56,6 +57,8 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grat
                 ha='center', color='w')
     axs[0].text(0, energy_axis[lims[0] + 42], 'Low power', ha='center', color='r')
     axs[0].text(0, energy_axis[lims[0] + 54], 'High power', ha='center', color='g')
+    k0_idx = np.argmin(np.abs(k_axis))
+    axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
     axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
                                                                                    yaxis[lims2[1]],
                                                                                    yaxis[lims2[0]]])
@@ -66,15 +69,24 @@ def dispersion_power_series(yaml_path, series_names, bkg=0, wavelength=780, grat
 
 
 def get_dispersion_data(yaml_path, series_names, bkg=0, average=False):
+    try:
+        if len(bkg) == len(series_names):
+            pass
+        elif len(bkg.shape) == 3:
+            pass
+        elif len(bkg.shape) == 2:
+            bkg = [bkg] * len(series_names)
+    except:
+        bkg = [bkg] * len(series_names)
     photolum = []
     powers = []
-    for series_name in series_names:
+    for idx, series_name in enumerate(series_names):
         scan = AnalysisScan(yaml_path)
         scan.series_name = series_name
         scan.extract_hierarchy()
         scan.run()
-        scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))])
-        scan_data -= bkg
+        scan_data = np.array([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data.keys()))], np.float)
+        scan_data -= bkg[idx]
         if average:
             scan_data = np.mean(scan_data, 0)
         photolum += [scan_data]
