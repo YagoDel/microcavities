@@ -89,6 +89,8 @@ def yaml_loader(input_yaml):
     :return:
     """
     if isinstance(input_yaml, str):
+        if not os.path.isabs(input_yaml):
+            input_yaml = os.path.join(get_data_directory(), input_yaml)
         with open(input_yaml, 'r') as yaml_file:
             output_yaml = yaml.full_load(yaml_file)
     elif isinstance(input_yaml, dict):
