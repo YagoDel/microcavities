@@ -101,15 +101,8 @@ def yaml_loader(input_yaml):
     return output_yaml
 
 
-def get_data_path(filename=None, create_folder=True):
-    """Returns a path
-
-    Utility function for returning default file locations when working with different computers
-    Looks inside a settings.yaml that should be placed one level higher in the directories for default data directories
-
-    :param filename: by default points to an HDF5 file called raw_data.h5 inside a folder called year_month_day
-    :return:
-    """
+def get_data_directory():
+    """Utility function to parse the settings.yaml"""
     yml_dict = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
     if os.sys.platform == 'win32':
         computer_name = os.environ['COMPUTERNAME']
@@ -125,11 +118,24 @@ def get_data_path(filename=None, create_folder=True):
         directory = os.path.abspath(home_path)
     else:
         directory = yml_dict['data_directory'][computer_name]
+    return os.path.normpath(directory)
+
+
+def get_data_path(filename=None, create_folder=True):
+    """Returns a path
+
+    Utility function for returning default file locations when working with different computers
+    Looks inside a settings.yaml that should be placed one level higher in the directories for default data directories
+
+    :param filename: by default points to an HDF5 file called raw_data.h5 inside a folder called year_month_day
+    :return:
+    """
+    directory = get_data_directory()
 
     if filename is None:
         filename = os.path.join(datetime.date.today().strftime('%Y_%m_%d'), 'raw_data.h5')
 
-    full_path = os.path.join(directory, filename)
+    full_path = os.path.normpath(os.path.join(directory, filename))
     
     if create_folder:
         folder_name = os.path.dirname(full_path)
