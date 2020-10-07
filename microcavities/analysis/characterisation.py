@@ -12,14 +12,53 @@ Utility functions that wrap underlying analysis functionality
 """
 
 
-def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
+def realspace_power_series(yaml_paths, series_names=None, bkgs=0, exposures=None, nd_filters=None):
+    photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkgs)
+    mag = magnification([0.01, 0.25, 0.1, 0.2], 805e-9)
+    center = [40, 38]
+    size = 20
+    cropped = photolum[..., center[0] - size:center[0] + size, center[1] - size:center[1] + size]
+    x_axis = np.arange(cropped.shape[-1], dtype=np.float)
+    x_axis -= np.mean(x_axis)
+    x_axis *= (20 / mag[0])
+    _x, _y = np.meshgrid(x_axis, x_axis)
+    _r = np.sqrt(_x ** 2 + _y ** 2)
+    rmax = 3
+    mask = _r < rmax
+    extent = [np.min(x_axis), np.max(x_axis), np.max(x_axis), np.min(x_axis)]
+    # pl = np.sum(cropped[..., int(size/2-5):int(size/2+5), int(size/2-5):int(size/2+5)], (2, 3))
+    pl = np.array([np.sum(cropped[x, :, mask], 0) for x in range(3)])
+
+    fig = plt.figure()
+    gs = gridspec.GridSpec(1, 2)
+    gs2 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+    ax0 = plt.subplot(gs2[0])
+    ax1 = plt.subplot(gs2[1])
+    ax2 = plt.subplot(gs[1])
+    ax0.imshow(np.mean(cropped[:, 0], 0), extent=extent)
+    x_tst = np.linspace(-rmax, rmax, 50)
+    y_tst = np.sqrt(rmax ** 2 - x_tst ** 2)
+    y_tst2 = -np.sqrt(rmax ** 2 - x_tst ** 2)
+    ax0.plot(np.append(x_tst, x_tst[::-1]), np.append(y_tst, y_tst2[::-1]), 'w--')
+    ax1.plot(np.append(x_tst, x_tst[::-1]), np.append(y_tst, y_tst2[::-1]), 'w--')
+    ax1.imshow(np.mean(cropped[:, -1], 0), extent=extent)
+    ax2.semilogy(scan.variables['power_wheel_power'] * 1e3, pl.transpose())
+    ax2.set_xlabel('Power / mW')
+    ax2.set_ylabel('PL / a.u.')
+    ax1.set_xlabel('Position / um')
+    [ax.set_ylabel('Position / um') for ax in [ax0, ax1]]
+
+    return
+
+
+def dispersion_power_series(yaml_paths, series_names=None, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
 
     TODO: prevent overlapping power values
 
-    :param yaml_path: str. Location of the yaml used to run the ExperimentScan
+    :param yaml_paths: str or list. Location(s) of the yaml used to run the ExperimentScan
     :param series_names:
     :param bkg:
     :param wavelength:
@@ -27,7 +66,7 @@ def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780,
     :param known_sample_parameters:
     :return:
     """
-    photolum, powers = get_dispersion_data(yaml_path, series_names, bkg)
+    photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
 
     k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength, grating, known_sample_parameters)
     _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis, return_fit=True)
@@ -70,7 +109,7 @@ def dispersion_power_series(yaml_path, series_names=None, bkg=0, wavelength=780,
     return fig, axs
 
 
-def get_dispersion_data(yaml_paths, series_names, bkg=0, average=False):
+def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
     if type(yaml_paths) == str:
         yaml_paths = [yaml_paths] * len(series_names)
     elif series_names is None:
