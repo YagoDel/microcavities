@@ -51,7 +51,8 @@ def realspace_power_series(yaml_paths, series_names=None, bkgs=0, exposures=None
     return
 
 
-def dispersion_power_series(yaml_paths, series_names=None, bkg=0, wavelength=780, grating='1200', known_sample_parameters=None):
+def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(780, '1200'), k_axis=None,
+                            known_sample_parameters=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
@@ -68,7 +69,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, wavelength=780
     """
     photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
 
-    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, wavelength, grating, known_sample_parameters)
+    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, energy_axis, k_axis, known_sample_parameters)
     _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis, return_fit=True)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
@@ -77,7 +78,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, wavelength=780
     indx = np.argmin(np.abs(yaxis))
     lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
     indxs = np.argmax(k0_img, 1)
-    lims2 = [np.min(indxs)-40, np.max(indxs) + 40]
+    lims2 = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
     condensate_img = np.mean(photolum[-1][:, -1, :, lims[0]:lims[1]], 0).transpose()
     dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
@@ -143,18 +144,25 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(photolum, wavelength=780, grating='1200', known_sample_parameters=None):
+def get_calibrated_mass(photolum, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
     dispersion_img = np.copy(photolum[0][:, 0])
 
-    wvls = spectrometer_calibration(wavelength=wavelength, grating=grating)
-    energy_axis = 1240 / wvls
+    if len(energy_axis) <= 2:
+        wavelength = energy_axis[0]
+        if len(energy_axis) == 1:
+            grating = '1200'
+        else:
+            grating = energy_axis[1]
+        wvls = spectrometer_calibration(wavelength=wavelength, grating=grating)
+        energy_axis = 1240 / wvls
 
-    mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
-    k0 = int(np.mean(list(map(find_k0, dispersion_img))))
-    k_axis = np.linspace(-200, 200, 400)  # pixel units
-    k_axis -= -200 + k0
-    k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
-    k_axis *= 1e-6  # converting to inverse micron
+    if k_axis is None:
+        mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
+        k0 = int(np.mean(list(map(find_k0, dispersion_img))))
+        k_axis = np.linspace(-200, 200, 400)  # pixel units
+        k_axis -= -200 + k0
+        k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
+        k_axis *= 1e-6  # converting to inverse micron
 
     energies = []
     lifetimes = []
