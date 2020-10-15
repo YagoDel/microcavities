@@ -208,7 +208,7 @@ def get_k0_image(photolum, powers):
     return normalised, xaxis
 
 
-def realspace_power_series(yaml_path, bkg=0):
+def realspace_power_series(yaml_paths, series_names=None, bkg=0, corrections=None):
     """For ExperimentScans that take a power series of real-spaces images
 
     Plots 4 example images, and the emission as a function of power
@@ -217,34 +217,54 @@ def realspace_power_series(yaml_path, bkg=0):
     :param bkg:
     :return:
     """
-    scan = AnalysisScan(yaml_path)
-    scan.run()
-    dummy = np.asarray([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data))], np.float)
-    realspace = dummy - bkg
-    emission = np.percentile(realspace, 99.9, (-2, -1))
-    powers = np.array(scan.variables['power_wheel_power']) * 1000
 
-    yval = np.mean(emission, 0)
-    yerr = np.std(emission, 0)
+    photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
+    all_powers = np.concatenate(powers)
 
-    shp = realspace.shape
+    if corrections is None:
+        # TODO: make an automatic thing that matches the values with common powers
+        corrections = [1] * len(photolum)
+
+    normed = [x*y for x, y in zip(photolum, corrections)]
+    # scan = AnalysisScan(yaml_path)
+    # scan.run()
+    # dummy = np.asarray([scan.analysed_data['raw_img%d' % (x+1)] for x in range(len(scan.analysed_data))], np.float)
+    # realspace = dummy - bkg
+    emission = [np.percentile(x, 99.9, (-2, -1)) for x in normed]
+    # powers = np.array(scan.variables['power_wheel_power']) * 1000
+
+    yval = [np.mean(x, 0) for x in emission]
+    yerr = [np.std(x, 0) for x in emission]
+
+    shp = normed[0][0,0].shape
     figratio = shp[-2] / float(shp[-1])
     fig = plt.figure(figsize=(8/figratio, 4))
     gs = gridspec.GridSpec(1, 2)
     gs_sub = gridspec.GridSpecFromSubplotSpec(2, 2, gs[0], hspace=0.01, wspace=0.01)
 
     ax1 = plt.subplot(gs[1])
-    ax1.errorbar(powers, yval, yerr, fmt='o-', markersize=2, elinewidth=0.75, capsize=0.75, lw=0.5)
+    [ax1.errorbar(x, y, e, fmt='o-', markersize=2, elinewidth=0.75, capsize=0.75, lw=0.5) for x,y,e in zip(powers, yval, yerr)]
     ax1.set_yscale('log')
     ax1.set_xlabel('CW power / mW')
     ax1.set_ylabel('Emission / a.u.')
 
+    # TODO: make the selection of positions a bit more clever (find the threshold)
+    # TODO: add micron units to the axis
+    # TODO: add cropping. Add selection of the region over which the integration happens or options for what to extract (maximum, total, cropped)
     axs = []
-    for idx, index in enumerate(map(int, np.linspace(0, len(powers)-1, 4))):
+    for idx, index in enumerate(map(int, np.linspace(0, len(all_powers)-1, 4))):
+        power = all_powers[index]
+        power_len = [len(x) for x in powers]
+        cum_len = np.cumsum(power_len)
+        idx2 = np.min(np.argwhere(index < cum_len))
+        if idx2 > 0:
+            index -= cum_len[idx2-1]
+        image = photolum[idx2][:, index]
         ax = plt.subplot(gs_sub[idx])
-        ax.imshow(np.mean(realspace[:, index], 0))
+        ax.imshow(np.mean(image, 0))
         ax.set_xticklabels([])
         ax.set_yticklabels([])
+        ax.text(0.5, 1, '%gW' % power, ha='center', va='top', transform=ax.transAxes)
         axs += [ax]
     fig.tight_layout()
 
