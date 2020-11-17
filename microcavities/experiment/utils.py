@@ -1,9 +1,45 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import yaml
+import os
 
 
-def magnification(focus_array, wavelength=780e-9):
+def magnification(focus_array=None, wavelength=780e-9, camera=None, settings_path='settings.yaml'):
+    """Returns the appropriate scaling
+
+    If a camera name and measurement space is given, it looks in the settings file to find the appropriate lens arrays
+    and pixel sizes for the scaling. Otherwise calls magnification_function directly
+
+    :param focus_array:
+    :param wavelength:
+    :param camera: 2-tuple of str. Camera name and measurement plane (real_space or k_space)
+    :param settings_path:
+    :return:
+    """
+    if camera is None:
+        return magnification_function(focus_array, wavelength)
+    else:
+        camera_name, space = camera
+        if not os.path.isabs(settings_path):
+            settings_path = os.path.join(os.path.dirname(__file__), settings_path)
+        with open(settings_path, 'r') as settings_file:
+            full_settings = yaml.full_load(settings_file)['calibrations']
+        if camera_name not in full_settings:
+            raise AttributeError('%s is not in the given yaml' % camera_name)
+        camera_settings = full_settings[camera_name]
+        pixel_size = camera_settings['pixel_size']
+        if focus_array is None:
+            focus_array = camera_settings['calibrations'][space]['y']['lenses']
+        m, m_array = magnification_function(focus_array, wavelength)
+        if space == 'real_space':
+            return pixel_size / m, m_array
+        elif space == 'k_space':
+            # pixel size assumed to be in microns and conversion factor needs to be inverse micron
+            return pixel_size*1e-6 / (m * 1e6), m_array
+
+
+def magnification_function(focus_array, wavelength=780e-9):
     """Returns the scaling, either in real-space or k-space, at the focal plane
     of a series of lenses.
     Can be used to calibrate the scale of a detector, like a CCD. If the pixel
@@ -25,7 +61,7 @@ def magnification(focus_array, wavelength=780e-9):
         kp = 2 * np.pi / wavelength  # wavenumber in m-1
         m = focus_array[0] / kp
         m_array = [m]
-        m2, m_array2 = magnification(focus_array[1:])
+        m2, m_array2 = magnification_function(focus_array[1:])
         m_array += list([m * x for x in m_array2])
         m *= m2
     else:
