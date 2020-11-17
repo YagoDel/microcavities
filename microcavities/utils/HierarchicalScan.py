@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from nplab.utils.gui import get_qt_app
+from nplab.utils.gui import get_qt_app, QtWidgets, QtCore, uic
 from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
 from nplab.experiment.gui import ExperimentWithProgressBar
 from microcavities.analysis.utils import SortingKey
 from microcavities.analysis.streak import open_image
-from microcavities.utils import string_to_number, yaml_loader, get_data_path
+from microcavities.utils import string_to_number, yaml_loader, get_data_path, get_data_directory
 import h5py
 import yaml
 import pymsgbox
@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from collections import OrderedDict
+import threading
 
 
 DRY_RUN = False
@@ -27,7 +28,7 @@ class HierarchicalScan(ExperimentWithProgressBar):
     """
     Base class for implementing general hierarchical scans, for both experiments and analysis.
 
-    By hierarchical scans I mean grid scans of many different parameters simultaneously. Each level in the hierarchy
+    Hierarchical scan means a grid scans of many different parameters simultaneously. Each level in the hierarchy
     corresponds to a different parameter, e.g.
         power = 1
             angle = 0
@@ -288,14 +289,18 @@ class ExperimentScan(HierarchicalScan):
         measurements:
           - {instrument: andor2, function: raw_image, kwargs: {update_latest_frame: True}, save: True}
     """
-    def __init__(self, settings_yaml, instrument_dictionary, gui, **kwargs):
-        super(ExperimentScan, self).__init__(settings_yaml, logger_name="ExperimentScan", **kwargs)
+    def __init__(self, instrument_dictionary, gui, settings_yaml=None, **kwargs):
         self.instr_dict = instrument_dictionary
         self.pyqt_app = get_qt_app()
 
         if not DRY_RUN:
             self.gui = gui
             self.gui.abortScan = False
+        if settings_yaml is None:
+            settings_yaml = self.settings_popup()
+
+        super(ExperimentScan, self).__init__(settings_yaml, logger_name="ExperimentScan", **kwargs)
+
         self.measurements = self.settings_yaml["measurements"]
 
         self.save_type = 'HDF5'
@@ -495,6 +500,12 @@ class ExperimentScan(HierarchicalScan):
                 attributes[name] = value
         self._logger.debug('Getting attributes: %s' % attributes)
         return attributes
+
+    def settings_popup(self):
+        ui = ExperimentYamlSetup(self.instr_dict, self.gui)
+        ui.exec_()
+        yaml_path = ui.yaml_path
+        return yaml_path
 
 
 class AnalysisScan(HierarchicalScan):
@@ -799,20 +810,174 @@ def call_dictionary(obj, dictionary):
         raise ValueError("Neither function nor property provided. Please provide only one.")
 
 
-if __name__ == "__main__":
-    # tst = HierarchicalScan(
-    #     r'C:\Users\Rotation\Documents\ExperimentControl\microcavities\microcavities\experiment\experiment_scan.yaml')
-    # tst._logger.setLevel("DEBUG")
-    # tst.run()
+class ExperimentYamlSetup(QtWidgets.QDialog):
+    """
+    Functionality
+        GUI for adding measurements
+            Add instrument name, function/method name
+        Data file
+        Series name
+        GUI for adding variables
+    """
+    def __init__(self, instrument_dictionary, gui):
+        super(ExperimentYamlSetup, self).__init__()
+        self.setWindowModality(QtCore.Qt.ApplicationModal)
 
-    # instruments = dict(andor='Yay', streak='Yay2', power_wheel='Yay3', temperature_control='Yay4')
-    # tst = ExperimentScan(
-    #     r'C:\Users\Rotation\Documents\ExperimentControl\microcavities\microcavities\experiment\experiment_scan.yaml',
-    #     instruments, None)
-    # tst._logger.setLevel("DEBUG")
-    # tst.run()
+        self._n_variables = 0
+        self._n_measurements = 0
+        self.variables = []
+        self.measurements = []
+        uic.loadUi(os.path.join(os.path.dirname(__file__), 'ExperimentYamlSetup.ui'), self)
 
-    tst = AnalysisScan(
-        r'C:\Users\Rotation\Documents\ExperimentControl\microcavities\microcavities\experiment\analysis_scan.yaml')
-    tst._logger.setLevel("DEBUG")
-    tst.run()
+        # Set default data path
+        data_path = get_data_path()
+        data_directory = get_data_directory()
+        self.lineEdit_filename.setText(data_path.lstrip(data_directory))
+        self.lineEdit_seriesname.setText('DefaultScan')
+
+        self._connect_gui()
+
+    def _connect_gui(self):
+        self.spinBox_variables.valueChanged.connect(self.update_variables)
+        self.spinBox_measurements.valueChanged.connect(self.update_measurements)
+        self.pushButton_yaml.pressed.connect(self.make_yaml)
+        # self.pushButton_run.pressed.connect(self.run)
+        # self.pushButton_analyse.pressed.connect(self.analyse)
+
+    @property
+    def filename(self):
+        path = os.path.normpath(self.lineEdit_filename.text())
+        if not os.path.isabs(path):
+            data_directory = get_data_directory()
+            path = os.path.join(data_directory, path)
+        if not os.path.exists(os.path.dirname(path)):
+            os.mkdir(os.path.dirname(path))
+        return path
+
+    def update_variables(self):
+        # instrument property/function (args, kwargs) value_min value_max steps linear/random
+        # defaults = [''] * 8
+        n_var = int(self.spinBox_variables.value())
+        if n_var > self._n_variables:
+            for row in range(self._n_variables, n_var):
+                widgets = [QtWidgets.QLineEdit('') for x in range(4)]
+                widgets += [QtWidgets.QPlainTextEdit('')]
+                widgets += [QtWidgets.QLineEdit('') for x in range(3)]
+                qbox = QtWidgets.QComboBox()
+                qbox.addItem('linear')
+                qbox.addItem('random')
+                widgets += [qbox]
+                self.variables += [widgets]
+                [self.gridLayout_variables.addWidget(wdgt, row+3, col) for wdgt, col in
+                 zip(widgets, range(len(widgets)))]
+        else:
+            for row in range(n_var, self._n_variables):
+                [wdgt.deleteLater() for wdgt in self.variables[row]]
+            self.variables = self.variables[:n_var]
+        self._n_variables = int(n_var)
+        if n_var > 3:
+            self.adjustSize()
+        return
+
+    def update_measurements(self):
+        # name instrument save property/function (args, kwargs)
+        n_mes = int(self.spinBox_measurements.value())
+        if n_mes > self._n_measurements:
+            for row in range(self._n_measurements, n_mes):
+                widgets = [QtWidgets.QLineEdit('') for _ in range(4)]
+                widgets += [QtWidgets.QPlainTextEdit('')]
+                widgets += [QtWidgets.QLineEdit('')]
+                chk_bx = QtWidgets.QCheckBox()
+                chk_bx.setChecked(True)
+                widgets += [chk_bx]
+
+                self.measurements += [widgets]
+                [self.gridLayout_measurements.addWidget(wdgt, row+3, col) for wdgt, col in
+                 zip(widgets, range(len(widgets)))]
+        else:
+            for row in range(n_mes, self._n_measurements):
+                [wdgt.deleteLater() for wdgt in self.measurements[row]]
+            self.measurements = self.measurements[:n_mes]
+        self._n_measurements = int(n_mes)
+        if n_mes > 3:
+            self.adjustSize()
+        return
+
+    def make_yaml(self):
+        variables = []
+        for idx, var_wdgts in enumerate(self.variables):
+            instrument, prop, func = [x.text() for x in var_wdgts[:3]]
+            variable = dict(instrument=instrument)
+            print(variable)
+            if prop != '' and func != '':
+                raise ValueError('Both a function and a property variable given at %d' % idx)
+            elif func != '':
+                variable['function'] = func
+                args = str(var_wdgts[3].text())
+                kwargs = str(var_wdgts[4].toPlainText())
+                if len(args) > 0:
+                    args = [yaml.load(x, Loader=yaml.FullLoader) for x in args.split(',')]
+                    variable['args'] = args
+                if len(kwargs) > 0:
+                    _rows = [yaml.load(x, Loader=yaml.FullLoader) for x in kwargs.replace('=', ' : ').split('\n')]
+                    print(_rows)
+                    kwargs = {list(x.keys())[0]: x[list(x.keys())[0]] for x in _rows}
+                    variable['kwargs'] = kwargs
+            elif prop != '':
+                variable['property'] = prop
+            else:
+                raise ValueError('Neither a function nor a property variable given at %d' % idx)
+
+            minval, maxval = [np.float(x.text()) for x in var_wdgts[5:7]]
+            steps = int(var_wdgts[7].text())
+            mode = str(var_wdgts[8].currentText())
+            variable['values'] = [mode, minval, maxval, steps]
+            variables += [variable]
+
+        measurements = []
+        for idx, mes_wdgts in enumerate(self.measurements):
+            instrument, prop, func = [x.text() for x in mes_wdgts[:3]]
+            measurement = dict(instrument=instrument)
+            if prop != '' and func != '':
+                raise ValueError('Both a function and a property variable given at %d' % idx)
+            elif func != '':
+                measurement['function'] = func
+                args = str(mes_wdgts[3].text())
+                kwargs = str(mes_wdgts[4].toPlainText())
+                if len(args) > 0:
+                    args = [yaml.load(x, Loader=yaml.FullLoader) for x in args.split(',')]
+                    measurement['args'] = args
+                if len(kwargs) > 0:
+                    _rows = [yaml.load(x, Loader=yaml.FullLoader) for x in kwargs.replace('=', ':').split('\n')]
+                    kwargs = {x.keys()[0]: x.values()[0] for x in _rows}
+                    measurement['kwargs'] = kwargs
+            elif prop != '':
+                measurement['property'] = prop
+            else:
+                raise ValueError('Neither a function nor a property variable given at %d' % idx)
+
+            name = mes_wdgts[5].text()
+            measurement['name'] = name
+            measurement['save'] = bool(mes_wdgts[6].isChecked())
+            measurements += [measurement]
+
+        full_path = self.filename
+        default_directory = get_data_directory()
+        if os.path.commonpath([full_path, default_directory]) == default_directory:
+            full_dict = dict(raw_data_file=os.path.relpath(full_path, default_directory))
+        else:
+            full_dict = dict(raw_data_file=full_path)
+
+        series_name = str(self.lineEdit_seriesname.text())
+        if series_name != '':
+            full_dict['series_name'] = series_name
+        full_dict['save_type'] = str(self.lineEdit_savetype.text())
+        full_dict['variables'] = variables
+        full_dict['measurements'] = measurements
+
+        yaml_path = os.path.join(os.path.dirname(self.filename), '%s.yaml' % series_name)
+        with open(yaml_path, 'w') as file:
+            yaml.dump(full_dict, file)
+        self.yaml_path = yaml_path
+
+        self.done(1)
