@@ -92,7 +92,7 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
     for idx in range(a):
         for idx2 in range(b):
             if len(axes) == 1:
-                indx = idx * a + idx2
+                indx = idx * b + idx2
                 data = datas[indx]
             elif len(axes) == 2:
                 data = datas[idx, idx2]
