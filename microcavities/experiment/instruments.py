@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 from nplab.instrument import Instrument
-from nplab.instrument.visa_instrument import VisaInstrument
+# from nplab.instrument.visa_instrument import VisaInstrument
 from nplab.instrument.server_instrument import create_client_class, create_server_class
 from nplab.instrument.stage.SigmaKoki import HIT, SHOT
 from nplab.instrument.electronics.Meadowlark import VariableRetarder
 from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
 from nplab.instrument.electronics.NewportPowermeter import NewportPowermeter
 from nplab.instrument.stage.wheel_of_power import PowerWheelMixin
+from nplab.instrument.temperatureControl import TemperatureControlMixin
 from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.ST133.pvcam import Pvcam, PvcamSdk
 from nplab.instrument.camera.Andor import Andor
@@ -19,39 +20,39 @@ import re
 import time
 
 
-class Matisse(VisaInstrument):
-    """See http://www.moi-lab.org/uploads/Matisse%20Programmes%20Guide.pdf"""
-    def __init__(self, address):
-        super(Matisse, self).__init__(address)
-
-    def wrapped_command(self, command):
-
-        if command.endswith('?'):
-            return self.query_value(command)
-        else:
-            full_reply = self.query(command)
-            assert "OK" in full_reply
-
-    def query_value(self, command):
-        full_reply = self.query(command)
-
-        # Match at least one number, followed by anything except whitespaces, and ending in another number
-        number_string = re.findall('\d+\S*\d', full_reply)[0]
-
-        try:
-            number = int(number_string)
-        except Exception as e:
-            number = float(number_string)
-
-        return number
-
-    @property
-    def wavelength(self):
-        return self.query_value("MOTBI:WL?")
-
-    @wavelength.setter
-    def wavelength(self, value):
-        self.wrapped_command("MOTBI:WL %g" % value)
+# class Matisse(VisaMixin, Instrument):
+#     """See http://www.moi-lab.org/uploads/Matisse%20Programmes%20Guide.pdf"""
+#     def __init__(self, address):
+#         super(Matisse, self).__init__(address)
+#
+#     def wrapped_command(self, command):
+#
+#         if command.endswith('?'):
+#             return self.query_value(command)
+#         else:
+#             full_reply = self.query(command)
+#             assert "OK" in full_reply
+#
+#     def query_value(self, command):
+#         full_reply = self.query(command)
+#
+#         # Match at least one number, followed by anything except whitespaces, and ending in another number
+#         number_string = re.findall('\d+\S*\d', full_reply)[0]
+#
+#         try:
+#             number = int(number_string)
+#         except Exception as e:
+#             number = float(number_string)
+#
+#         return number
+#
+#     @property
+#     def wavelength(self):
+#         return self.query_value("MOTBI:WL?")
+#
+#     @wavelength.setter
+#     def wavelength(self, value):
+#         self.wrapped_command("MOTBI:WL %g" % value)
 
 
 class RetarderPower(VariableRetarder, PowerWheelMixin):
@@ -186,6 +187,19 @@ class AOM(Instrument):
             task.ao_channels.add_ao_voltage_chan(self.id)
             writer = nidaqmx.stream_writers.AnalogSingleChannelWriter(task.out_stream, auto_start=True)
             writer.write_one_sample(amplitude)
+
+
+# class OxfordItc(VisaMixin, TemperatureControlMixin, Instrument):
+#     def __init__(self, address):
+#         connection_settings = dict(baud_rate=115200, timeout=5000, read_termination='\n', write_termination='\n')
+#         super(OxfordItc, self).__init__(address, settings=connection_settings)
+#
+#     def get_temperature(self):
+#         reply = self.query('READ:DEV:MB1.T1:TEMP:SIG:TEMP')
+#         temp = float(reply.split(':')[-1][:-1])
+#         return temp
+#     temperature = property(fget=get_temperature)
+
 
 
 PvcamServer = create_server_class(Pvcam)
@@ -378,7 +392,7 @@ class Stages(HIT):
 
     def __init__(self, address):
         super(Stages, self).__init__(address)
-        self.axis_names = ("spectrometer_lens", "k_lens", "filter_x", "filter_y", "stokes", "interferometer_delay")
+        self.axis_names = ("spectrometer_lens", "k_lens", "filter_x", "filter_y", "stokes", "streak_lens")
         self.axis_LUT = dict(list(zip(self.axis_names, (3, 0, 4, 5, 1, 2))))
         for axis in range(6):
             self.set_speed(axis, 1, 500000, 1000)
@@ -388,7 +402,7 @@ class Stages(HIT):
                                 filter_x=dict(off=6000000, small=2204000, medium=1983000, big=2030000))
         # 20um pinhole x,y = [2204000, 338640]
         # 50um pinhole x, y = [1983000, 3394640]
-        # 100um pinhole x, y = [2030000, 6475000] [1955000, 6460000]
+        # 100um pinhole x, y = [2030000, 6475000] [1955000, 6460000] [2106000, 6448000]
         self._tomography_limits = [6586000, 7246000]
 
     def toggle(self, axis, state):

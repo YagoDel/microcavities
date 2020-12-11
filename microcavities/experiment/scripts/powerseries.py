@@ -116,7 +116,7 @@ class PowerSeries(QtWidgets.QWidget):
             exper[self.lineEdit_camera.text()].exposure = exposure
             try:
                 yaml_path = os.path.join(directory, 'yamls', '%s_series_%d.yaml' % (filename, index))
-                scan = ExperimentScan(yaml_path, exper, gui)
+                scan = ExperimentScan(exper, gui, yaml_path)
                 scan.run()
             except Exception as e:
                 print('Failed running at %d because: %s' % (index, e))
@@ -130,7 +130,7 @@ class PowerSeries(QtWidgets.QWidget):
         filename = os.path.basename(self.filename).rstrip('.h5')
         yaml_paths = [os.path.join(directory, 'yamls', '%s_series_%d.yaml' % (filename, index)) for index in range(self.n_sections)]
         if self.lineEdit_analysistype.text() == 'dispersion':
-            fig, axs = dispersion_power_series(yaml_paths, None, 0, exper['spectrometer'].wavelength, '1200')
+            fig, axs = dispersion_power_series(yaml_paths, None, 0, (exper['spectrometer'].wavelength, '1200'))
             fig.show()
 
 

@@ -15,18 +15,17 @@ x_fac /= 1e-6  # converting to micron
 stage_steps_to_inverse_micron = 150*x_fac/300000.  # 150 pixels is 300000 steps
 
 
-class BasicInput(QtWidgets.QMainWindow):
-    def __init__(self):
-        super(BasicInput, self).__init__()
+class BasicInput(QtWidgets.QDialog):
+    def __init__(self, *args, **kwargs):
+        super(BasicInput, self).__init__(*args, **kwargs)
         self.lineedits = None
         self.labels = None
         self.setup_ui()
         self.setWindowModality(QtCore.Qt.ApplicationModal)
 
     def setup_ui(self):
-        central_widget = QtWidgets.QWidget()
         layout = QtWidgets.QGridLayout()
-        central_widget.setLayout(layout)
+        self.setLayout(layout)
         # labels = ['Minimum', 'Maximum', '# measurements', '# images']
         # defaults = ['6568000', '7228000', '100', '1']
         labels = ['x_range (micron)', '# measurements', '# images']
@@ -37,13 +36,13 @@ class BasicInput(QtWidgets.QMainWindow):
         for idx, wdgt, lbl in zip(list(range(len(labels))), self.lineedits, self.labels):
             layout.addWidget(wdgt, idx, 1)
             layout.addWidget(lbl, idx, 0)
-        self.setCentralWidget(central_widget)
 
 
 # app = get_qt_app()
-bi = BasicInput()
+bi = BasicInput(gui)
 bi.show()
-# Block here
+bi.exec_()
+
 
 x_range = float(bi.lineedits[0].text())
 min_steps = int(center_steps - x_range/(2*stage_steps_to_inverse_micron))
@@ -65,7 +64,6 @@ params = dict(save_type="local",
 
 scan = ExperimentScan(params, exper, gui)
 scan.run_modally()
-# Block here
 
 
 data = np.array([scan.results['img%d' % (x+1)] for x in range(n_images)])
