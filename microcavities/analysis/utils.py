@@ -34,3 +34,9 @@ def fit_function(name):
     :param name:
     :return:
     """
+
+
+def normalize(array, percentiles=(0, 100)):
+    mn = np.percentile(array, percentiles[0])
+    mx = np.percentile(array, percentiles[1])
+    return (array - mn) / (mx - mn)
