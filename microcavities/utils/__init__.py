@@ -145,24 +145,3 @@ def get_data_path(filename=None, create_folder=True):
             os.mkdir(folder_name)
 
     return full_path
-
-
-def label_grid(figure, grid, label, position, offset=0.07):
-    """Simple labelling of matplotlib.gridspec grids
-
-    :param figure: matplotlib.figure
-    :param grid: matplotlib.gridspec
-    :param label: string
-    :param position: string
-    :param offset: float
-    :return:
-    """
-    _pos = grid.get_grid_positions(figure)
-    if position == 'bottom':
-        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center')
-    elif position == 'top':
-        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center')
-    elif position == 'left':
-        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90)
-    elif position == 'right':
-        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90)

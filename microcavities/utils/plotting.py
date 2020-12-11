@@ -85,21 +85,98 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
             fig_shape = (b/a) * (datas.shape[-2]/datas.shape[-1])
         else:
             fig_shape = 1
+    fig_size = np.array([8, 8*fig_shape])
+    if any(fig_size < 4):
+        fig_size *= 4 / np.min(fig_size)
 
-    fig = plt.figure(figsize=(8, 8*fig_shape))
+    fig = plt.figure(figsize=tuple(fig_size))
     gs = gridspec.GridSpec(b, a)
     axs = []
     for idx in range(a):
         for idx2 in range(b):
-            if len(axes) == 1:
-                indx = idx * b + idx2
-                data = datas[indx]
-            elif len(axes) == 2:
-                data = datas[idx, idx2]
+            try:
+                if len(axes) == 1:
+                    indx = idx * b + idx2
+                    data = datas[indx]
+                elif len(axes) == 2:
+                    data = datas[idx, idx2]
+            except IndexError:
+                continue
+
             ax = plt.subplot(gs[idx2, idx])
+            axs += [ax]
+
             try:
                 plotting_func(data, ax, *args, **kwargs)
             except:
                 plotting_func(data, *args, **kwargs)
-            axs += [ax]
     return fig, axs
+
+
+def waterfall(lines, ax=None, offset=None, *args, **kwargs):
+    if offset is None:
+        offset = 1.05 * np.abs(np.min(np.diff(lines, axis=0)))
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.figure
+    [ax.plot(x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
+    return fig, ax
+
+
+def pcolormesh(img, x, y, ax=None, cbar=True, diverging=True, *args, **kwargs):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.figure
+    if diverging:
+        val = np.max(np.abs([np.max(img), np.min(img)]))
+        vmin = -val
+        vmax = val
+        if 'vmin' not in kwargs:
+            kwargs['vmin'] = vmin
+        if 'vmax' not in kwargs:
+            kwargs['vmax'] = vmax
+        if 'cmap' not in kwargs:
+            kwargs['cmap'] = 'RdBu'
+    sort_indxs_x = np.argsort(x)
+    sort_indxs_y = np.argsort(y)
+    _sorted_img = img[sort_indxs_x]
+    sorted_img = _sorted_img[:, sort_indxs_y]
+    x = x[sort_indxs_x]
+    y = y[sort_indxs_y]
+
+    middle_edges_x = np.mean([x[:-1], x[1:]], 0)
+    middle_edges_y = np.mean([y[:-1], y[1:]], 0)
+
+    edges_x = [x[0] - (middle_edges_x[0] - x[0])] + list(middle_edges_x) + [x[-1] + (x[-1] - middle_edges_x[-1])]
+    edges_y = [y[0] - (middle_edges_y[0] - y[0])] + list(middle_edges_y) + [y[-1] + (y[-1] - middle_edges_y[-1])]
+
+    im = ax.pcolormesh(edges_x, edges_y, sorted_img.transpose(), *args, **kwargs)
+
+    if cbar:
+        cb = fig.colorbar(im, ax=ax)
+        ax = (ax, cb.ax)
+
+    return fig, ax
+
+
+def label_grid(figure, grid, label, position, offset=0.07):
+    """Simple labelling of matplotlib.gridspec grids
+
+    :param figure: matplotlib.figure
+    :param grid: matplotlib.gridspec
+    :param label: string
+    :param position: string
+    :param offset: float
+    :return:
+    """
+    _pos = grid.get_grid_positions(figure)
+    if position == 'bottom':
+        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center')
+    elif position == 'top':
+        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center')
+    elif position == 'left':
+        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90)
+    elif position == 'right':
+        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90)
