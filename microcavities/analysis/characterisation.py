@@ -69,7 +69,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     """
     photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
 
-    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(photolum, energy_axis, k_axis, known_sample_parameters)
+    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(np.copy(photolum[0][:, 0]), energy_axis, k_axis, known_sample_parameters)
     _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis, return_fit=True)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
@@ -144,8 +144,8 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(photolum, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
-    dispersion_img = np.copy(photolum[0][:, 0])
+def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
+    # dispersion_img = np.copy(photolum[0][:, 0])
 
     if len(energy_axis) <= 2:
         wavelength = energy_axis[0]
