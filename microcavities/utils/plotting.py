@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import numpy as np
 from microcavities.utils import square
+from microcavities.analysis.utils import normalize
 
 
 def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, ylabel=None, **kwargs):
@@ -55,6 +56,47 @@ def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, y
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
     return fig, ax
+
+
+def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
+    """
+    :param red:
+    :param green:
+    :param blue:
+    :param ax:
+    :param norm_args:
+    :param from_black:
+    :param args:
+    :param kwargs:
+    :return:
+    """
+    # Prepare the arrays to be within 0...1
+    if red is None:
+        if green is not None:
+            red = np.zeros(green.shape)
+        elif blue is not None:
+            red = np.zeros(blue.shape)
+        else:
+            raise ValueError('All channels are None')
+    else:
+        red = normalize(red, norm_args, True)
+    if green is None:
+        green = np.zeros(red.shape)
+    else:
+        green = normalize(green, norm_args, True)
+    if blue is None:
+        blue = np.zeros(red.shape)
+    else:
+        blue = normalize(blue, norm_args, True)
+
+    # Have the matplotlib imshow go from black to RGB or from white to RGB
+    if from_black:
+        img = np.rollaxis(np.array([red, green, blue]), 0, 3)
+    else:
+        img = np.rollaxis(np.array([1-green-blue, 1-red-blue, 1-red-green]), 0, 3)
+    kwargs['diverging'] = False
+    kwargs['cbar'] = False
+    return imshow(img, ax, *args, **kwargs)
 
 
 def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
@@ -110,17 +152,19 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
                 plotting_func(data, ax, *args, **kwargs)
             except:
                 plotting_func(data, *args, **kwargs)
-    return fig, axs
+    return fig, axs, gs
 
 
-def waterfall(lines, ax=None, offset=None, *args, **kwargs):
+def waterfall(lines, ax=None, x_axis=None, offset=None, *args, **kwargs):
     if offset is None:
         offset = 1.05 * np.abs(np.min(np.diff(lines, axis=0)))
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     else:
         fig = ax.figure
-    [ax.plot(x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
+    if x_axis is None:
+        x_axis = np.arange(lines.shape[1])
+    [ax.plot(x_axis, x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
     return fig, ax
 
 
