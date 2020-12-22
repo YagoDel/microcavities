@@ -80,8 +80,8 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     indxs = np.argmax(k0_img, 1)
     lims2 = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
-    condensate_img = np.mean(photolum[-1][:, -1, :, lims[0]:lims[1]], 0).transpose()
-    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
+    condensate_img = np.mean(photolum[-1][:, -1, :, lims2[0]:lims2[1]], 0).transpose()
+    dispersion_img = np.mean((dispersion_img[..., lims2[0]:lims2[1]]), 0).transpose()
     dispersion_img -= np.percentile(dispersion_img, 1)
     condensate_img -= np.percentile(condensate_img, 1)
     dispersion_img /= np.percentile(dispersion_img, 99.9)
@@ -90,15 +90,15 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
     img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
     axs[0].imshow(img, aspect='auto',
-                  extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims[1]], energy_axis[lims[0]]])
+                  extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
-    axs[0].text(0, energy_axis[lims[0] + 18], r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)),
+    axs[0].text(0, energy_axis[lims2[0] + 18], r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)),
                 ha='center', color='w')
-    axs[0].text(0, energy_axis[lims[0] + 30], r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)),
+    axs[0].text(0, energy_axis[lims2[0] + 30], r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)),
                 ha='center', color='w')
-    axs[0].text(0, energy_axis[lims[0] + 42], 'Low power', ha='center', color='r')
-    axs[0].text(0, energy_axis[lims[0] + 54], 'High power', ha='center', color='g')
+    axs[0].text(0, energy_axis[lims2[0] + 42], 'Low power', ha='center', color='r')
+    axs[0].text(0, energy_axis[lims2[0] + 54], 'High power', ha='center', color='g')
     k0_idx = np.argmin(np.abs(k_axis))
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
     axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
