@@ -106,62 +106,70 @@ def guess_peak(data, xaxis=None):
 # Functions to be used on k-space spectra images
 
 def find_k0(image):
-    # peak_pos gives the pixel of the maximal emission as a function of
-    # wavevector. To find them, the image is smoothed
-    peak_pos = np.argmax(gaussian_filter(image, 1), 1)
-    smooth_idx, region = find_smooth_region(peak_pos)
-    k0_idx = np.argmax(region) + smooth_idx[0]
-
-    # Quadratic fit at the bottom of the dispersion, in pixel units. Allows one
-    # to find the pixel for k=0
-    x_pixels = np.arange(image.shape[0])
-    if np.diff(smooth_idx) > 141:
-        fitting_x = x_pixels[k0_idx - 70:k0_idx + 70]
-        fitting_y = peak_pos[k0_idx - 70:k0_idx + 70]
-    else:
-        fitting_x = x_pixels[smooth_idx[0]:smooth_idx[1]]
-        fitting_y = peak_pos[smooth_idx[0]:smooth_idx[1]]
-    quad_fit = np.polyfit(fitting_x, fitting_y, 2)
+    quad_fit = fit_quadratic_dispersion(image)
     fitted_k0_pixel = - quad_fit[1] / (2 * quad_fit[0])
-
     return fitted_k0_pixel
 
 
-def find_mass(image, energy, wavevector, plotting=False, return_fit=False):
+def find_mass(image, energy, wavevector, plotting=None):
     # Finding the mass (in physical units) by quadratically fitting the bottom
     # of the dispersion. We do not want to include high-k values in the fitting
     # so we limit the fitting to at most a 141 pixel wide region, which we
     # found phenomenologically
     hbar = 0.658  # in meV*ps
     c = 300  # in um/ps
+    mass_conversion_factor = (hbar * c) ** 2  # for meV / c**2 units
+    mass_conversion_factor /= 10 ** 9  # for MeV / c**2
+    mass_conversion_factor /= 0.511  # for ratio with free electron mass
 
-    peak_pos = np.argmax(gaussian_filter(image, 1), 1)
-    energies = energy[peak_pos]
-    smooth_idx, region = find_smooth_region(peak_pos)
-    k0_idx = np.argmin(np.abs(wavevector))
+    quad_fit = fit_quadratic_dispersion(image, energy, wavevector, plotting)
 
-    if np.diff(smooth_idx) > 141:
-        fitting_x = wavevector[k0_idx - 70:k0_idx + 70]
-        fitting_y = energies[k0_idx - 70:k0_idx + 70]
-    else:
-        fitting_x = wavevector[smooth_idx[0]:smooth_idx[1]]
-        fitting_y = energies[smooth_idx[0]:smooth_idx[1]]
-    quad_fit = np.polyfit(fitting_x, fitting_y, 2)
     a = np.abs(quad_fit[0])  # meV * um**2
+    mass = 1 / (2 * a)
+    mass *= mass_conversion_factor
     mass = hbar**2 / (2 * a)  # (meV*ps)**2 / meV * um**2  = meV*ps**2 / um**2
     mass *= c**2  # for meV / c**2 units
     mass /= 10**9  # for MeV / c**2
     mass /= 0.511  # for ratio with free electron mass
 
-    if plotting:
-        fig, axs = plt.subplots(1, 2, figsize=(7, 6))
+    return mass
+
+
+def fit_quadratic_dispersion(image, energy=None, wavevector=None, plotting=None, max_fit_k=None):
+
+    if wavevector is None:
+        wavevector = np.arange(image.shape[0])
+    if energy is None:
+        energy = np.arange(image.shape[1])
+    if max_fit_k is None:
+        max_fit_idx = image.shape[0]//4
+    else:
+        max_fit_idx = int(max_fit_k / np.mean(np.diff(wavevector)))
+
+    # Smoothens the image to find the location of of the dispersion curve by simple peak finding
+    peak_pos = np.argmax(gaussian_filter(image, 1), 1)
+    energies = energy[peak_pos]
+    # low SNR means not all the peak finding will correspond to the dispersion. We get around that by looking at the
+    # largest smooth region that is still quadratic.
+    smooth_idx, region = find_smooth_region(peak_pos)
+    k0_idx = int(np.mean(smooth_idx))
+    if np.diff(smooth_idx) > max_fit_idx:
+        fitting_x = wavevector[k0_idx - max_fit_idx//2:k0_idx + max_fit_idx//2]
+        fitting_y = energies[k0_idx - max_fit_idx//2:k0_idx + max_fit_idx//2]
+    else:
+        fitting_x = wavevector[smooth_idx[0]:smooth_idx[1]]
+        fitting_y = energies[smooth_idx[0]:smooth_idx[1]]
+
+    quad_fit = np.polyfit(fitting_x, fitting_y, 2)
+    if plotting is not None:
+        try:
+            fig, axs = plotting
+        except:
+            fig, axs = plt.subplots(1, 2, figsize=(7, 6))
         axs[0].imshow(image.transpose())
         axs[1].plot(wavevector, energies)
         axs[1].plot(fitting_x, np.poly1d(quad_fit)(fitting_x))
-    if return_fit:
-        return mass, quad_fit
-    else:
-        return mass
+    return quad_fit
 
 
 def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
@@ -211,18 +219,17 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     fitted_k0_pixel = find_k0(image)
     LOGGER.debug('Center pixel: %d' % fitted_k0_pixel)
 
-    x_pixels = np.arange(image.shape[0])
+    k_pixels = np.arange(image.shape[0])
     if k_axis is None or isinstance(k_axis, float):
         k0_idx = int(fitted_k0_pixel)
         if k_axis is None:
-            k_axis = x_pixels - fitted_k0_pixel
+            k_axis = k_pixels - fitted_k0_pixel
         else:
-            k_axis = (x_pixels - fitted_k0_pixel) * k_axis
+            k_axis = (k_pixels - fitted_k0_pixel) * k_axis
     else:
         k0_idx = int(np.argmin(np.abs(k_axis)))
         if np.abs(k0_idx - fitted_k0_pixel) > 3:
             LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % k_axis[int(fitted_k0_pixel)])
-    mass = find_mass(image, energy_axis, k_axis, plotting)
 
     k0_spectra = image[k0_idx]
     model = LorentzianModel() + ConstantModel()
@@ -232,14 +239,16 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     result = model.fit(k0_spectra, params_guess, x=energy_axis)
 
     if plotting:
-        fig, axs = plt.subplots(1, 2, figsize=(7, 6))
+        fig, axs = plt.subplots(1, 3, figsize=(7, 6))
         vmin = np.percentile(image, 0.1)
         vmax = np.percentile(image, 99.9)
         axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
-        axs[1].plot(energy_axis, k0_spectra)
-        axs[1].plot(energy_axis, result.init_fit, '--')
-        axs[1].plot(energy_axis, result.best_fit)
-        gui_checkplot()
+        axs[2].plot(energy_axis, k0_spectra)
+        axs[2].plot(energy_axis, result.init_fit, '--')
+        axs[2].plot(energy_axis, result.best_fit)
+        mass = find_mass(image, energy_axis, k_axis, (fig, (axs[:2])))
+
+        # gui_checkplot()
 
     energy = result.best_values['center']  # * 1e-3  # energy_axis[int(result.best_values['center'])]
     lifetime = hbar / (2 * result.best_values['sigma'])
