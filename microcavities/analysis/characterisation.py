@@ -6,6 +6,7 @@ from microcavities.analysis.analysis_functions import find_k0, dispersion, find_
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+from microcavities.utils.plotting import pcolormesh, combined_imshow
 
 """
 Utility functions that wrap underlying analysis functionality
@@ -75,8 +76,8 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
     yaxis = (energy_axis - np.mean(k0_energy))
 
-    indx = np.argmin(np.abs(yaxis))
-    lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
+    # indx = np.argmin(np.abs(yaxis))
+    # lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
     indxs = np.argmax(k0_img, 1)
     lims2 = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
@@ -88,9 +89,11 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     condensate_img /= np.percentile(condensate_img, 99.9)
 
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-    img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
-    axs[0].imshow(img, aspect='auto',
+    # img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
+    combined_imshow(dispersion_img, condensate_img, ax=axs[0], aspect='auto',
                   extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
+    # axs[0].imshow(img, aspect='auto',
+    #               extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
     axs[0].text(0, energy_axis[lims2[0] + 18], r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)),
@@ -101,9 +104,10 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     axs[0].text(0, energy_axis[lims2[0] + 54], 'High power', ha='center', color='g')
     k0_idx = np.argmin(np.abs(k_axis))
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
-    axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
-                                                                                   yaxis[lims2[1]],
-                                                                                   yaxis[lims2[0]]])
+    # axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
+    #                                                                                yaxis[lims2[1]],
+    #                                                                                yaxis[lims2[0]]])
+    pcolormesh(k0_img[:, lims2[0]:lims2[1]], xaxis, yaxis[lims2[0]:lims2[1]], diverging=False, cbar=False, ax=axs[1])
     axs[1].set_xlabel('CW power / W')
     axs[1].set_ylabel('Blueshift / meV')
     fig.tight_layout()
@@ -187,12 +191,14 @@ def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, 
 
 
 def get_k0_image(photolum, powers):
+    """From a sequence of energy-momentum images at different powers, extracts the power-ordered k=0 spectra"""
     dispersion_img = np.copy(photolum[0][0])
 
     k0 = int(find_k0(dispersion_img))
 
     dummy = np.mean(np.copy(photolum[0][:, k0 - 5:k0 + 5]), 1)
     xaxis = np.copy(powers[0])
+    # Removes common indices
     for indx in range(len(powers) - 1):
         overlap_index = np.sum(powers[indx + 1] <= np.max(powers[indx]))
         dummy2 = np.mean(np.copy(photolum[indx + 1][overlap_index:, k0 - 5:k0 + 5]), 1)
