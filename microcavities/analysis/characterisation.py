@@ -2,7 +2,7 @@
 
 from microcavities.utils.HierarchicalScan import AnalysisScan
 from microcavities.experiment.utils import spectrometer_calibration, magnification
-from microcavities.analysis.analysis_functions import find_k0, dispersion, find_mass
+from microcavities.analysis.analysis_functions import find_k0, dispersion, find_mass, fit_quadratic_dispersion
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -71,7 +71,8 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
 
     k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(np.copy(photolum[0][:, 0]), energy_axis, k_axis, known_sample_parameters)
-    _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis, return_fit=True)
+    quad_fit = fit_quadratic_dispersion(np.mean(dispersion_img, 0), energy_axis, k_axis)
+    # _, quad_fit = find_mass(np.mean(dispersion_img, 0), energy_axis, k_axis)
 
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
     yaxis = (energy_axis - np.mean(k0_energy))
@@ -91,7 +92,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
     # img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
     combined_imshow(dispersion_img, condensate_img, ax=axs[0], aspect='auto',
-                  extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
+                    extent=[np.max(k_axis), np.min(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
     # axs[0].imshow(img, aspect='auto',
     #               extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
@@ -102,7 +103,9 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
                 ha='center', color='w')
     axs[0].text(0, energy_axis[lims2[0] + 42], 'Low power', ha='center', color='r')
     axs[0].text(0, energy_axis[lims2[0] + 54], 'High power', ha='center', color='g')
-    k0_idx = np.argmin(np.abs(k_axis))
+    # k0_idx = np.argmin(np.abs(k_axis))
+    k0_idx = np.argmin(np.abs(k_axis + quad_fit[1] / (2 * quad_fit[0])))
+    print(k0_idx, k_axis[k0_idx])
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
     # axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
     #                                                                                yaxis[lims2[1]],
@@ -148,7 +151,7 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
+def get_calibrated_mass(dispersion_imgs, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
     # dispersion_img = np.copy(photolum[0][:, 0])
 
     if len(energy_axis) <= 2:
@@ -162,7 +165,7 @@ def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, 
 
     if k_axis is None:
         mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
-        k0 = int(np.mean(list(map(find_k0, dispersion_img))))
+        k0 = int(np.mean(list(map(find_k0, dispersion_imgs))))
         k_axis = np.linspace(-200, 200, 400)  # pixel units
         k_axis -= -200 + k0
         k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
@@ -172,7 +175,7 @@ def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, 
     lifetimes = []
     masses = []
     exciton_fractions = []
-    for img in dispersion_img:
+    for img in dispersion_imgs:
         results, args, kwargs = dispersion(img, k_axis, energy_axis, False, known_sample_parameters)
         energies += [results[0]]
         lifetimes += [results[1]]
@@ -187,7 +190,7 @@ def get_calibrated_mass(dispersion_img, energy_axis=(780, '1200'), k_axis=None, 
     # print("Lifetime = %.4f (%.4f)" % (np.mean(lifetimes), np.std(lifetimes)))
     # print("Mass = %g (%g)" % (np.mean(masses), np.std(masses)))
     # print("X = %.4f (%.4f)" % (np.mean(exciton_fractions), np.std(exciton_fractions)))
-    return energies, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis
+    return energies, lifetimes, masses, exciton_fractions, dispersion_imgs, energy_axis, k_axis
 
 
 def get_k0_image(photolum, powers):

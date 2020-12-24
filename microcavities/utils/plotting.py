@@ -93,7 +93,7 @@ def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100)
     return imshow(img, ax, *args, **kwargs)
 
 
-def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
+def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, gridspec_kwargs=None, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
     >>>> subplots(np.random.random((4, 4, 100))-0.5, plt.plot, (0, 1))
@@ -126,7 +126,9 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
         fig_size *= 4 / np.min(fig_size)
 
     fig = plt.figure(figsize=tuple(fig_size))
-    gs = gridspec.GridSpec(b, a)
+    if gridspec_kwargs is None:
+        gridspec_kwargs = dict()
+    gs = gridspec.GridSpec(b, a, **gridspec_kwargs)
     axs = []
     for idx in range(a):
         for idx2 in range(b):
