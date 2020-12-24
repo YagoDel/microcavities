@@ -36,21 +36,15 @@ def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, y
         except:
             xaxis *= scaling
             yaxis *= scaling
-        extent = [yaxis.min(), yaxis.max(), xaxis.min(), xaxis.max()]
-    else:
-        extent = None
+        kwargs['extent'] = [yaxis.min(), yaxis.max(), xaxis.min(), xaxis.max()]
 
     if diverging:
         val = np.max(np.abs([np.max(img), np.min(img)]))
-        cmap = 'RdBu'
-        vmin = -val
-        vmax = val
-    else:
-        vmin = None
-        vmax = None
-        cmap = None
+        kwargs['cmap'] = 'RdBu'
+        kwargs['vmin'] = -val
+        kwargs['vmax'] = val
 
-    im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap=cmap, extent=extent, **kwargs)
+    im = ax.imshow(img, **kwargs)
     if cbar: fig.colorbar(im, ax=ax)
 
     if xlabel is not None: ax.set_xlabel(xlabel)
