@@ -4,6 +4,7 @@ import yaml
 from io import IOBase
 import os
 import datetime
+import warnings
 
 
 def depth(lst):
@@ -115,11 +116,22 @@ def get_data_directory():
     else:
         raise ValueError('Unrecognised platform %s' % os.sys.platform)
     computer_names = yml_dict['data_directory'].keys()
-    if computer_name not in computer_names:
-        print('No default directory provided for the computer: %s. Using default home path' % computer_name)
+
+    directory = None
+    if computer_name in computer_names:
+        _directories = yml_dict['data_directory'][computer_name]
+        if type(_directories) == str:
+            directory = _directories
+        else:
+            for _directory in _directories:
+                if os.path.exists(_directory):
+                    directory = _directory
+                    break
+
+    if directory is None:
+        warnings.warn('No default directory provided for the computer: %s. Using default home path' % computer_name)
         directory = os.path.abspath(home_path)
-    else:
-        directory = yml_dict['data_directory'][computer_name]
+
     return os.path.normpath(directory)
 
 
