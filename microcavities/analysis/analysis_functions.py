@@ -10,6 +10,7 @@ import pyqtgraph as pg
 import pymsgbox
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from microcavities.utils.plotting import pcolormesh
 
 LOGGER = create_logger("analysis_functions")
 
@@ -163,12 +164,12 @@ def fit_quadratic_dispersion(image, energy=None, wavevector=None, plotting=None,
     quad_fit = np.polyfit(fitting_x, fitting_y, 2)
     if plotting is not None:
         try:
-            fig, axs = plotting
+            fig, ax = plotting
         except:
-            fig, axs = plt.subplots(1, 2, figsize=(7, 6))
-        axs[0].imshow(image.transpose())
-        axs[1].plot(wavevector, energies)
-        axs[1].plot(fitting_x, np.poly1d(quad_fit)(fitting_x))
+            fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+        pcolormesh(image, wavevector, energy, diverging=False, cbar=False, cmap='Greys', ax=ax)
+        ax.plot(wavevector, energies, '--', lw=0.7)
+        ax.plot(fitting_x, np.poly1d(quad_fit)(fitting_x), '--', lw=1)
     return quad_fit
 
 
@@ -207,9 +208,6 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         Updated kwargs that can be passed to the next function call
 
     """
-    hbar = 0.658  # in meV*ps
-    # c = 300  # in um/ps
-
     if energy_axis is None:
         energy_axis = np.arange(image.shape[1])
     elif np.mean(energy_axis) < 100:
@@ -239,18 +237,20 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     result = model.fit(k0_spectra, params_guess, x=energy_axis)
 
     if plotting:
-        fig, axs = plt.subplots(1, 3, figsize=(7, 6))
-        vmin = np.percentile(image, 0.1)
-        vmax = np.percentile(image, 99.9)
-        axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
-        axs[2].plot(energy_axis, k0_spectra)
-        axs[2].plot(energy_axis, result.init_fit, '--')
-        axs[2].plot(energy_axis, result.best_fit)
-        mass = find_mass(image, energy_axis, k_axis, (fig, (axs[:2])))
-
+        fig, axs = plt.subplots(1, 2, figsize=(7, 6))
+        # vmin = np.percentile(image, 0.1)
+        # vmax = np.percentile(image, 99.9)
+        # axs[0].imshow(image.transpose(), vmin=vmin, vmax=vmax)
+        axs[1].plot(energy_axis, k0_spectra)
+        axs[1].plot(energy_axis, result.init_fit, '--')
+        axs[1].plot(energy_axis, result.best_fit)
+        mass = find_mass(image, energy_axis, k_axis, (fig, (axs[0])))
         # gui_checkplot()
+    else:
+        mass = find_mass(image, energy_axis, k_axis)
 
     energy = result.best_values['center']  # * 1e-3  # energy_axis[int(result.best_values['center'])]
+    hbar = 0.658  # in meV*ps
     lifetime = hbar / (2 * result.best_values['sigma'])
 
     results = (energy, lifetime, mass)
