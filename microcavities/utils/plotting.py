@@ -36,21 +36,15 @@ def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, y
         except:
             xaxis *= scaling
             yaxis *= scaling
-        extent = [yaxis.min(), yaxis.max(), xaxis.min(), xaxis.max()]
-    else:
-        extent = None
+        kwargs['extent'] = [yaxis.min(), yaxis.max(), xaxis.min(), xaxis.max()]
 
     if diverging:
         val = np.max(np.abs([np.max(img), np.min(img)]))
-        cmap = 'RdBu'
-        vmin = -val
-        vmax = val
-    else:
-        vmin = None
-        vmax = None
-        cmap = None
+        kwargs['cmap'] = 'RdBu'
+        kwargs['vmin'] = -val
+        kwargs['vmax'] = val
 
-    im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap=cmap, extent=extent, **kwargs)
+    im = ax.imshow(img, **kwargs)
     if cbar: fig.colorbar(im, ax=ax)
 
     if xlabel is not None: ax.set_xlabel(xlabel)
@@ -99,7 +93,8 @@ def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100)
     return imshow(img, ax, *args, **kwargs)
 
 
-def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex=False, sharey=False, *args, **kwargs):
+def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8,sharex=False, sharey=False,
+             gridspec_kwargs=None, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
     >>>> subplots(np.random.random((4, 4, 100))-0.5, plt.plot, (0, 1))
@@ -109,7 +104,11 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
     :param datas:
     :param plotting_func:
     :param axes:
-    :param fig_shape: float
+    :param fig_shape:
+    :param figsize:
+    :param sharex:
+    :param sharey:
+    :param gridspec_kwargs:
     :param args:
     :param kwargs:
     :return:
@@ -137,7 +136,9 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
             fig_size = np.array([figsize, figsize])
 
     fig = plt.figure(figsize=tuple(fig_size))
-    gs = gridspec.GridSpec(b, a)
+    if gridspec_kwargs is None:
+        gridspec_kwargs = dict()
+    gs = gridspec.GridSpec(b, a, **gridspec_kwargs)
     axs = []
     for idx2 in range(b):
         for idx in range(a):
