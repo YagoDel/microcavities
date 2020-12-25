@@ -99,7 +99,7 @@ def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100)
     return imshow(img, ax, *args, **kwargs)
 
 
-def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
+def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex=False, sharey=False, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
     >>>> subplots(np.random.random((4, 4, 100))-0.5, plt.plot, (0, 1))
@@ -122,30 +122,41 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, *args, **kwargs):
     else:
         raise ValueError
 
-    if fig_shape is None:
-        if len(datas.shape) - len(axes) == 2:
-            fig_shape = (b/a) * (datas.shape[-2]/datas.shape[-1])
-        else:
-            fig_shape = 1
-    fig_size = np.array([8, 8*fig_shape])
-    if any(fig_size < 4):
-        fig_size *= 4 / np.min(fig_size)
+    try:
+        fig_size = tuple(iter(figsize))
+    except:
+        if fig_shape is None:
+            if len(datas.shape) - len(axes) == 2:
+                fig_shape = (b/a) * (datas.shape[-2]/datas.shape[-1])
+            else:
+                fig_shape = 1
+        fig_size = np.array([figsize, figsize*fig_shape])
+        if any(fig_size < 4):
+            fig_size *= 4 / np.min(fig_size)
+        if any(fig_size > 20):
+            fig_size = np.array([figsize, figsize])
 
     fig = plt.figure(figsize=tuple(fig_size))
     gs = gridspec.GridSpec(b, a)
     axs = []
-    for idx in range(a):
-        for idx2 in range(b):
+    for idx2 in range(b):
+        for idx in range(a):
             try:
                 if len(axes) == 1:
-                    indx = idx * b + idx2
+                    indx = idx2 * a + idx
                     data = datas[indx]
                 elif len(axes) == 2:
                     data = datas[idx, idx2]
             except IndexError:
                 continue
+            _kwargs = dict()
+            if len(axs) > 0:
+                if sharex:
+                    _kwargs['sharex'] = axs[0]
+                if sharey:
+                    _kwargs['sharey'] = axs[0]
 
-            ax = plt.subplot(gs[idx2, idx])
+            ax = plt.subplot(gs[idx2, idx], **_kwargs)
             axs += [ax]
 
             try:
