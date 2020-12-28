@@ -52,7 +52,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, y
     return fig, ax
 
 
-def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
+def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
     """
     :param red:
     :param green:
@@ -91,6 +91,35 @@ def combined_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100)
     kwargs['diverging'] = False
     kwargs['cbar'] = False
     return imshow(img, ax, *args, **kwargs)
+
+
+def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, *args, **kwargs):
+    shape = images.shape
+    assert len(shape) - len(axes) == 2
+    other_axis = set(range(len(shape))) - set(axes)
+    if len(axes) == 1:
+        a, b = square(shape[axes[0]])
+    elif len(axes) == 2:
+        a, b = [shape[idx] for idx in axes]
+    else:
+        raise NotImplementedError("Images shape %s and axes %s don't combine" % (shape, axes))
+
+    stepx, stepy = [images.shape[x] for x in other_axis]
+    combined_image = np.zeros((a * (stepx + 1), b * (stepy + 1))) + np.nan
+    for idx in range(a):
+        for idx2 in range(b):
+            if len(axes) == 1:
+                indx = idx * a + idx2
+                img = images[indx]
+            elif len(axes) == 2:
+                img = images[idx, idx2]
+            img = np.array(img, dtype=np.float)
+            if normalise:
+                if normalise_kwargs is None:
+                    normalise_kwargs = dict()
+                img = normalize(img, **normalise_kwargs)
+            combined_image[idx * stepx + idx:(idx + 1) * stepx + idx, idx2 * stepy + idx2:(idx2 + 1) * stepy + idx2] = img
+    return imshow(combined_image, *args, **kwargs)
 
 
 def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8,sharex=False, sharey=False,
