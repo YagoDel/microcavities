@@ -6,7 +6,7 @@ from microcavities.analysis.analysis_functions import find_k0, dispersion, find_
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
-from microcavities.utils.plotting import pcolormesh, combined_imshow
+from microcavities.utils.plotting import pcolormesh, rgb_imshow
 
 """
 Utility functions that wrap underlying analysis functionality
@@ -77,40 +77,33 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     k0_img, xaxis = get_k0_image(list(map(lambda x: np.mean(x, 0), photolum)), powers)
     yaxis = (energy_axis - np.mean(k0_energy))
 
-    # indx = np.argmin(np.abs(yaxis))
-    # lims = [np.max([indx - 200, 0]), np.min([indx + 40, photolum[0].shape[-1]-1])]
     indxs = np.argmax(k0_img, 1)
-    lims2 = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
+    lims = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
-    condensate_img = np.mean(photolum[-1][:, -1, :, lims2[0]:lims2[1]], 0).transpose()
-    dispersion_img = np.mean((dispersion_img[..., lims2[0]:lims2[1]]), 0).transpose()
+    condensate_img = np.mean(photolum[-1][:, -1, :, lims[0]:lims[1]], 0).transpose()
+    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
     dispersion_img -= np.percentile(dispersion_img, 1)
     condensate_img -= np.percentile(condensate_img, 1)
     dispersion_img /= np.percentile(dispersion_img, 99.9)
     condensate_img /= np.percentile(condensate_img, 99.9)
 
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-    # img = np.rollaxis(np.array([dispersion_img, condensate_img, np.zeros(condensate_img.shape)]), 0, 3)
-    combined_imshow(dispersion_img, condensate_img, ax=axs[0], aspect='auto',
-                    extent=[np.max(k_axis), np.min(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
-    # axs[0].imshow(img, aspect='auto',
-    #               extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims2[1]], energy_axis[lims2[0]]])
+    rgb_imshow(dispersion_img, condensate_img, ax=axs[0], aspect='auto', from_black=False,
+                    extent=[np.min(k_axis), np.max(k_axis), energy_axis[lims[1]], energy_axis[lims[0]]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
-    axs[0].text(0, energy_axis[lims2[0] + 18], r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)),
-                ha='center', color='w')
-    axs[0].text(0, energy_axis[lims2[0] + 30], r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)),
-                ha='center', color='w')
-    axs[0].text(0, energy_axis[lims2[0] + 42], 'Low power', ha='center', color='r')
-    axs[0].text(0, energy_axis[lims2[0] + 54], 'High power', ha='center', color='g')
-    # k0_idx = np.argmin(np.abs(k_axis))
+    axs[0].text(0.5, 1, (r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)) + '\n' +
+                         (r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)))),
+                ha='center', va='center', color='k', transform=axs[0].transAxes)
+    axs[0].text(0, energy_axis[lims[0]:lims[1]][np.argmax(np.sum(dispersion_img, 1))+10], 'Low power',
+                ha='center', va='top', color='r')
+    axs[0].text(0, energy_axis[lims[0]:lims[1]][np.argmax(np.sum(condensate_img, 1))+10], 'High power',
+                ha='center', va='top', color='g')
     k0_idx = np.argmin(np.abs(k_axis + quad_fit[1] / (2 * quad_fit[0])))
-    print(k0_idx, k_axis[k0_idx])
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
-    # axs[1].imshow(k0_img[:, lims2[0]:lims2[1]].transpose(), aspect='auto', extent=[np.min(xaxis), np.max(xaxis),
-    #                                                                                yaxis[lims2[1]],
-    #                                                                                yaxis[lims2[0]]])
-    pcolormesh(k0_img[:, lims2[0]:lims2[1]], xaxis, yaxis[lims2[0]:lims2[1]], diverging=False, cbar=False, ax=axs[1])
+
+    pcolormesh(k0_img[:, lims[0]:lims[1]], xaxis, yaxis[lims[0]:lims[1]], diverging=False, cbar=False, cmap='Greys',
+               ax=axs[1])
     axs[1].set_xlabel('CW power / W')
     axs[1].set_ylabel('Blueshift / meV')
     fig.tight_layout()
@@ -152,8 +145,6 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
 
 
 def get_calibrated_mass(dispersion_imgs, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None):
-    # dispersion_img = np.copy(photolum[0][:, 0])
-
     if len(energy_axis) <= 2:
         wavelength = energy_axis[0]
         if len(energy_axis) == 1:
@@ -164,12 +155,22 @@ def get_calibrated_mass(dispersion_imgs, energy_axis=(780, '1200'), k_axis=None,
         energy_axis = 1240 / wvls
 
     if k_axis is None:
-        mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
-        k0 = int(np.mean(list(map(find_k0, dispersion_imgs))))
-        k_axis = np.linspace(-200, 200, 400)  # pixel units
-        k_axis -= -200 + k0
-        k_axis *= 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
-        k_axis *= 1e-6  # converting to inverse micron
+        k_axis = ('pvcam', 'k_space')
+    if len(k_axis) <= 2:
+        try:
+            mag = magnification(*k_axis)[0]
+            mag = 20 * 1e-12 / mag  # using the default 20um pixel size
+        except:
+            mag = magnification(camera=('pvcam', 'k_space'))[0]
+        k0 = np.mean(list(map(find_k0, dispersion_imgs)))
+        _k_axis = np.arange(400, dtype=np.float)  # pixel units
+        try:
+            _k_axis = _k_axis[k_axis[0]:k_axis[1]]
+            _k_axis -= k0 + k_axis[0]
+        except:
+            pass
+        _k_axis *= mag
+        k_axis = np.copy(_k_axis)
 
     energies = []
     lifetimes = []
