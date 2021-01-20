@@ -2,12 +2,13 @@
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+from matplotlib import colors, cm
 import numpy as np
 from microcavities.utils import square
 from microcavities.analysis.utils import normalize
 
 
-def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, ylabel=None, **kwargs):
+def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, xlabel=None, ylabel=None, **kwargs):
     """Utility imshow, wraps commonly used plotting tools
 
     :param img: 2D array
@@ -25,18 +26,18 @@ def imshow(img, ax=None, diverging=True, scaling=None, cbar=True, xlabel=None, y
     else:
         fig = ax.figure
 
-    if scaling is not None:
+    if xaxis is None:
         xaxis = np.arange(img.shape[0], dtype=np.float)
+    if yaxis is None:
         yaxis = np.arange(img.shape[1], dtype=np.float)
-        xaxis -= np.mean(xaxis)
-        yaxis -= np.mean(yaxis)
+    if scaling is not None:
         try:
             xaxis *= scaling[0]
             yaxis *= scaling[1]
         except:
             xaxis *= scaling
             yaxis *= scaling
-        kwargs['extent'] = [yaxis.min(), yaxis.max(), xaxis.min(), xaxis.max()]
+    kwargs['extent'] = [xaxis.min(), xaxis.max(), yaxis.min(), yaxis.max()]
 
     if diverging:
         val = np.max(np.abs([np.max(img), np.min(img)]))
@@ -93,7 +94,48 @@ def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), fro
     return imshow(img, ax, *args, **kwargs)
 
 
+def imshow_transparency(img, alpha=None, percentiles=(0, 100), diverging=True, cbar=False, cmap='coolwarm_r', ax=None,
+                        *args, **kwargs):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.figure
+    if diverging:
+        val = np.max(np.abs([img.min(), img.max()]))
+        norm_k = colors.Normalize(-val, +val)
+    else:
+        norm_k = colors.Normalize(img.min(), img.max())
+
+    img_array = plt.get_cmap(cmap)(norm_k(img))
+
+    if alpha is not None:
+        norm_i = colors.Normalize(np.percentile(alpha, percentiles[0]), np.percentile(alpha, percentiles[1]))
+        img_array[..., 3] = norm_i(alpha)
+
+    kwargs['diverging'] = False
+    kwargs['cbar'] = False
+    kwargs['ax'] = ax
+    imshow(img_array, *args, **kwargs)
+
+    cbar_ax = None
+    if cbar:
+        _cbar = fig.colorbar(cm.ScalarMappable(norm=norm_k, cmap=cmap), ax=ax)
+        cbar_ax = _cbar.ax
+    return fig, ax, cbar_ax
+
+
 def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, *args, **kwargs):
+    """    For making arrays of images, faster than making tons of subplots.
+    Makes a large array with NaNs to separate different images, which can then be plotted in a single Matplotlib artist
+
+    :param images:
+    :param axes:
+    :param normalise:
+    :param normalise_kwargs:
+    :param args:
+    :param kwargs:
+    :return:
+    """
     shape = images.shape
     assert len(shape) - len(axes) == 2
     other_axis = set(range(len(shape))) - set(axes)
@@ -122,7 +164,7 @@ def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, 
     return imshow(combined_image, *args, **kwargs)
 
 
-def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8,sharex=False, sharey=False,
+def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex=False, sharey=False,
              gridspec_kwargs=None, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
