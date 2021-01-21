@@ -36,9 +36,9 @@ def fit_function(name):
     """
 
 
-def normalize(array, percentiles=(0, 100), cut=False):
-    mn = np.percentile(array, percentiles[0])
-    mx = np.percentile(array, percentiles[1])
+def normalize(array, percentiles=(0, 100), axis=None, cut=False):
+    mn = np.percentile(array, percentiles[0], axis=axis, keepdims=True)
+    mx = np.percentile(array, percentiles[1], axis=axis, keepdims=True)
     normed = (array - mn) / (mx - mn)
     if cut:
         normed[normed > 1] = 1
