@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import warnings
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib import colors, cm
@@ -27,9 +28,9 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         fig = ax.figure
 
     if xaxis is None:
-        xaxis = np.arange(img.shape[0], dtype=np.float)
+        xaxis = np.arange(img.shape[1], dtype=np.float)
     if yaxis is None:
-        yaxis = np.arange(img.shape[1], dtype=np.float)
+        yaxis = np.arange(img.shape[0], dtype=np.float)
     if scaling is not None:
         try:
             xaxis *= scaling[0]
@@ -94,32 +95,37 @@ def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), fro
     return imshow(img, ax, *args, **kwargs)
 
 
-def imshow_transparency(img, alpha=None, percentiles=(0, 100), diverging=True, cbar=False, cmap='coolwarm_r', ax=None,
+def imshow_transparency(img, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
+                        diverging=True, cbar=False, cmap='coolwarm_r', ax=None,
                         *args, **kwargs):
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     else:
         fig = ax.figure
     if diverging:
+        if vmin is not None or vmax is not None:
+            warnings.warn('Both diverging and vmin/vmax given. Defaulting to diverging.')
         val = np.max(np.abs([img.min(), img.max()]))
-        norm_k = colors.Normalize(-val, +val)
+        norm_colour = colors.Normalize(-val, +val)
     else:
-        norm_k = colors.Normalize(img.min(), img.max())
+        norm_colour = colors.Normalize(vmin, vmax)
 
-    img_array = plt.get_cmap(cmap)(norm_k(img))
+    img_array = plt.get_cmap(cmap)(norm_colour(img))
 
     if alpha is not None:
-        norm_i = colors.Normalize(np.percentile(alpha, percentiles[0]), np.percentile(alpha, percentiles[1]))
-        img_array[..., 3] = norm_i(alpha)
+        norm_alpha = colors.Normalize(np.percentile(alpha, percentiles[0]), np.percentile(alpha, percentiles[1]))
+        img_array[..., 3] = norm_alpha(alpha)
 
     kwargs['diverging'] = False
     kwargs['cbar'] = False
     kwargs['ax'] = ax
+    kwargs['vmin'] = None
+    kwargs['vmax'] = None
     imshow(img_array, *args, **kwargs)
 
     cbar_ax = None
     if cbar:
-        _cbar = fig.colorbar(cm.ScalarMappable(norm=norm_k, cmap=cmap), ax=ax)
+        _cbar = fig.colorbar(cm.ScalarMappable(norm=norm_colour, cmap=cmap), ax=ax)
         cbar_ax = _cbar.ax
     return fig, ax, cbar_ax
 
