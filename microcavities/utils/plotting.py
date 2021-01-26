@@ -9,7 +9,8 @@ from microcavities.utils import square
 from microcavities.analysis.utils import normalize
 
 
-def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, xlabel=None, ylabel=None, **kwargs):
+def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, xlabel=None, ylabel=None,
+           cbar_label=None, **kwargs):
     """Utility imshow, wraps commonly used plotting tools
 
     :param img: 2D array
@@ -38,7 +39,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         except:
             xaxis *= scaling
             yaxis *= scaling
-    kwargs['extent'] = [xaxis.min(), xaxis.max(), yaxis.min(), yaxis.max()]
+    kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[0], yaxis[-1]]
 
     if diverging:
         val = np.max(np.abs([np.max(img), np.min(img)]))
@@ -47,7 +48,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         kwargs['vmax'] = val
 
     im = ax.imshow(img, **kwargs)
-    if cbar: fig.colorbar(im, ax=ax)
+    if cbar: fig.colorbar(im, ax=ax, label=cbar_label)
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
@@ -294,7 +295,7 @@ def pcolormesh(img, x, y, ax=None, cbar=True, diverging=True, *args, **kwargs):
     return fig, ax
 
 
-def label_grid(figure, grid, label, position, offset=0.07):
+def label_grid(figure, grid, label, position, offset=0.07, **kwargs):
     """Simple labelling of matplotlib.gridspec grids
 
     :param figure: matplotlib.figure
@@ -306,10 +307,10 @@ def label_grid(figure, grid, label, position, offset=0.07):
     """
     _pos = grid.get_grid_positions(figure)
     if position == 'bottom':
-        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center')
+        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center', **kwargs)
     elif position == 'top':
-        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center')
+        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center', **kwargs)
     elif position == 'left':
-        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90)
+        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90, **kwargs)
     elif position == 'right':
-        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90)
+        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
