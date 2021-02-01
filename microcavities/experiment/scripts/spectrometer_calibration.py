@@ -7,10 +7,13 @@ from microcavities.utils import square, get_data_path
 import h5py
 import os
 
-
-KEY = 'DATA_TAKING'  # 'ANALYSIS'
-grating = 1200  # 1800
+KEY = 'ANALYSIS'  # 'DATA_TAKING'  #
+grating = 1714  # 1800  # 1200  #
 calibration_path = get_data_path('calibrations')
+file_name = 'andor_table2.h5'  # 'spectrometer_07_2020.h5'
+if KEY == 'DATA_TAKING':
+    camera_pointer = pvcam
+    spectrometer_pointer = spectrometer
 
 # From http://www.astrosurf.com/buil/us/spe2/hresol4.htm
 all_peaks = np.asarray(
@@ -27,7 +30,7 @@ all_peaks /= 10
 distances = np.diff(all_peaks)
 width = np.min(distances)/5
 
-with h5py.File(os.path.join(calibration_path, 'spectrometer_07_2020.h5'), 'a') as df:
+with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
     if KEY == 'DATA_TAKING':
         full_wavelengths = np.linspace(np.min(all_peaks), np.max(all_peaks), 100001)
         full_spectra = np.zeros(100001)
@@ -41,43 +44,33 @@ with h5py.File(os.path.join(calibration_path, 'spectrometer_07_2020.h5'), 'a') a
         full_spectra = full_spectrum[1]
 
 
+def get_center_wavelengths(wvl_range, n_peaks=3):
+    peak_diff = np.abs(all_peaks[:-n_peaks] - all_peaks[n_peaks:])
+    indexes = np.argwhere(peak_diff < wvl_range)
+    return np.mean([all_peaks[:-n_peaks][indexes], all_peaks[n_peaks:][indexes]], 0)
+
+
 if grating == 1200:
     wvl_range = 13
     center_wavelengths = np.array([600, 615, 630, 660, 700, 713, 750, 822, 830, 840,
                                    599, 614, 629, 659, 699, 712, 749, 821, 829, 839,
                                    602, 617, 631, 661, 701, 714, 751, 823, 831, 841])
-elif grating == 1800:
+elif grating in 1800:
     wvl_range = 7.5
     center_wavelengths = np.array([572, 600, 608, 614, 616, 628, 630, 632, 660, 662, 748, 750, 752, 834])
+elif grating in 1714:
+    wvl_range = 8.5
+    center_wavelengths = np.array([600, 608, 614, 616, 628, 630, 632, 660, 662, 748, 750, 834])
+    thresholds = [0.1, 0.02, 0.018, 0.02, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
 
 
-# DATA TAKING
-if KEY == 'DATA_TAKING':
-    imgs = []
-    for wvl in center_wavelengths:
-        spectrometer.wavelength = wvl
-        img = pvcam.raw_image()
-        if np.max(np.mean(img, 0)) > 60000:
-            _idx = 0
-            while np.max(np.mean(img, 0)) > 60000:
-                exp = pvcam.exposure
-                pvcam.exposure = exp / 2
-                img = pvcam.raw_image()
-                print(_idx)
-                if _idx > 10:
-                    break
-                _idx += 1
-        maxval = np.max(np.mean(img, 0))
-        exp = pvcam.exposure
-        if 60000 * exp / maxval < 30:
-            pvcam.exposure = 60000 * exp / maxval
-        else:
-            print('Max exposure. wvl=%d' % wvl)
-            pvcam.exposure = 30
-        img = pvcam.raw_image()
-
-        imgs += [img]
-    imgs = np.array(imgs)
+def threshold_image(imgs=None):
+    if imgs is None:
+        with h5py.File(os.path.join(calibration_path, file_name), 'r') as dfile:
+            imgs = []
+            for wvl in center_wavelengths:
+                imgs += [dfile['grating=%d/spectrometer_wvl=%d' % (grating, wvl)]]
+            imgs = np.array(imgs)
 
     a, b = square(len(center_wavelengths))
     # The following figure allows you to decide which center_wavelengths to use for fitting and what thresholds you want
@@ -96,6 +89,37 @@ if KEY == 'DATA_TAKING':
         sel = np.logical_and(full_wavelengths > wvl - wvl_range, full_wavelengths < wvl + wvl_range)
         ax.plot(full_wavelengths[sel], full_spectra[sel], '--')
 
+
+# DATA TAKING
+if KEY == 'DATA_TAKING':
+    imgs = []
+    for wvl in center_wavelengths:
+        spectrometer_pointer.wavelength = wvl
+        img = camera_pointer.raw_image()
+        if np.max(np.mean(img, 0)) > 60000:
+            _idx = 0
+            while np.max(np.mean(img, 0)) > 60000:
+                exp = camera_pointer.exposure
+                camera_pointer.exposure = exp / 2
+                img = camera_pointer.raw_image()
+                print(_idx)
+                if _idx > 10:
+                    break
+                _idx += 1
+        maxval = np.max(np.mean(img, 0))
+        exp = camera_pointer.exposure
+        if 60000 * exp / maxval < 30:
+            camera_pointer.exposure = 60000 * exp / maxval
+        else:
+            print('Max exposure. wvl=%d' % wvl)
+            camera_pointer.exposure = 30
+        img = camera_pointer.raw_image()
+
+        imgs += [img]
+    imgs = np.array(imgs)
+
+    threshold_image(imgs)
+
     # selected_wavelengths = [600, 615, 630, 660, 700, 713, 750, 822, 830, 840]
     selected_wavelengths = center_wavelengths
     if grating == 1200:
@@ -103,7 +127,7 @@ if KEY == 'DATA_TAKING':
     elif grating == 1800:
         thresholds = [0.03, 0.1, 0.02, 0.02, 0.02, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.6, 0.1]
 
-    with h5py.File(os.path.join(calibration_path, 'spectrometer_07_2020.h5'), 'a') as df:
+    with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
         for wvl, thrs in zip(selected_wavelengths, thresholds):
             idx = np.argwhere(center_wavelengths == wvl)[0][0]
             img = imgs[idx]
@@ -116,10 +140,10 @@ if KEY == 'DATA_TAKING':
 # ANALYSIS
 elif KEY == 'ANALYSIS':
     selected_wavelengths = center_wavelengths
-    with h5py.File(os.path.join(calibration_path, 'spectrometer_07_2020.h5'), 'r') as df:
+    with h5py.File(os.path.join(calibration_path, file_name), 'r') as df:
         thresholds = []
         imgs = []
-        for wvl in center_wavelengths:
+        for wvl in selected_wavelengths:
             dset = df['grating=%d/spectrometer_wvl=%d' % (grating, wvl)]
             imgs += [dset[...]]
             thresholds += [dset.attrs['threshold']]
@@ -180,7 +204,6 @@ elif KEY == 'ANALYSIS':
         ax.plot(pixel_peaks, known_peaks-wvl, '.')
         ax.plot(pixel_peaks, np.poly1d(fits[idx])(pixel_peaks), '--')
 
-
     fig, axs = plt.subplots(1, 2)
     indx = np.argsort(selected_wavelengths)
     if grating == 1800:
@@ -191,6 +214,10 @@ elif KEY == 'ANALYSIS':
         fit_fit = np.polyfit(selected_wavelengths[indx][-16:], fits[:, 0][indx][-16:], 1)
         newx = selected_wavelengths[indx][-16:]
         newy = np.poly1d(fit_fit)(newx)
+    elif grating == 1714:
+        fit_fit = np.polyfit(selected_wavelengths[indx], fits[:, 0][indx], 1)
+        newx = selected_wavelengths[indx]
+        newy = np.poly1d(fit_fit)(newx)
 
     axs[0].plot(selected_wavelengths[indx], fits[:, 0][indx], '.-')
     axs[0].plot(newx, newy, '--', label='%g\n%g' % tuple(fit_fit))
@@ -199,4 +226,4 @@ elif KEY == 'ANALYSIS':
     axs[0].set_title('Slope')
     axs[1].set_title('Offset correction')
     [ax.set_xlabel('Center wavelength') for ax in axs]
-    fig.savefig(os.path.join(calibration_path, 'spectrometer_%d_07_2020.png' % grating), dpi=1200, bbox_inches='tight')
+    fig.savefig(os.path.join(calibration_path, file_name.rstrip('.h5') + '%d.png' % grating), dpi=1200, bbox_inches='tight')
