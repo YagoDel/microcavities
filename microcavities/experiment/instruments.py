@@ -12,12 +12,14 @@ from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.ST133.pvcam import Pvcam, PvcamSdk
 from nplab.instrument.camera.Andor import Andor
 from microcavities.experiment.utils import spectrometer_calibration
-
+from nplab.instrument.camera.camera_scaled_roi import DisplayWidgetRoiScale
 import nidaqmx
 import nidaqmx.stream_writers
 import numpy as np
 import re
 import time
+from scipy.ndimage.filters import gaussian_filter
+from weakref import WeakSet
 
 
 # class Matisse(VisaMixin, Instrument):
@@ -188,6 +190,35 @@ class AOM(Instrument):
             writer = nidaqmx.stream_writers.AnalogSingleChannelWriter(task.out_stream, auto_start=True)
             writer.write_one_sample(amplitude)
 
+
+class MyDisplayWidgetRoiScale(DisplayWidgetRoiScale):
+    def __init__(self, *args, **kwargs):
+        super(MyDisplayWidgetRoiScale, self).__init__(*args, **kwargs)
+        self.local_normalize = True
+        self.local_normalize_size = 10
+        self.local_normalize_factor = None
+
+    # Local normalizing
+    def normalize(self, image):
+        norm = super(MyDisplayWidgetRoiScale, self).normalize(image)
+        if self.local_normalize:
+            if self.local_normalize_factor is None:
+                self.local_normalize_factor = gaussian_filter(norm, sigma=self.local_normalize_size)
+            norm /= self.local_normalize_factor
+        return norm
+
+
+class MyPvcam(Pvcam):
+    def __init__(self, *args, **kwargs):
+        super(MyPvcam, self).__init__(*args, **kwargs)
+
+    def get_preview_widget(self):
+        self._logger.debug('Getting preview widget')
+        if self._preview_widgets is None:
+            self._preview_widgets = WeakSet()
+        new_widget = MyDisplayWidgetRoiScale()
+        self._preview_widgets.add(new_widget)
+        return new_widget
 
 # class OxfordItc(VisaMixin, TemperatureControlMixin, Instrument):
 #     def __init__(self, address):
@@ -397,7 +428,7 @@ class Stages(HIT):
         for axis in range(6):
             self.set_speed(axis, 1, 500000, 1000)
 
-        self.axis_toggle = dict(k_lens=dict(on=2430000, off=7000000),
+        self.axis_toggle = dict(k_lens=dict(on=2430000, off=7000000), stokes=dict(on=2430000, off=7000000),
                                 filter_y=dict(off=8604180, small=338640, medium=3394640, big=6475000),
                                 filter_x=dict(off=6000000, small=2204000, medium=1983000, big=2030000))
         # 20um pinhole x,y = [2204000, 338640]
