@@ -1,9 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+Two different approaches:
+- If many peaks of the light-source appear in the same frame, then you can identify the sequence of peaks and figure out
+what the correspond to in the known emission by doing ratios of energy differences (not implemented yet)
+- If only few peaks appear in the same frame, then you need to have an idea of what the central wavelength is and of
+what the range of wavelengths is in the frame
+"""
+
 
 import numpy as np
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from microcavities.utils import square, get_data_path
+from microcavities.analysis.utils import normalize
 import h5py
 import os
 
@@ -44,10 +53,194 @@ with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
         full_spectra = full_spectrum[1]
 
 
+def measure_wavelength_range(wavelength_step=0.1, *args, **kwargs):
+    """
+    Wherever you measure it, it's only really valid in that wavelength region (that's the whole point of the calibration)
+    :param wavelength_step:
+    :param args:
+    :param kwargs:
+    :return:
+    """
+    if 'distance' not in kwargs:
+        kwargs['distance'] = 5
+    img0 = camera_pointer.raw_image(False, True)
+    spec0 = normalize(np.mean(img0, 0))
+    wvl0 = spectrometer_pointer.wavelength
+    spectrometer_pointer.wavelength = wvl0 + wavelength_step
+    img1 = camera_pointer.raw_image(False, True)
+    spec1 = normalize(np.mean(img1, 0))
+    indx_peaks1 = find_peaks(spec0, *args, **kwargs)[0]
+    indx_peaks2 = find_peaks(spec1, *args, **kwargs)[0]
+    print(indx_peaks1, indx_peaks2, indx_peaks1 - indx_peaks2)
+    px_to_wvl = np.mean(indx_peaks1 - indx_peaks2)/wavelength_step
+    return img0.shape[1] / px_to_wvl
+
+
 def get_center_wavelengths(wvl_range, n_peaks=3):
     peak_diff = np.abs(all_peaks[:-n_peaks] - all_peaks[n_peaks:])
     indexes = np.argwhere(peak_diff < wvl_range)
     return np.mean([all_peaks[:-n_peaks][indexes], all_peaks[n_peaks:][indexes]], 0)
+
+
+def count_peaks(wvl_min, wvl_max, margin=0.0, resolution=0.0):
+    """
+    If any peak in the margin, return 0
+    :param wvl_min:
+    :param wvl_max:
+    :param margin:
+    :param resolution:
+    :return:
+    """
+    n_margins = np.sum(np.logical_and(all_peaks > wvl_min - resolution, all_peaks < wvl_min+margin)) + \
+                np.sum(np.logical_and(all_peaks < wvl_max + resolution, all_peaks > wvl_max-margin))
+    if n_margins == 0:
+        return np.sum(np.logical_and(all_peaks > wvl_min+margin, all_peaks < wvl_max-margin))
+    else:
+        return 0
+
+
+def rolling_window(array, window):
+    """From https://rigtorp.se/2011/01/01/rolling-statistics-numpy.html"""
+    shape = array.shape[:-1] + (array.shape[-1] - window + 1, window)
+    strides = array.strides + (array.strides[-1],)
+    return np.lib.stride_tricks.as_strided(array, shape=shape, strides=strides)
+
+
+def get_central_wavelengths(wavelength_range, margin=None, resolution=0.01):
+    if margin is None:
+        margin = 0.1 * wavelength_range
+    _doublets = np.array([full_wavelengths[np.argwhere(np.diff(all_peaks) < resolution)],
+                         full_wavelengths[np.argwhere(np.diff(all_peaks) < resolution) + 1]])[..., 0]
+    doublets = np.mean(_doublets, 0)
+    step = int(wvl_range / np.diff(full_spectrum[0])[0])
+    rolled_ranges = np.array([full_wavelengths[:-step], full_wavelengths[step:]]).transpose()
+    center_roll = np.mean(rolled_ranges, 1)
+    n_peaks = np.array([count_peaks(x[0], x[1], margin, resolution) for x in rolled_ranges])
+    n_peaks[n_peaks < 2] = 0
+    n_peak_change = np.diff(n_peaks)
+    _indexes = np.nonzero(n_peak_change)[0]
+    tst = np.diff(n_peak_change[_indexes])
+    mask1 = tst < -1
+    _indexes2 = _indexes[:-1][mask1]
+    _indexes3 = _indexes[1:][mask1]
+    regions = np.array([center_roll[_indexes2], center_roll[_indexes3]]).transpose()
+    _indexes4 = np.logical_not([np.any(np.logical_and(doublets > x[0], doublets < x[1])) for x in regions])
+    return np.mean(regions[_indexes4], 1)
+
+
+def plot_selected_spectra(center_wavelengths, wvl_range):
+    a, b = square(len(center_wavelengths))
+    # The following figure allows you to decide which center_wavelengths to use for fitting and what thresholds you want
+    # to use to find peaks
+    fig, axs = plt.subplots(a, b)
+    axs = np.array([axs])
+
+    for idx in range(len(center_wavelengths)):
+        ax = axs.flatten()[idx]
+        wvl = center_wavelengths[idx]
+        sel = np.logical_and(full_wavelengths > wvl - wvl_range/2, full_wavelengths < wvl + wvl_range/2)
+        ax.plot(full_wavelengths[sel], full_spectra[sel], '--')
+    return fig, axs
+
+
+measured_range = measure_wavelength_range()
+plot_selected_spectra(get_central_wavelengths(measured_range), measured_range)
+
+# plt.plot(*full_spectrum, 'r', alpha=0.7)
+# plt.plot(center_roll, n_peaks, 'b')
+# plt.vlines(center_wavelengths, -0.5, 0.5, color='g')
+#
+# plt.vlines(center_roll[_indexes2], -0.5, 0.5, color='g')
+# plt.vlines(center_roll[_indexes3], -0.5, 0.5, color='g', ls='--')
+#
+# plt.vlines(full_wavelengths[_indexes2], -0.5, 0.5)
+
+# n_peak_max =
+# mask = peaks >= 2
+# _diff = np.diff(mask)
+# label = np.concatenate(([0], ((np.cumsum(_diff)-1) // 2) * mask[1:]))
+# tst = np.maximum.reduceat(np.mean(rolled_ranges, 1), label)
+# tst = np.add.reduceat(np.mean(rolled_ranges, 1), label)
+# np.max()
+# plt.plot(*full_spectrum, 'r', alpha=0.7)
+# plt.plot(np.mean(rolled_ranges, 1), peaks, 'b')
+# plt.plot(np.mean(rolled_ranges, 1), np.concatenate(([0], np.cumsum(np.diff(peaks)))))
+# plt.plot(np.mean(rolled_ranges, 1), -label)
+# selected_ranges = rolled_ranges[np.argwhere(peaks >= 2)[:, 0]]
+
+# rolled_wavelengths = rolling_window(full_spectrum[0], int(8 / np.diff(full_spectrum[0])[0]))
+#
+# rolled_spectrum = rolling_window(full_spectrum[1], 8 / np.diff(full_spectrum[0])[0])
+#
+# # TODO: WHAT IS GOING ON WITH THE EDGES? It's not quite working as expected
+# # TODO: Exclude doublets according to resolution
+# def get_center_wavelengths(wvl_range, wvl_range_error=None, n_peak_limits=None):
+#     if wvl_range_error is None:
+#         wvl_range_error = wvl_range * 0.2
+#     if n_peak_limits is None:
+#         n_peak_limits = (2, np.inf)
+#     peak_diff = np.abs(np.diff(all_peaks))
+#     # Find the locations in the spectrum that have no peaks
+#     # indexes = np.argwhere(peak_diff > resolution)
+#     empty_regions = np.array([all_peaks[:-1], all_peaks[1:]]).transpose()
+#     empty_locations = np.mean(empty_regions, 1)  # (all_peaks[1:]+all_peaks[:-1])[indexes] / 2
+#     fig, ax = plt.subplots(1, 1)
+#     ax.plot(*full_spectrum)
+#     ax.vlines(empty_locations, -0.1, 0.1, 'r')
+#     [ax.fill_betweenx([-0.5, 1.5], x[0]+wvl_range_error*0.1, x[1]-wvl_range_error*0.1,
+#                       color='r', ec='none', alpha=0.1) for x in empty_regions]
+#     # Choose the ones that don't have a peak within the wvl_range_error
+#     indexes = np.argwhere(peak_diff > wvl_range_error / 2)[:, 0]
+#     ax.vlines(empty_locations[indexes], -0.2, 0.2, 'g')
+#     # Of those, choose the ones that also don't have a peak within +wvl_range another empty region in the +wvl_range region
+#     n_peaks_right = np.array([np.sum(np.logical_and(all_peaks > x - wvl_range_error/2, all_peaks < x + wvl_range_error/2)) for x in empty_locations[indexes] + wvl_range])
+#     n_peaks_left = np.array([np.sum(np.logical_and(all_peaks > x - wvl_range_error/2, all_peaks < x + wvl_range_error/2)) for x in empty_locations[indexes] - wvl_range])
+#     mask1 = np.argwhere(n_peaks_right == 0)
+#     mask2 = np.argwhere(n_peaks_left == 0)
+#     mask = np.unique(np.append(mask1.flatten(), mask2.flatten()))
+#     indexes2 = indexes[mask]
+#     ax.vlines(empty_locations[indexes2], -0.2, 0.2, 'g')
+#
+#     # mask = np.array([np.any([np.logical_and(x > y[0], x < y[1]) for y in empty_regions[indexes]])
+#     #                  for x in empty_locations[indexes] + wvl_range])
+#     # indexes_lower = indexes[np.argwhere(mask)[:, 0]]
+#     # ax.vlines(empty_locations[indexes_lower], -0.3, 0.3, 'y')
+#     # indexes_higher = np.array([np.argmin(np.abs(empty_locations - wvl_range - x)) for x in empty_locations[indexes_lower]])
+#     # ax.vlines(empty_locations[indexes_higher], -0.5, 0.5, 'y', ls='--')
+#     # clean_regions = np.array([empty_locations[indexes_lower], empty_locations[indexes_higher]]).transpose()
+#     # clean_centers = np.mean(clean_regions, 1)
+#     # print(clean_centers.shape, clean_regions.shape)
+#     # [ax.fill_betweenx([-1, 2], x[0]+wvl_range_error*0.1, x[1]-wvl_range_error*0.1,
+#     #                   color='g', ec='none', alpha=0.1) for x in clean_regions]
+#     # Of those, choose the ones that have the correct number of spectrum peaks
+#     n_peaks_per_region = np.array([np.sum(np.logical_and(all_peaks > x - wvl_range/2, all_peaks < x + wvl_range/2)) for x in clean_centers])
+#     mask = np.logical_and(n_peaks_per_region >= n_peak_limits[0], n_peaks_per_region <= n_peak_limits[1])
+#     spectrometer_wavelengths = clean_centers[np.argwhere(mask)[:, 0]]
+#
+#     # spectrometer_regions = np.array([empty_locations[indexes3], empty_locations[indexes3] + wvl_range])
+#     # spectrometer_wavelengths = np.mean(spectrometer_regions, 0)
+#     fig, axs = plot_selected_spectra(spectrometer_wavelengths, wvl_range)
+#     # [ax.vlines(empty_locations[indexes3][idx], -0.1, 1.1) for idx, ax in enumerate(axs.flatten())]
+#     # [ax.vlines(empty_locations[indexes3][idx], -0.1, 1.1) for idx, ax in enumerate(axs.flatten())]
+#
+#
+#
+#     # indexes4 = np.array([np.logical_and(x > y[0], x < y[1]) for x, y in zip(empty_locations, empty_regions)])
+#     # indexes_array = np.array([[np.logical_and(x > y[0], x < y[1]) for y in empty_regions] for x in empty_locations + wvl_range])
+#     # indexes4 = np.argwhere(np.sum(indexes_array, 1))
+#     # falls_in_between = np.array([np.any([np.logical_and(x > y[0], x < y[1]) for y in empty_regions]) for x in empty_locations + wvl_range])
+#     # indexes4 = np.argwhere(falls_in_between)
+#     # separated_regions = empty_locations[indexes4] + wvl_range / 2
+#     # peaks_in_between = [n_peak_limits[1] > np.sum(np.logical_and(all_peaks > x-wvl_range/2, all_peaks < x + wvl_range/2)) > n_peak_limits[0] for x in separated_regions]
+#     # return separated_regions[peaks_in_between]
+#     # # Distance between the empty location + wvl_range and the nearest empty location
+#     # _dist = np.array([np.min(np.abs((x + wvl_range)-empty_locations)) for x in empty_locations])
+#     # indexes2 = np.argwhere(_dist < wvl_range_error)
+#     # _dist2 = np.array([np.min(np.abs((x + wvl_range)-all_peaks)) for x in empty_locations])
+#     # indexes3 = np.argwhere(_dist2 > wvl_range_error)
+#     # return empty_locations[indexes3]
+# get_center_wavelengths(8, 10);
+# center_wavelengths = get_center_wavelengths(8, 10)
 
 
 if grating == 1200:
