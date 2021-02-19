@@ -5,8 +5,18 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib import colors, cm
 import numpy as np
-from microcavities.utils import square
+from microcavities.utils import square, get_data_path
 from microcavities.analysis.utils import normalize
+import os
+
+
+def default_save(figure, name, base_path=None):
+    if base_path is None:
+        base_path = os.path.dirname(get_data_path(None, False))
+        assert os.path.exists(base_path)
+    if not os.path.exists(os.path.join(base_path, 'figures')):
+        os.makedirs(os.path.join(base_path, 'figures'))
+    figure.savefig(os.path.join(base_path, 'figures', '%s.png' % name), dpi=1200, bbox_inches='tight')
 
 
 def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, xlabel=None, ylabel=None,
@@ -53,6 +63,27 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
     return fig, ax
+
+
+def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', *args, **kwargs):
+    normed = np.array([normalize(x, norm_args) for x in images])
+
+    _cmap = cm.get_cmap(cmap, normed.shape[0] + 1)
+    full = np.zeros(images.shape[1:] + (4,))
+    for idx in range(normed.shape[0]):
+        tst = np.tile(normed[idx], (4, 1, 1))
+        plain_color = np.tile(_cmap(idx), images.shape[1:] + (1, ))
+        full += plain_color * np.moveaxis(tst, 0, -1)
+
+    if from_black:
+        r = full[..., 0]
+        g = full[..., 1]
+        b = full[..., 2]
+        full = np.moveaxis(np.array([r, g, b]), 0, -1)
+
+    kwargs['diverging'] = False
+    kwargs['cbar'] = False
+    return imshow(full, ax, *args, **kwargs)
 
 
 def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
