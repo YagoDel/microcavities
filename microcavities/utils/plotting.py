@@ -83,7 +83,7 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
 
     kwargs['diverging'] = False
     kwargs['cbar'] = False
-    return imshow(full, ax, *args, **kwargs)
+    return imshow(full, ax, *args, **kwargs), _cmap(range(normed.shape[0]))
 
 
 def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
