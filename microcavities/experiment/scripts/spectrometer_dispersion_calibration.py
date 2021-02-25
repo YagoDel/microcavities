@@ -1,16 +1,23 @@
 import numpy as np
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
-from microcavities.utils import square, get_data_path
+from matplotlib import gridspec
+from microcavities.utils import square
 from microcavities.analysis.utils import normalize
-import h5py
-import os
+from nplab.utils.gui import get_qt_app
 
-camera_pointer = pvcam
-spectrometer_pointer = spectrometer
-minimum_wavelength = 300
-maximum_wavelength = 800
-wvl_range = None
+
+XeNe_peaks = np.asarray(
+    [3417.9035, 3472.5711, 3515.1900, 3593.5263, 3600.1691, 4488.0926, 4636.125, 4837.3139, 5005.1587, 5031.3504,
+     5104.7011, 5113.6724, 5144.9384, 5188.6122, 5330.7775, 5341.0938, 5360.0121, 5400.5617, 5562.7662, 5656.5664,
+     5689.8163, 5719.2248, 5748.2985, 5764.4188, 5804.4496, 5820.1558, 5852.4878, 5881.895, 5944.8342, 5975.534,
+     6029.9971, 6074.3377, 6096.1631, 6128.4499, 6143.0626, 6163.5939, 6217.2812, 6266.495, 6304.789, 6334.4278,
+     6382.9917, 6402.246, 6506.5281, 6532.8822, 6598.9529, 6678.2764, 6717.043, 6929.4673, 7024.0504, 7032.4131,
+     7173.9381, 7245.1666, 7438.899, 7488.8712, 7535.7739, 8136.4057, 8300.3263, 8377.6065, 8495.3598, 8591.2583,
+     8634.647, 8654.3831, 8655.522, 8679.493, 8681.921, 8704.111, 8771.656, 8780.621, 8783.75, 8830.907, 8853.867,
+     8919.5007, 9148.672, 9201.759, 9300.853, 9326.507, 9425.379, 9486.68, 9534.163, 9665.424, 10798.12, 10844.54,
+     11143.02])
+XeNe_peaks /= 10
 
 
 class ReferenceLamp(object):
@@ -143,42 +150,92 @@ class ReferenceLamp(object):
         [plt.axvspan(x-wavelength_width/2, x+wavelength_width/2, color='r', alpha=0.1) for x in centers]
 
 
-XeNe_peaks = np.asarray(
-    [3417.9035, 3472.5711, 3515.1900, 3593.5263, 3600.1691, 4488.0926, 4636.125, 4837.3139, 5005.1587, 5031.3504,
-     5104.7011, 5113.6724, 5144.9384, 5188.6122, 5330.7775, 5341.0938, 5360.0121, 5400.5617, 5562.7662, 5656.5664,
-     5689.8163, 5719.2248, 5748.2985, 5764.4188, 5804.4496, 5820.1558, 5852.4878, 5881.895, 5944.8342, 5975.534,
-     6029.9971, 6074.3377, 6096.1631, 6128.4499, 6143.0626, 6163.5939, 6217.2812, 6266.495, 6304.789, 6334.4278,
-     6382.9917, 6402.246, 6506.5281, 6532.8822, 6598.9529, 6678.2764, 6717.043, 6929.4673, 7024.0504, 7032.4131,
-     7173.9381, 7245.1666, 7438.899, 7488.8712, 7535.7739, 8136.4057, 8300.3263, 8377.6065, 8495.3598, 8591.2583,
-     8634.647, 8654.3831, 8655.522, 8679.493, 8681.921, 8704.111, 8771.656, 8780.621, 8783.75, 8830.907, 8853.867,
-     8919.5007, 9148.672, 9201.759, 9300.853, 9326.507, 9425.379, 9486.68, 9534.163, 9665.424, 10798.12, 10844.54,
-     11143.02])
-XeNe_peaks /= 10
-tst = ReferenceLamp(XeNe_peaks)
-# tst._plot_found_doublets(0.2)
-tst._plot_relevant_regions(5)
+def auto_exposed_capture(camera, thresholds=(20000, 50000), percentile=100, max_exposure=30, fast_exposure=0.5,
+                         reduction_fraction=10, depth=0, exposure_property_name='Exposure', app=None):
+    if depth > 10:
+        raise ValueError('Auto-exposure failed after 10 recursions')
+    if app is None:
+        app = get_qt_app()
+    if fast_exposure is not None:
+        exp = getattr(camera, exposure_property_name)
+        app.processEvents()
+        if exp > fast_exposure:
+            setattr(camera, exposure_property_name, fast_exposure)
+            app.processEvents()
+
+
+    img = camera.raw_image(False, True)
+    app.processEvents()
+    spectra = np.mean(img, 0)
+    max_value = np.percentile(spectra, percentile)
+    # print(max_value)
+    if depth == -1:
+        # This handles the special case where the exposure is maximum
+        return spectra
+    elif max_value > thresholds[1]:
+        exp = getattr(camera, exposure_property_name)
+        app.processEvents()
+        new_exposure = exp / reduction_fraction
+        setattr(camera, exposure_property_name, new_exposure)
+        app.processEvents()
+        return auto_exposed_capture(camera, thresholds, percentile, max_exposure, None, reduction_fraction, depth+1)
+    elif max_value < thresholds[0]:
+        exp = getattr(camera, exposure_property_name)
+        app.processEvents()
+        new_exposure = np.mean(thresholds) * exp / max_value
+        if new_exposure > max_exposure:
+            print('Required exposure %g s is more than the maximum %g s. Setting to maximum.' % (new_exposure, max_exposure))
+            # camera.Exposure = max_exposure
+            setattr(camera, exposure_property_name, max_exposure)
+            app.processEvents()
+            depth = -2
+        else:
+            # camera.Exposure = new_exposure
+            setattr(camera, exposure_property_name, new_exposure)
+            app.processEvents()
+        return auto_exposed_capture(camera, thresholds, percentile, max_exposure, None, reduction_fraction, depth+1)
+    else:
+        return spectra
 
 
 class SpectrometerDispersion(object):
-    def __init__(self, spectrometer, camera):
+    def __init__(self, spectrometer, camera, lamp=None, app=None):
         self.spectrometer = spectrometer
         self.camera = camera
+        if app is None:
+            app = get_qt_app()
+        self.app = app
+        self._wavelength_range = None
 
-    def _measure(self, wavelength):
-        self.spectrometer.wavelength = wavelength
-        return auto_exposed_capture(self.camera)
+        if lamp is None:
+            self.lamp = ReferenceLamp(XeNe_peaks)
+            self.lamp.spectrum
+        else:
+            self.lamp = lamp
 
-    def measure_continuous_range(self, min_wvl, max_wvl, wvl_step=None):
-        if wvl_step is None:
-            print("Estimating wavelength step from current peaks")
-            wvl_step = self.estimate_wavelength_range()
-        measured_wavelengths = np.arange(min_wvl, max_wvl, wvl_step)
+    def _measure(self, wavelength=None):
+        if wavelength is not None:
+            self.spectrometer.wavelength = wavelength
+        spectra = auto_exposed_capture(self.camera)
+        self.app.processEvents()
+        return spectra
+
+    def measure(self, wvl_limits=None, wvls=None, wvl_step=None):
+        if wvls is None:
+            if wvl_step is None:
+                wvl_step = 0.8 * self.wavelength_range
+            measured_wavelengths = np.arange(*wvl_limits, step=wvl_step)
+        else:
+            if wvl_limits is not None:
+                measured_wavelengths = wvls[np.logical_and(wvls > wvl_limits[0], wvls < wvl_limits[1])]
+            else:
+                measured_wavelengths = wvls
         spectra = []
         for wvl in measured_wavelengths:
-            self._measure(wvl)
-        return spectra, measured_wavelengths
+            spectra += [self._measure(wvl)]
+        return np.array(spectra), measured_wavelengths
 
-    def estimate_wavelength_range(self, wavelength_step=0.1, depth=0, *args, **kwargs):
+    def estimate_dispersion(self, wavelength_step=0.1, depth=0, *args, **kwargs):
         """
         Wherever you measure it, it's only really valid in that wavelength region (that's the whole point of the calibration)
         :param wavelength_step:
@@ -188,14 +245,15 @@ class SpectrometerDispersion(object):
         """
         if 'distance' not in kwargs:
             kwargs['distance'] = 5
-        img0 = self.camera.raw_image(False, True)
-        spec0 = normalize(np.mean(img0, 0))
+        if 'height' not in kwargs:
+            kwargs['height'] = 0.1
+        spec0 = normalize(self._measure())
         wvl0 = self.spectrometer.wavelength
-        self.spectrometer.wavelength = wvl0 + wavelength_step
-        img1 = camera_pointer.raw_image(False, True)
-        spec1 = normalize(np.mean(img1, 0))
+        spec1 = normalize(self._measure(wvl0 + wavelength_step))
         indx_peaks1 = find_peaks(spec0, *args, **kwargs)[0]
         indx_peaks2 = find_peaks(spec1, *args, **kwargs)[0]
+        # print(len(indx_peaks1), len(indx_peaks2))
+        # print(indx_peaks1, indx_peaks2)
         if len(indx_peaks1) != len(indx_peaks2):
             if depth > 4:
                 print('Too many recursions. Find a spectrum area with fewer peaks, or reduce the wavelength step')
@@ -203,7 +261,10 @@ class SpectrometerDispersion(object):
             self.estimate_wavelength_range(wavelength_step, depth + 1, *args, **kwargs)
         # print(indx_peaks1, indx_peaks2, indx_peaks1 - indx_peaks2)
         px_to_wvl = np.mean(indx_peaks1 - indx_peaks2)/wavelength_step
-        return img0.shape[1] / px_to_wvl
+        return 1 / px_to_wvl, spec0.shape[0]
+
+    def estimate_wavelength_range(self, wavelength_step=0.1, *args, **kwargs):
+        return np.prod(self.estimate_dispersion(wavelength_step, 0, *args, **kwargs))
 
     @property
     def wavelength_range(self):
@@ -211,59 +272,170 @@ class SpectrometerDispersion(object):
             self._wavelength_range = self.estimate_wavelength_range()
         return self._wavelength_range
 
-    def compare_to_reference(self, central_wavelengths, wavelength_range=None, data=None, lamp=None):
-        if wavelength_range is None:
-            wavelength_range = self.wavelength_range
-        if data is None:
-            data = []
-            for wvl in central_wavelengths:
-                data += [self._measure(wvl)]
-            data = np.array(data)
+    def auto_match_peaks(self, wavelength, spectra, lamp=None, depth=0, height_step=None, *args, **kwargs):
         if lamp is None:
-            lamp = ReferenceLamp(XeNe_peaks)
-        spectrum = lamp.spectrum
+            lamp = self.lamp
+        n_known_peaks = lamp._count_peaks(wavelength.min(), wavelength.max())
+        if depth > 10:
+            return [np.nan] * n_known_peaks
 
-        rows, cols = square(len(central_wavelengths))
-        fig, axs = plt.subplots(rows, cols, gridspec_kw=dict(0.01, 0.01))
-        for r in range(rows):
-            for c in range(cols):
-                indx = r*cols + c
-                y = data[indx]
-                c_wvl = central_wavelengths[indx]
-                x = np.linspace(c_wvl - wavelength_range/2, c_wvl + wavelength_range/2, y.shape)
-                axs[r, c].plot(x, y)
+        if 'distance' not in kwargs:
+            kwargs['distance'] = 5
+        if 'height' not in kwargs:
+            kwargs['height'] = 0.5
+        measured_peaks = find_peaks(normalize(spectra), *args, **kwargs)[0]
+        print(kwargs['height'])
+        print(len(measured_peaks), n_known_peaks)
 
-                indxs = np.logical_and(spectrum[0] > c_wvl - wavelength_range/2,
-                                       spectrum[0] < c_wvl + wavelength_range/2)
-                x = spectrum[0][indxs]
-                y = spectrum[1][indxs]
-                axs[r, c].plot(x, y)
-        return fig, axs
-
-
-def auto_exposed_capture(camera, thresholds=(50000, 60000), percentile=100, max_exposure=30, reduction_fraction=10, depth=0):
-    if depth > 10:
-        raise RecursionError('Auto-exposure failed after 10 recursions')
-    img = camera.raw_image()
-    spectra = np.mean(img, 0)
-    max_value = np.percentile(spectra, percentile)
-    if depth == -1:
-        # This handles the special case where the exposure is maximum
-        return spectra
-    elif max_value > thresholds[1]:
-        return auto_exposed_capture(camera, thresholds, max_exposure, reduction_fraction, depth+1)
-    elif max_value < thresholds[0]:
-        exp = camera.exposure
-        new_exposure = np.mean(thresholds) * exp / max_value
-        if new_exposure > max_exposure:
-            print('Required exposure %g s is more than the maximum %g s. Setting to maximum.' % (new_exposure, max_exposure))
-            camera.exposure = max_exposure
-            depth = -2
+        if len(measured_peaks) > n_known_peaks:
+            if height_step is None:
+                height_step = 0.25
+            kwargs['height'] = kwargs['height'] + height_step
+            return self.auto_match_peaks(wavelength, spectra, lamp, depth+1, height_step/2, *args, **kwargs)
+        elif len(measured_peaks) < n_known_peaks:
+            if height_step is None:
+                height_step = 0.25
+            kwargs['height'] = kwargs['height'] - height_step
+            return self.auto_match_peaks(wavelength, spectra, lamp, depth + 1, height_step/2, *args, **kwargs)
         else:
-            camera.exposure = new_exposure
-        return auto_exposed_capture(camera, thresholds, max_exposure, reduction_fraction, depth+1)
-    else:
-        return spectra
+            return measured_peaks
+
+    def _single_measure_dispersion(self, wavelength, spectra=None, plot=None):
+        if spectra is None:
+            spectra = self._measure(wavelength)
+        wvls = np.linspace(wavelength - self.wavelength_range / 2,
+                           wavelength + self.wavelength_range / 2,
+                           spectra.shape[0])
+        fitted_indices = self.auto_match_peaks(wvls, spectra)
+        _indxs2 = np.logical_and(self.lamp.reference_peaks > wavelength - self.wavelength_range / 2,
+                                 self.lamp.reference_peaks < wavelength + self.wavelength_range / 2)
+        lamp_peaks = self.lamp.reference_peaks[_indxs2] - wavelength
+        meas_peaks = wvls[fitted_indices] - wavelength
+        m = np.polyfit(lamp_peaks, meas_peaks, 1)
+
+        if plot is not None:
+            if plot is True:
+                _, ax = plt.subplots(1, 1)
+            else:
+                ax = plot
+
+            ax.plot(wvls, normalize(spectra))
+            ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
+
+            ref_spectrum = self.lamp.spectrum
+            indxs = np.logical_and(ref_spectrum[0] > wavelength - self.wavelength_range / 2,
+                                   ref_spectrum[0] < wavelength + self.wavelength_range / 2)
+            x = ref_spectrum[0][indxs]
+            y = ref_spectrum[1][indxs]
+            ax.plot(x, normalize(y))
+        else:
+            ax = None
+        return m, lamp_peaks, meas_peaks, fitted_indices, ax
+
+    def measure_dispersion(self, central_wavelengths=None, wavelength_limits=None, max_measurements=10, plot=False):
+        if wavelength_limits is None:
+            wavelength_limits = (self.lamp.reference_peaks.min(), self.lamp.reference_peaks.max())
+        if central_wavelengths is None:
+            central_wavelengths = self.lamp.get_relevant_central_wavelengths(self.wavelength_range, wavelength_limits)
+        if len(central_wavelengths) > max_measurements:
+            central_wavelengths = np.random.choice(central_wavelengths, max_measurements, False)
+
+        if plot:
+            rows, cols = square(len(central_wavelengths))
+            fig = plt.figure(figsize=(cols*2*2, rows*2))
+            gs0 = gridspec.GridSpec(1, 2)
+            gs1 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[0], hspace=0.01, wspace=0.01)
+            gs2 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[1], hspace=0.01, wspace=0.01)
+            axs = []
+        lamp_peaks = []
+        measured_peaks = []
+        dispersions = []
+        for indx, wvl in enumerate(central_wavelengths):
+            if plot:
+                r = indx // cols
+                c = indx % cols
+
+                if rows > 1 and cols > 1:
+                    ax = plt.subplot(gs1[r, c])
+                    ax2 = plt.subplot(gs2[r, c])
+                elif rows > 1:
+                    ax = plt.subplot(gs1[r])
+                    ax2 = plt.subplot(gs2[r])
+                elif cols > 1:
+                    ax = plt.subplot(gs1[c])
+                    ax2 = plt.subplot(gs2[c])
+                else:
+                    ax = plt.subplot(gs1)
+                    ax2 = plt.subplot(gs2)
+                axs += [[ax, ax2]]
+            else:
+                ax = None
+                ax2 = None
+
+            m, _lamp_peaks, _meas_peaks, fitted_indices, ax = self._single_measure_dispersion(wvl, plot=ax)
+
+            if _lamp_peaks is not None and plot:
+                ax2.plot(_lamp_peaks, _meas_peaks, '.-')
+                ax2.text(0.5, 0.99, str(m), transform=ax2.transAxes, va='top', ha='center')
+
+        # # for r in range(rows):
+        # #     for c in range(cols):
+        #     if rows > 1 and cols > 1:
+        #         ax = plt.subplot(gs1[r, c])
+        #         ax2 = plt.subplot(gs2[r, c])
+        #     elif rows > 1:
+        #         ax = plt.subplot(gs1[r])
+        #         ax2 = plt.subplot(gs2[r])
+        #     elif cols > 1:
+        #         ax = plt.subplot(gs1[c])
+        #         ax2 = plt.subplot(gs2[c])
+        #     else:
+        #         ax = plt.subplot(gs1)
+        #         ax2 = plt.subplot(gs2)
+
+            # indx = r*cols + c
+            # ax, _lamp_peaks, _meas_peaks, m = self._single_compare_to_reference(data[indx], central_wavelengths[indx], ax)
+
+            # if _lamp_peaks is not None:
+            #     ax2.plot(_lamp_peaks, _meas_peaks, '.-')
+            #     ax2.text(0.5, 0.99, str(m), transform=ax2.transAxes, va='top', ha='center')
+            lamp_peaks += [_lamp_peaks]
+            measured_peaks += [_meas_peaks]
+            dispersions += [m]
+
+        if plot:
+            fig, axs3 = plt.subplots(1, 2)
+            axs3[0].plot(central_wavelengths, np.array(dispersions)[:, 0], '.-')
+            axs3[1].plot(central_wavelengths, np.array(dispersions)[:, 1], '.-')
+        return np.array(dispersions), np.array(lamp_peaks), np.array(measured_peaks)
+
+
+
+
+#
+#
+# x = np.linspace(640 - cal.wavelength_range/2, 640 + cal.wavelength_range/2, 2048)
+# y = cal._measure(640)
+# indxs = cal.auto_match_peaks(x, y)
+#
+#
+# plt.plot(x, normalize(y))
+# plt.plot(x[indxs], normalize(y)[indxs], 'x')
+# _indxs = np.logical_and(cal.lamp.spectrum[0] > 640 - cal.wavelength_range / 2,
+#                         cal.lamp.spectrum[0] < 640 + cal.wavelength_range / 2)
+# x2 = cal.lamp.spectrum[0][_indxs]
+# y2 = cal.lamp.spectrum[1][_indxs]
+# plt.plot(x2, normalize(y2))
+#
+# _indxs2 = np.logical_and(cal.lamp.reference_peaks > 640 - cal.wavelength_range / 2,
+#                         cal.lamp.reference_peaks < 640 + cal.wavelength_range / 2)
+# plt.figure()
+# plt.plot(cal.lamp.reference_peaks[_indxs2], x[indxs], '.-')
+#
+# cal.compare_to_reference([640])
+# cal.compare_to_reference(wvls[4:13])
+# cal.estimate_wavelength_range()
+
 
 
 
