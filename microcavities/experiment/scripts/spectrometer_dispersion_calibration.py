@@ -150,7 +150,7 @@ class ReferenceLamp(object):
         [plt.axvspan(x-wavelength_width/2, x+wavelength_width/2, color='r', alpha=0.1) for x in centers]
 
 
-def auto_exposed_capture(camera, thresholds=(20000, 50000), percentile=100, max_exposure=30, fast_exposure=0.5,
+def auto_exposed_capture(camera, thresholds=(20000, 50000), saturation=60000, percentile=99.999, max_exposure=30, fast_exposure=0.5,
                          reduction_fraction=10, depth=0, exposure_property_name='Exposure', app=None):
     if depth > 10:
         raise ValueError('Auto-exposure failed after 10 recursions')
@@ -163,22 +163,24 @@ def auto_exposed_capture(camera, thresholds=(20000, 50000), percentile=100, max_
             setattr(camera, exposure_property_name, fast_exposure)
             app.processEvents()
 
-
-    img = camera.raw_image(False, True)
+    spectra = camera.raw_image(False, True)
     app.processEvents()
-    spectra = np.mean(img, 0)
     max_value = np.percentile(spectra, percentile)
     # print(max_value)
+
     if depth == -1:
         # This handles the special case where the exposure is maximum
         return spectra
     elif max_value > thresholds[1]:
         exp = getattr(camera, exposure_property_name)
         app.processEvents()
-        new_exposure = exp / reduction_fraction
+        if max_value >= saturation:
+            new_exposure = exp / reduction_fraction
+        else:
+            new_exposure = (thresholds[1] - 0.1*np.diff(thresholds)) * exp / max_value
         setattr(camera, exposure_property_name, new_exposure)
         app.processEvents()
-        return auto_exposed_capture(camera, thresholds, percentile, max_exposure, None, reduction_fraction, depth+1)
+        return auto_exposed_capture(camera, thresholds, saturation, percentile, max_exposure, None, reduction_fraction, depth+1, exposure_property_name, app)
     elif max_value < thresholds[0]:
         exp = getattr(camera, exposure_property_name)
         app.processEvents()
@@ -193,7 +195,7 @@ def auto_exposed_capture(camera, thresholds=(20000, 50000), percentile=100, max_
             # camera.Exposure = new_exposure
             setattr(camera, exposure_property_name, new_exposure)
             app.processEvents()
-        return auto_exposed_capture(camera, thresholds, percentile, max_exposure, None, reduction_fraction, depth+1)
+        return auto_exposed_capture(camera, thresholds, saturation, percentile, max_exposure, None, reduction_fraction, depth+1, exposure_property_name, app)
     else:
         return spectra
 
