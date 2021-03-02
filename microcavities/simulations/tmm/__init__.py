@@ -209,8 +209,14 @@ class Microcavity(Structure):
         else:
             n_subs = 3.6835
 
-        self.n_list = [n_in] + dbr1.n_list + [cavity_index] + dbr2.n_list + [n_subs]
-        self.d_list = [np.inf] + dbr1.d_list + [cavity_thickness] + dbr2.d_list + [np.inf]
+        self.n_list = [n_in]
+        self.d_list = [np.inf]
+        if 'cap' in full_yaml:
+            self.n_list += [full_yaml['cap']['refractive_index']]
+            self.d_list += [full_yaml['cap']['thickness']]
+
+        self.n_list += dbr1.n_list + [cavity_index] + dbr2.n_list + [n_subs]
+        self.d_list += dbr1.d_list + [cavity_thickness] + dbr2.d_list + [np.inf]
 
         if 'disorder' in full_yaml:
             self.disorder(**full_yaml['disorder'])
@@ -277,6 +283,37 @@ class Microcavity(Structure):
             self.n_list = list(to_change)
         elif where == 'thickness':
             self.d_list = list(to_change)
+
+
+class GrownLayers(Structure):
+    def __init__(self, structure_yaml):
+        super(GrownLayers, self).__init__()
+        full_yaml = yaml_loader(structure_yaml)
+
+        if 'substrate' in full_yaml:
+            n_subs = full_yaml['substrate']['refractive_index']
+        else:
+            n_subs = 3.6835
+
+        if 'incoming' in full_yaml:
+            n_in = full_yaml['incoming']['refractive_index']
+        else:
+            n_in = 1
+
+        self.n_list = [n_in]
+        self.d_list = [np.inf]
+        for layer in full_yaml['layers'][::-1]:
+            if type(layer) == dict:
+                for _ in range(layer['repeated_structure']['layers']):
+                    for idx in range(len(layer['repeated_structure']['thicknesses'])):
+                        self.d_list += [layer['repeated_structure']['thicknesses'][::-1][idx]]
+                        self.n_list += [self._refractive_index(layer['repeated_structure']['refractive_indices'][::-1][idx])]
+            else:
+                self.n_list += [self._refractive_index(layer[0])]
+                self.d_list += [self._refractive_index(layer[1])]
+
+        self.n_list += [n_subs]
+        self.d_list += [np.inf]
 
 
 if __name__ == '__main__':
