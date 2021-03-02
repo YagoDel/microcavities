@@ -199,6 +199,8 @@ def auto_exposed_capture(camera, thresholds=(20000, 50000), percentile=100, max_
 
 
 class SpectrometerDispersion(object):
+    # TODO: need to have a few checks that ensure that the detected peaks are indeed the ones we want. And if the data
+    #  can't pass that check, we need to pop out an interactive GUI
     def __init__(self, spectrometer, camera, lamp=None, app=None):
         self.spectrometer = spectrometer
         self.camera = camera
@@ -276,16 +278,18 @@ class SpectrometerDispersion(object):
         if lamp is None:
             lamp = self.lamp
         n_known_peaks = lamp._count_peaks(wavelength.min(), wavelength.max())
+        known_peaks = lamp.reference_peaks[np.logical_and(lamp.reference_peaks > wavelength.min(),
+                                                          lamp.reference_peaks < wavelength.max())]
         if depth > 10:
-            return [np.nan] * n_known_peaks
+            return [np.nan] * n_known_peaks, None
 
         if 'distance' not in kwargs:
             kwargs['distance'] = 5
         if 'height' not in kwargs:
             kwargs['height'] = 0.5
         measured_peaks = find_peaks(normalize(spectra), *args, **kwargs)[0]
-        print(kwargs['height'])
-        print(len(measured_peaks), n_known_peaks)
+        # print(kwargs['height'])
+        # print(len(measured_peaks), n_known_peaks)
 
         if len(measured_peaks) > n_known_peaks:
             if height_step is None:
@@ -298,7 +302,11 @@ class SpectrometerDispersion(object):
             kwargs['height'] = kwargs['height'] - height_step
             return self.auto_match_peaks(wavelength, spectra, lamp, depth + 1, height_step/2, *args, **kwargs)
         else:
-            return measured_peaks
+            # TODO: add a check that the peaks are the right ones:
+            #   - ratio of the distances between the measured and know peaks matches
+            #   - The dispersion between the measured peaks is the same
+            # print(np.diff(measured_peaks) / np.diff(known_peaks))
+            return measured_peaks, np.diff(measured_peaks) / np.diff(known_peaks)
 
     def _single_measure_dispersion(self, wavelength, spectra=None, plot=None):
         if spectra is None:
@@ -306,39 +314,50 @@ class SpectrometerDispersion(object):
         wvls = np.linspace(wavelength - self.wavelength_range / 2,
                            wavelength + self.wavelength_range / 2,
                            spectra.shape[0])
-        fitted_indices = self.auto_match_peaks(wvls, spectra)
+        fitted_indices, dummy = self.auto_match_peaks(wvls, spectra)
         _indxs2 = np.logical_and(self.lamp.reference_peaks > wavelength - self.wavelength_range / 2,
                                  self.lamp.reference_peaks < wavelength + self.wavelength_range / 2)
-        lamp_peaks = self.lamp.reference_peaks[_indxs2] - wavelength
-        meas_peaks = wvls[fitted_indices] - wavelength
-        m = np.polyfit(lamp_peaks, meas_peaks, 1)
+        if len(_indxs2) > 0 and len(fitted_indices) > 0:
+            lamp_peaks = self.lamp.reference_peaks[_indxs2] - wavelength
+            meas_peaks = wvls[fitted_indices] - wavelength
+            m = np.polyfit(lamp_peaks, meas_peaks, 1)
 
-        if plot is not None:
-            if plot is True:
-                _, ax = plt.subplots(1, 1)
+            if plot is not None:
+                if plot is True:
+                    _, ax = plt.subplots(1, 1)
+                else:
+                    ax = plot
+
+                ax.plot(wvls, normalize(spectra))
+                ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
+                ax.text(0.5, 1, np.std(dummy), transform=ax.transAxes, ha='center', va='bottom')
+
+                ref_spectrum = self.lamp.spectrum
+                indxs = np.logical_and(ref_spectrum[0] > wavelength - self.wavelength_range / 2,
+                                       ref_spectrum[0] < wavelength + self.wavelength_range / 2)
+                x = ref_spectrum[0][indxs]
+                y = ref_spectrum[1][indxs]
+                ax.plot(x, normalize(y))
             else:
-                ax = plot
-
-            ax.plot(wvls, normalize(spectra))
-            ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
-
-            ref_spectrum = self.lamp.spectrum
-            indxs = np.logical_and(ref_spectrum[0] > wavelength - self.wavelength_range / 2,
-                                   ref_spectrum[0] < wavelength + self.wavelength_range / 2)
-            x = ref_spectrum[0][indxs]
-            y = ref_spectrum[1][indxs]
-            ax.plot(x, normalize(y))
+                ax = None
+            return m, lamp_peaks, meas_peaks, fitted_indices, ax
         else:
-            ax = None
-        return m, lamp_peaks, meas_peaks, fitted_indices, ax
+            return None, None, None, None, None
 
-    def measure_dispersion(self, central_wavelengths=None, wavelength_limits=None, max_measurements=10, plot=False):
+    def measure_dispersion(self, central_wavelengths=None, spectra=None, wavelength_limits=None, max_measurements=10, plot=False):
         if wavelength_limits is None:
             wavelength_limits = (self.lamp.reference_peaks.min(), self.lamp.reference_peaks.max())
         if central_wavelengths is None:
             central_wavelengths = self.lamp.get_relevant_central_wavelengths(self.wavelength_range, wavelength_limits)
+        if spectra is None:
+            spectra = [None] * len(central_wavelengths)
+        assert len(spectra) == len(central_wavelengths)
         if len(central_wavelengths) > max_measurements:
-            central_wavelengths = np.random.choice(central_wavelengths, max_measurements, False)
+            rng = np.random.default_rng()
+            indices = rng.choice(range(len(central_wavelengths)), max_measurements, False)
+            central_wavelengths = central_wavelengths[indices]
+            spectra = np.asarray(spectra)[indices]
+        assert len(spectra) == len(central_wavelengths)
 
         if plot:
             rows, cols = square(len(central_wavelengths))
@@ -372,7 +391,7 @@ class SpectrometerDispersion(object):
                 ax = None
                 ax2 = None
 
-            m, _lamp_peaks, _meas_peaks, fitted_indices, ax = self._single_measure_dispersion(wvl, plot=ax)
+            m, _lamp_peaks, _meas_peaks, fitted_indices, ax = self._single_measure_dispersion(wvl, spectra[indx], ax)
 
             if _lamp_peaks is not None and plot:
                 ax2.plot(_lamp_peaks, _meas_peaks, '.-')
