@@ -39,9 +39,9 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         fig = ax.figure
 
     if xaxis is None:
-        xaxis = np.arange(img.shape[1], dtype=np.float)
+        xaxis = np.arange(-0.5, img.shape[1]+0.5, dtype=np.float)
     if yaxis is None:
-        yaxis = np.arange(img.shape[0], dtype=np.float)
+        yaxis = np.arange(-0.5, img.shape[0]+0.5, dtype=np.float)
     if scaling is not None:
         try:
             xaxis *= scaling[0]
