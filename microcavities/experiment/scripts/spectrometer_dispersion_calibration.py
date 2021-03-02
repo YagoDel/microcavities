@@ -5,6 +5,7 @@ from matplotlib import gridspec
 from microcavities.utils import square
 from microcavities.analysis.utils import normalize
 from nplab.utils.gui import get_qt_app
+import pymsgbox
 
 
 XeNe_peaks = np.asarray(
@@ -286,7 +287,7 @@ class SpectrometerDispersion(object):
             return [np.nan] * n_known_peaks, None
 
         if 'distance' not in kwargs:
-            kwargs['distance'] = 5
+            kwargs['distance'] = 10
         if 'height' not in kwargs:
             kwargs['height'] = 0.5
         measured_peaks = find_peaks(normalize(spectra), *args, **kwargs)[0]
@@ -308,7 +309,27 @@ class SpectrometerDispersion(object):
             #   - ratio of the distances between the measured and know peaks matches
             #   - The dispersion between the measured peaks is the same
             # print(np.diff(measured_peaks) / np.diff(known_peaks))
-            return measured_peaks, np.diff(measured_peaks) / np.diff(known_peaks)
+            return measured_peaks, np.diff(measured_peaks) / np.asarray(np.diff(known_peaks), np.float)
+
+    def _plot(self, spectra, wavelength, fitted_indices, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(1, 1)
+        else:
+            fig = ax.figure
+        wvls = np.linspace(wavelength - self.wavelength_range / 2,
+                           wavelength + self.wavelength_range / 2,
+                           spectra.shape[0])
+
+        ax.plot(wvls, normalize(spectra))
+        ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
+        # ax.text(0.5, 1, np.std(dummy), transform=ax.transAxes, ha='center', va='bottom')
+
+        ref_spectrum = self.lamp.spectrum
+        indxs = np.logical_and(ref_spectrum[0] > wvls.min(), ref_spectrum[0] < wvls.max())
+        x = ref_spectrum[0][indxs]
+        y = ref_spectrum[1][indxs]
+        ax.plot(x, normalize(y))
+        return fig, ax
 
     def _single_measure_dispersion(self, wavelength, spectra=None, plot=None):
         if spectra is None:
@@ -317,36 +338,36 @@ class SpectrometerDispersion(object):
                            wavelength + self.wavelength_range / 2,
                            spectra.shape[0])
         fitted_indices, dummy = self.auto_match_peaks(wvls, spectra)
-        _indxs2 = np.logical_and(self.lamp.reference_peaks > wavelength - self.wavelength_range / 2,
-                                 self.lamp.reference_peaks < wavelength + self.wavelength_range / 2)
+        _indxs2 = np.logical_and(self.lamp.reference_peaks > wvls.min(), self.lamp.reference_peaks < wvls.max())
         if len(_indxs2) > 0 and len(fitted_indices) > 0:
             lamp_peaks = self.lamp.reference_peaks[_indxs2] - wavelength
-            meas_peaks = wvls[fitted_indices] - wavelength
-            m = np.polyfit(lamp_peaks, meas_peaks, 1)
+            meas_peaks = fitted_indices - len(spectra) / 2  # wvls[fitted_indices] - wavelength
+            m = np.polyfit(meas_peaks, lamp_peaks, 1)
 
             if plot is not None:
                 if plot is True:
                     _, ax = plt.subplots(1, 1)
                 else:
                     ax = plot
-
-                ax.plot(wvls, normalize(spectra))
-                ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
-                ax.text(0.5, 1, np.std(dummy), transform=ax.transAxes, ha='center', va='bottom')
-
-                ref_spectrum = self.lamp.spectrum
-                indxs = np.logical_and(ref_spectrum[0] > wavelength - self.wavelength_range / 2,
-                                       ref_spectrum[0] < wavelength + self.wavelength_range / 2)
-                x = ref_spectrum[0][indxs]
-                y = ref_spectrum[1][indxs]
-                ax.plot(x, normalize(y))
+                self._plot(spectra, wavelength, fitted_indices, plot)
+                # ax.plot(wvls, normalize(spectra))
+                # ax.plot(wvls[fitted_indices], normalize(spectra)[fitted_indices], 'x')
+                # ax.text(0.5, 1, np.std(dummy), transform=ax.transAxes, ha='center', va='bottom')
+                #
+                # ref_spectrum = self.lamp.spectrum
+                # indxs = np.logical_and(ref_spectrum[0] > wavelength - self.wavelength_range / 2,
+                #                        ref_spectrum[0] < wavelength + self.wavelength_range / 2)
+                # x = ref_spectrum[0][indxs]
+                # y = ref_spectrum[1][indxs]
+                # ax.plot(x, normalize(y))
             else:
                 ax = None
             return m, lamp_peaks, meas_peaks, fitted_indices, ax
         else:
             return None, None, None, None, None
 
-    def measure_dispersion(self, central_wavelengths=None, spectra=None, wavelength_limits=None, max_measurements=10, plot=False):
+    def measure_dispersion(self, central_wavelengths=None, spectra=None, wavelength_limits=None, max_measurements=10,
+                           manually_filter=True, plot=False):
         if wavelength_limits is None:
             wavelength_limits = (self.lamp.reference_peaks.min(), self.lamp.reference_peaks.max())
         if central_wavelengths is None:
@@ -354,50 +375,58 @@ class SpectrometerDispersion(object):
         if spectra is None:
             spectra = [None] * len(central_wavelengths)
         assert len(spectra) == len(central_wavelengths)
+        if max_measurements is None: max_measurements = len(spectra)
         if len(central_wavelengths) > max_measurements:
-            rng = np.random.default_rng()
-            indices = rng.choice(range(len(central_wavelengths)), max_measurements, False)
+            try:
+                rng = np.random.default_rng()
+                indices = rng.choice(range(len(central_wavelengths)), max_measurements, False)
+            except:
+                indices = np.random.choice(range(len(central_wavelengths)), max_measurements, False)
             central_wavelengths = central_wavelengths[indices]
             spectra = np.asarray(spectra)[indices]
         assert len(spectra) == len(central_wavelengths)
 
-        if plot:
-            rows, cols = square(len(central_wavelengths))
-            fig = plt.figure(figsize=(cols*2*2, rows*2))
-            gs0 = gridspec.GridSpec(1, 2)
-            gs1 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[0], hspace=0.01, wspace=0.01)
-            gs2 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[1], hspace=0.01, wspace=0.01)
-            axs = []
         lamp_peaks = []
         measured_peaks = []
         dispersions = []
+        fitted_indices = []
+        accepted_indices = []
         for indx, wvl in enumerate(central_wavelengths):
-            if plot:
-                r = indx // cols
-                c = indx % cols
+            m, _lamp_peaks, _meas_peaks, _fitted_indices, _ = self._single_measure_dispersion(wvl, spectra[indx])
 
-                if rows > 1 and cols > 1:
-                    ax = plt.subplot(gs1[r, c])
-                    ax2 = plt.subplot(gs2[r, c])
-                elif rows > 1:
-                    ax = plt.subplot(gs1[r])
-                    ax2 = plt.subplot(gs2[r])
-                elif cols > 1:
-                    ax = plt.subplot(gs1[c])
-                    ax2 = plt.subplot(gs2[c])
-                else:
-                    ax = plt.subplot(gs1)
-                    ax2 = plt.subplot(gs2)
-                axs += [[ax, ax2]]
-            else:
-                ax = None
-                ax2 = None
+            if manually_filter:
+                _fig, _ = self._plot(spectra[indx], wvl, _fitted_indices)
+                reply = pymsgbox.confirm('Keep it?')
+                plt.close(_fig)
+                if reply != 'OK':
+                    continue
 
-            m, _lamp_peaks, _meas_peaks, fitted_indices, ax = self._single_measure_dispersion(wvl, spectra[indx], ax)
-
-            if _lamp_peaks is not None and plot:
-                ax2.plot(_lamp_peaks, _meas_peaks, '.-')
-                ax2.text(0.5, 0.99, str(m), transform=ax2.transAxes, va='top', ha='center')
+            # if plot:
+            #     r = indx // cols
+            #     c = indx % cols
+            #
+            #     if rows > 1 and cols > 1:
+            #         ax = plt.subplot(gs1[r, c])
+            #         ax2 = plt.subplot(gs2[r, c])
+            #     elif rows > 1:
+            #         ax = plt.subplot(gs1[r])
+            #         ax2 = plt.subplot(gs2[r])
+            #     elif cols > 1:
+            #         ax = plt.subplot(gs1[c])
+            #         ax2 = plt.subplot(gs2[c])
+            #     else:
+            #         ax = plt.subplot(gs1)
+            #         ax2 = plt.subplot(gs2)
+            #     axs += [[ax, ax2]]
+            # else:
+            #     ax = None
+            #     ax2 = None
+            #
+            # m, _lamp_peaks, _meas_peaks, fitted_indices, ax = self._single_measure_dispersion(wvl, spectra[indx], ax)
+            #
+            # if _lamp_peaks is not None and plot:
+            #     ax2.plot(_lamp_peaks, _meas_peaks, '.-')
+            #     ax2.text(0.5, 0.99, str(m), transform=ax2.transAxes, va='top', ha='center')
 
         # # for r in range(rows):
         # #     for c in range(cols):
@@ -423,12 +452,44 @@ class SpectrometerDispersion(object):
             lamp_peaks += [_lamp_peaks]
             measured_peaks += [_meas_peaks]
             dispersions += [m]
+            fitted_indices += [_fitted_indices]
+            accepted_indices += [indx]
+        accepted_indices = np.array(accepted_indices)
 
         if plot:
+            rows, cols = square(len(dispersions))
+            fig = plt.figure(figsize=(cols*2*2, rows*2))
+            gs0 = gridspec.GridSpec(1, 2)
+            gs1 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[0], hspace=0.01, wspace=0.01)
+            gs2 = gridspec.GridSpecFromSubplotSpec(rows, cols, gs0[1], hspace=0.01, wspace=0.01)
+            axs = []
+            for indx, index in enumerate(accepted_indices):
+                r = indx // cols
+                c = indx % cols
+
+                if rows > 1 and cols > 1:
+                    ax = plt.subplot(gs1[r, c])
+                    ax2 = plt.subplot(gs2[r, c])
+                elif rows > 1:
+                    ax = plt.subplot(gs1[r])
+                    ax2 = plt.subplot(gs2[r])
+                elif cols > 1:
+                    ax = plt.subplot(gs1[c])
+                    ax2 = plt.subplot(gs2[c])
+                else:
+                    ax = plt.subplot(gs1)
+                    ax2 = plt.subplot(gs2)
+                axs += [[ax, ax2]]
+
+                self._plot(spectra[index], central_wavelengths[index], fitted_indices[indx], ax)
+
+                ax2.plot(lamp_peaks[indx], measured_peaks[indx], '.-')
+                ax2.text(0.5, 0.99, str(dispersions[indx]), transform=ax2.transAxes, va='top', ha='center')
+
             fig, axs3 = plt.subplots(1, 2)
-            axs3[0].plot(central_wavelengths, np.array(dispersions)[:, 0], '.-')
-            axs3[1].plot(central_wavelengths, np.array(dispersions)[:, 1], '.-')
-        return np.array(dispersions), np.array(lamp_peaks), np.array(measured_peaks)
+            axs3[0].plot(central_wavelengths[accepted_indices], np.array(dispersions)[:, 0], '.-')
+            axs3[1].plot(central_wavelengths[accepted_indices], np.array(dispersions)[:, 1], '.-')
+        return np.array(dispersions), central_wavelengths[accepted_indices], np.array(lamp_peaks), np.array(measured_peaks)
 
 
 
