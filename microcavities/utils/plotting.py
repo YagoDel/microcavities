@@ -8,6 +8,7 @@ import numpy as np
 from microcavities.utils import square, get_data_path
 from microcavities.analysis.utils import normalize
 import os
+plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
 
 
 def default_save(figure, name, base_path=None):
@@ -84,47 +85,6 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
     kwargs['diverging'] = False
     kwargs['cbar'] = False
     return imshow(full, ax, *args, **kwargs), _cmap(range(normed.shape[0]))
-
-
-def rgb_imshow(red=None, green=None, blue=None, ax=None, norm_args=(0, 100), from_black=True, *args, **kwargs):
-    """
-    :param red:
-    :param green:
-    :param blue:
-    :param ax:
-    :param norm_args:
-    :param from_black:
-    :param args:
-    :param kwargs:
-    :return:
-    """
-    # Prepare the arrays to be within 0...1
-    if red is None:
-        if green is not None:
-            red = np.zeros(green.shape)
-        elif blue is not None:
-            red = np.zeros(blue.shape)
-        else:
-            raise ValueError('All channels are None')
-    else:
-        red = normalize(red, norm_args, True)
-    if green is None:
-        green = np.zeros(red.shape)
-    else:
-        green = normalize(green, norm_args, True)
-    if blue is None:
-        blue = np.zeros(red.shape)
-    else:
-        blue = normalize(blue, norm_args, True)
-
-    # Have the matplotlib imshow go from black to RGB or from white to RGB
-    if from_black:
-        img = np.rollaxis(np.array([red, green, blue]), 0, 3)
-    else:
-        img = np.rollaxis(np.array([1-green-blue, 1-red-blue, 1-red-green]), 0, 3)
-    kwargs['diverging'] = False
-    kwargs['cbar'] = False
-    return imshow(img, ax, *args, **kwargs)
 
 
 def imshow_transparency(img, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
