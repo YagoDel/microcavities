@@ -2,7 +2,7 @@
 from nplab.utils.gui import QtWidgets, QtGui, QtCore, get_qt_app
 from nplab.utils.show_gui_mixin import ShowGUIMixin
 from nplab.utils import gui_generator
-from microcavities.experiment.instruments import PvcamServer, AndorServer
+from microcavities.experiment.instruments.tcp_connection import PvcamServer, AndorServer
 from microcavities.experiment.utils import magnification
 import yaml
 import numpy as np
