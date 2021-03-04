@@ -20,8 +20,8 @@ def default_save(figure, name, base_path=None):
     figure.savefig(os.path.join(base_path, 'figures', '%s.png' % name), dpi=1200, bbox_inches='tight')
 
 
-def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, xlabel=None, ylabel=None,
-           cbar_label=None, **kwargs):
+def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, cbar_label=None,
+           xlabel=None, ylabel=None, **kwargs):
     """Utility imshow, wraps commonly used plotting tools
 
     :param img: 2D array
@@ -29,6 +29,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     :param diverging: whether to use a diverging colormap, centered around 0
     :param scaling: a 2-tuple or a float. The pixel to unit conversion value
     :param cbar: whether to add a colorbar
+    :param cbar_label: str
     :param xlabel: str
     :param ylabel: str
     :param kwargs: any other named arguments are passed to plt.imshow
@@ -63,6 +64,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
+
     return fig, ax
 
 
@@ -153,6 +155,8 @@ def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, 
                 img = images[indx]
             elif len(axes) == 2:
                 img = images[idx, idx2]
+            else:
+                raise ValueError
             img = np.array(img, dtype=np.float)
             if normalise:
                 if normalise_kwargs is None:
@@ -236,20 +240,23 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
     return fig, axs, gs
 
 
-def waterfall(lines, ax=None, x_axis=None, offset=None, *args, **kwargs):
+def waterfall(lines, ax=None, xaxis=None, offset=None, xlabel=None, ylabel=None, *args, **kwargs):
     if offset is None:
         offset = 1.05 * np.abs(np.min(np.diff(lines, axis=0)))
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     else:
         fig = ax.figure
-    if x_axis is None:
-        x_axis = np.arange(lines.shape[1])
-    [ax.plot(x_axis, x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
+    if xaxis is None:
+        xaxis = np.arange(lines.shape[1])
+    [ax.plot(xaxis, x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if ylabel is not None: ax.set_ylabel(ylabel)
+
     return fig, ax
 
 
-def pcolormesh(img, x, y, ax=None, cbar=True, diverging=True, *args, **kwargs):
+def pcolormesh(img, x, y, ax=None, cbar=True, cbar_label=None, diverging=True, xlabel=None, ylabel=None, *args, **kwargs):
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     else:
@@ -280,9 +287,10 @@ def pcolormesh(img, x, y, ax=None, cbar=True, diverging=True, *args, **kwargs):
     im = ax.pcolormesh(edges_x, edges_y, sorted_img.transpose(), *args, **kwargs)
 
     if cbar:
-        cb = fig.colorbar(im, ax=ax)
+        cb = fig.colorbar(im, ax=ax, label=cbar_label)
         ax = (ax, cb.ax)
-
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if ylabel is not None: ax.set_ylabel(ylabel)
     return fig, ax
 
 
