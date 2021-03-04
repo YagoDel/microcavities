@@ -3,6 +3,7 @@
 import numpy as np
 import yaml
 import os
+import json
 
 
 def magnification(focus_array=None, wavelength=780e-9, camera=None, settings_path='settings.yaml'):
@@ -74,7 +75,7 @@ def magnification_function(focus_array, wavelength=780e-9):
     return m, m_array
 
 
-def spectrometer_calibration(pixel=None, wavelength=800, grating='1200'):
+def spectrometer_calibration_old(pixel=None, wavelength=800, grating='1200'):
     if pixel is None:
         pixel = np.arange(-670, 670)
         # pixel = np.arange(1, 1341)
@@ -84,3 +85,56 @@ def spectrometer_calibration(pixel=None, wavelength=800, grating='1200'):
         return (-9.04865e-06 * wavelength + 2.53741e-02) * pixel + 0.18 + wavelength
     elif grating == '1800':
         return (-1.38343e-05 * wavelength + 2.0021e-02) * pixel + wavelength
+
+
+def spectrometer_calibration(calibration_file, wavelength, grating=None):
+    """
+    Reads from a calibration file that contains the detector size being used, and the dispersion, and returns the
+    wavelength range shown in a detector
+
+    Example JSONs:
+        {
+          "detector_size": 100,
+          "dispersion": 0.01
+        }
+        {
+          "detector_size": 100,
+          "dispersion": [0.0001, 0.02]
+        }
+        {
+          "detector_size": 2048,
+          "dispersion": {"1": 0.014, "2": [0.0001, 0.02]},
+          "offset": {"1": [0.00001, 1]}
+        }
+    :param calibration_file: str. path to a calibration JSON
+    :param wavelength: float. Central wavelength at which to evaluate the dispersion
+    :param grating: str. Index of the grating in the JSON file
+    :return:
+    """
+    with open(calibration_file, 'r') as dfile:
+        calibration = json.load(dfile)
+    detector_size = calibration['detector_size']
+
+    dispersion = calibration['dispersion']
+    if isinstance(dispersion, dict):
+        dispersion = dispersion[grating]
+    poly = np.poly1d(dispersion)  # poly1d handles it whether you give it a number on an iterable
+    dispersion_value = poly(wavelength)
+
+    offset_value = 0
+    if 'offset' in calibration:
+        offset = calibration['offset']
+        if isinstance(offset, dict):
+            if grating in offset:
+                offset = offset[grating]
+            else:
+                offset = 0
+
+        poly = np.poly1d(offset)
+        offset_value = poly(wavelength)
+
+    pixels = np.arange(detector_size, dtype=np.float)
+    pixels -= np.mean(pixels)
+    delta_wvl = pixels * dispersion_value
+
+    return wavelength + delta_wvl + offset_value

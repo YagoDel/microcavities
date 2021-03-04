@@ -2,14 +2,15 @@
 
 from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.Andor import Andor
+from microcavities.experiment.utils import spectrometer_calibration
 import os
 import json
 import numpy as np
 
 
 class AndorActon(Andor):
-    def __init__(self, acton_address, acton_calibration_file=None, andor_settings_filepath=None):
-        super(AndorActon, self).__init__(andor_settings_filepath)
+    def __init__(self, acton_address, acton_calibration_file=None, *args, **kwargs):
+        super(AndorActon, self).__init__(*args, **kwargs)
         self.spectrometer = SP2750(acton_address)
         self.calibration_file = acton_calibration_file
         self.wavelength = self.wavelength  # ensures the widget displays things
@@ -54,54 +55,4 @@ class AndorActon(Andor):
 
     def get_wavelengths(self):
         """Returns the current wavelength range being shown on a detector attached to the SP2750"""
-        return self._get_wavelengths(self.calibration_file, self.wavelength, self.spectrometer.get_grating())
-
-    @staticmethod
-    def _get_wavelengths(calibration_file, wavelength, grating=None):
-        """
-        Reads from a calibration file that contains the detector size being used, and the dispersion, and returns the
-        wavelength range shown in a detector
-
-        Example JSONs:
-            {
-              "detector_size": 100,
-              "dispersion": 0.01
-            }
-            {
-              "detector_size": 100,
-              "dispersion": [0.0001, 0.02]
-            }
-            {
-              "detector_size": 2048,
-              "dispersion": {"1": 0.014, "2": [0.0001, 0.02]},
-              "offset": {"1": [0.00001, 1]}
-            }
-        :param calibration_file: str. path to a calibration JSON
-        :param wavelength: float. Central wavelength at which to evaluate the dispersion
-        :param grating: str. Index of the grating in the JSON file
-        :return:
-        """
-        with open(calibration_file, 'r') as dfile:
-            calibration = json.load(dfile)
-        detector_size = calibration['detector_size']
-
-        dispersion = calibration['dispersion']
-        if isinstance(dispersion, dict):
-            dispersion = dispersion[grating]
-        poly = np.poly1d(dispersion)  # poly1d handles it whether you give it a number on an iterable
-        dispersion_value = poly(wavelength)
-
-        offset_value = 0
-        if 'offset' in calibration:
-            offset = calibration['offset']
-            if isinstance(offset, dict):
-                offset = offset[grating]
-
-            poly = np.poly1d(offset)
-            offset_value = poly(wavelength)
-
-        pixels = np.arange(detector_size, dtype=np.float)
-        pixels -= np.mean(pixels)
-        delta_wvl = pixels * dispersion_value
-
-        return wavelength + delta_wvl + offset_value
+        return spectrometer_calibration(self.calibration_file, self.wavelength, self.spectrometer.get_grating())
