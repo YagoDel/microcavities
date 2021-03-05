@@ -37,11 +37,16 @@ def unitful_camera_factory(camera_class):
             if value == 'real_space':  # default units for display is microns
                 xaxis *= 1e6
                 yaxis *= 1e6
+                self.axis_units['bottom'] = "\u03BCm"
+                self.axis_units['left'] = "\u03BCm"
             if value == 'k_space':  # default units for display is inverse microns
                 xaxis *= 1e-6
                 yaxis *= 1e-6
+                self.axis_units['bottom'] = "\u03BCm\u207B\u00b1"
+                self.axis_units['left'] = "\u03BCm\u207B\u00b1"
             self.x_axis = xaxis
             self.y_axis = yaxis
+            self.update_widgets()
 
         @property
         def camera_calibration_file(self):
@@ -84,8 +89,12 @@ def camera_spectrometer_factory(camera_class, spectrometer_class):
             self.spectrometer.wavelength = wvl
             if wvl > 10:
                 self.x_axis = self.wavelengths
+                self.axis_units['bottom'] = r"nm"
+            elif hasattr(self, 'space'):
+                self.space = self.space
             else:
                 self.x_axis = None
+                self.axis_units['bottom'] = None
             self.update_widgets()
 
         @property
