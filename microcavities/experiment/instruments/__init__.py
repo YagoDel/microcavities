@@ -37,13 +37,13 @@ def unitful_camera_factory(camera_class):
             if value == 'real_space':  # default units for display is microns
                 xaxis *= 1e6
                 yaxis *= 1e6
-                self.axis_units['bottom'] = "\u03BCm"
-                self.axis_units['left'] = "\u03BCm"
+                self.axis_units['bottom'] = u"\u03BCm"
+                self.axis_units['left'] = u"\u03BCm"
             if value == 'k_space':  # default units for display is inverse microns
                 xaxis *= 1e-6
                 yaxis *= 1e-6
-                self.axis_units['bottom'] = "\u03BCm\u207B\u00b1"
-                self.axis_units['left'] = "\u03BCm\u207B\u00b1"
+                self.axis_units['bottom'] = u"\u03BCm\u207B\u00b1"
+                self.axis_units['left'] = u"\u03BCm\u207B\u00b1"
             self.x_axis = xaxis
             self.y_axis = yaxis
             self.update_widgets()
@@ -89,7 +89,7 @@ def camera_spectrometer_factory(camera_class, spectrometer_class):
             self.spectrometer.wavelength = wvl
             if wvl > 10:
                 self.x_axis = self.wavelengths
-                self.axis_units['bottom'] = r"nm"
+                self.axis_units['bottom'] = "nm"
             elif hasattr(self, 'space'):
                 self.space = self.space
             else:
@@ -127,11 +127,43 @@ def camera_spectrometer_factory(camera_class, spectrometer_class):
         def get_wavelengths(self):
             """Returns the current wavelength range being shown on a detector attached to the SP2750"""
             return spectrometer_calibration(self.calibration_file, self.wavelength, self.spectrometer.get_grating())
+
     return Combined
 
 
-AndorActon = camera_spectrometer_factory(unitful_camera_factory(Andor), SP2750)
+AndorActon_base = camera_spectrometer_factory(unitful_camera_factory(Andor), SP2750)
 PrincetonActon = camera_spectrometer_factory(PvcamClient, SP2750)
+
+
+class AndorActon(AndorActon_base):
+    def __init__(self, *args, **kwargs):
+        super(AndorActon, self).__init__(*args, **kwargs)
+        self.dark_image = None
+        self.reference_image = None
+        self.to_filter = False
+
+    def dark_capture(self):
+        current_shutter = self.Shutter
+        self.Shutter = [current_shutter[0], 2] + current_shutter[2:]
+        img = self.raw_image(False, True)
+        self.Shutter = current_shutter
+        self.dark_image = img
+        return img
+
+    def filter_function(self, img):
+        if self.to_filter:
+            if self.dark_image is not None:
+                img -= self.dark_image
+            if self.background is not None:
+                img -= self.background
+            if self.reference_image is not None:
+                img /= self.reference
+        else:
+            if self.backgrounded:
+                return img - self.background
+            else:
+                return img
+        return img
 
 # class AndorActon(Andor):
 #     def __init__(self, acton_address, acton_calibration_file=None, *args, **kwargs):
