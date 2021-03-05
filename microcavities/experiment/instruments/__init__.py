@@ -27,12 +27,19 @@ def unitful_camera_factory(camera_class):
             with open(self.camera_calibration_file) as dfile:
                 calibration = json.load(dfile)
             detector_shape = calibration['detector_shape']
+            pixel_size = calibration['pixel_size']
             xaxis = np.arange(detector_shape[0], dtype=np.float)
             xaxis -= np.mean(xaxis)
-            xaxis *= magn
+            xaxis *= pixel_size/magn
             yaxis = np.arange(detector_shape[1], dtype=np.float)
             yaxis -= np.mean(yaxis)
-            yaxis *= magn
+            yaxis *= pixel_size/magn
+            if value == 'real_space':  # default units for display is microns
+                xaxis *= 1e6
+                yaxis *= 1e6
+            if value == 'k_space':  # default units for display is inverse microns
+                xaxis *= 1e-6
+                yaxis *= 1e-6
             self.x_axis = xaxis
             self.y_axis = yaxis
 
