@@ -42,6 +42,7 @@ def unitful_camera_factory(camera_class):
                 yaxis *= 1e-6
             self.x_axis = xaxis
             self.y_axis = yaxis
+            self.update_widgets()
 
         @property
         def camera_calibration_file(self):
@@ -84,6 +85,8 @@ def camera_spectrometer_factory(camera_class, spectrometer_class):
             self.spectrometer.wavelength = wvl
             if wvl > 10:
                 self.x_axis = self.wavelengths
+            elif hasattr(self, 'space'):
+                self.space = self.space
             else:
                 self.x_axis = None
             self.update_widgets()
