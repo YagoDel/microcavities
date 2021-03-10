@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 
 from microcavities.utils.HierarchicalScan import AnalysisScan
-from microcavities.experiment.utils import spectrometer_calibration, magnification
+from microcavities.experiment.utils import spectrometer_calibration, spectrometer_calibration_old, magnification_old
 from microcavities.analysis.analysis_functions import find_k0, dispersion, find_mass, fit_quadratic_dispersion
 from microcavities.analysis.utils import normalize
 import numpy as np
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib import gridspec
-from microcavities.utils.plotting import pcolormesh, rgb_imshow
+from microcavities.utils.plotting import pcolormesh, colorful_imshow
 
 """
 Utility functions that wrap underlying analysis functionality
@@ -127,7 +127,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     else:
         fig, axs = fig_ax
     # Plotting RGB image of lower-polariton and condensate dispersion
-    rgb_imshow(dispersion_img, condensate_img, ax=axs[0], aspect='auto', from_black=False,
+    colorful_imshow(np.array([dispersion_img, condensate_img]), ax=axs[0], aspect='auto', from_black=False,
                xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
@@ -221,17 +221,17 @@ def get_calibrated_mass(dispersion_imgs, energy_axis=(780, '1200'), k_axis=None,
             grating = '1200'
         else:
             grating = energy_axis[1]
-        wvls = spectrometer_calibration(wavelength=wavelength, grating=grating)
+        wvls = spectrometer_calibration_old(wavelength=wavelength, grating=grating)
         energy_axis = 1240 / wvls
 
     if k_axis is None:
         k_axis = ('pvcam', 'k_space')
     if len(k_axis) <= 2:
         try:
-            mag = magnification(*k_axis)[0]
+            mag = magnification_old(*k_axis)[0]
             mag = 20 * 1e-12 / mag  # using the default 20um pixel size
         except:
-            mag = magnification(camera=('pvcam', 'k_space'))[0]
+            mag = magnification_old(camera=('pvcam', 'k_space'))[0]
         k0 = np.mean(list(map(find_k0, dispersion_imgs)))
         _k_axis = np.arange(400, dtype=np.float)  # pixel units
         try:

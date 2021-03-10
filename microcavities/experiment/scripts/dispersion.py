@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from microcavities.analysis.analysis_functions import dispersion, find_k0
-from microcavities.experiment.utils import spectrometer_calibration, magnification
+from microcavities.experiment.utils import spectrometer_calibration_old, magnification_function
 
 wvl = spectrometer.wavelength
 dispersion_img = pvcam.raw_image()
@@ -11,10 +11,10 @@ try:
 except Exception as e:
     print('Failed to background image. Should not matter')
 
-wvls = spectrometer_calibration(wavelength=wvl)
+wvls = spectrometer_calibration_old(wavelength=wvl)
 energy_axis = 1240 / wvls
 
-mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
+mag = magnification_function([0.01, 0.25, 0.1, 0.1, 0.2])[0]
 k0 = int(find_k0(dispersion_img))
 k_axis = np.linspace(-200, 200, 400)
 k_axis -= -200+k0
