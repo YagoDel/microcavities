@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # from nplab.instrument import Instrument
-# from nplab.instrument.stage.SigmaKoki import SHOT
+from nplab.instrument.stage.SigmaKoki import SHOT
 from nplab.instrument.electronics.Meadowlark import VariableRetarder
 from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
 from nplab.instrument.electronics.NewportPowermeter import NewportPowermeter
@@ -70,58 +70,58 @@ class RetarderPower(VariableRetarder, PowerWheelMixin):
 #             self.on()
 
 
-# class NdWheel(SHOT, PowerWheelMixin):
-#     axis_names = (1, )
-#
-#     def __init__(self, address):
-#         super(NdWheel, self).__init__(address)
-#         self._count_deg = 200.
-#         self._raw_max = 360
-#
-#     def move(self, angle, axis=1, relative=False, wait=True):
-#         if not relative:
-#             curr_angle = self.get_position(axis)
-#             angle_diff = angle - curr_angle
-#
-#             if angle_diff < -10:
-#                 angle_diff += 360
-#
-#             counts = angle_diff * self._count_deg
-#         else:
-#             counts = angle * self._count_deg
-#
-#         super(NdWheel, self).move(counts, axis, relative=True, wait=wait)
-#
-#     def get_position(self, axis=1):
-#         counts = super(NdWheel, self).get_position(axis)
-#         if hasattr(counts, '__iter__'):
-#             counts = np.array(counts)
-#         return (counts/self._count_deg) % 360
-#
-#     @property
-#     def raw_power(self):
-#         return self.position
-#
-#     @raw_power.setter
-#     def raw_power(self, value):
-#         self.move(value)
-#
-#     def prepare_calibration(self, calibration):
-#         angles = calibration[0]
-#         powers = calibration[1]
-#
-#         minidx = np.argmin(powers)
-#         self.move(angles[minidx])
-#         self.set_origin()
-#
-#         powers = np.roll(powers, -minidx)
-#         angles = np.roll(angles, -minidx) % 360
-#
-#         maxidx = np.argmin(np.abs(angles - 320))
-#         powers = powers[:maxidx]
-#         angles = angles[:maxidx]
-#
-#         return np.array([angles, powers])
+class NdWheel(SHOT, PowerWheelMixin):
+    axis_names = (1, )
+
+    def __init__(self, address):
+        super(NdWheel, self).__init__(address)
+        self._count_deg = 200.
+        self._raw_max = 360
+
+    def move(self, angle, axis=1, relative=False, wait=True):
+        if not relative:
+            curr_angle = self.get_position(axis)
+            angle_diff = angle - curr_angle
+
+            if angle_diff < -10:
+                angle_diff += 360
+
+            counts = angle_diff * self._count_deg
+        else:
+            counts = angle * self._count_deg
+
+        super(NdWheel, self).move(counts, axis, relative=True, wait=wait)
+
+    def get_position(self, axis=1):
+        counts = super(NdWheel, self).get_position(axis)
+        if hasattr(counts, '__iter__'):
+            counts = np.array(counts)
+        return (counts/self._count_deg) % 360
+
+    @property
+    def raw_power(self):
+        return self.position
+
+    @raw_power.setter
+    def raw_power(self, value):
+        self.move(value)
+
+    def prepare_calibration(self, calibration):
+        angles = calibration[0]
+        powers = calibration[1]
+
+        minidx = np.argmin(powers)
+        self.move(angles[minidx])
+        self.set_origin()
+
+        powers = np.roll(powers, -minidx)
+        angles = np.roll(angles, -minidx) % 360
+
+        maxidx = np.argmin(np.abs(angles - 320))
+        powers = powers[:maxidx]
+        angles = angles[:maxidx]
+
+        return np.array([angles, powers])
 
 
 class PowerMeterFlipper(NewportPowermeter):
