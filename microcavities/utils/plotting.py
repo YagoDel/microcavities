@@ -54,10 +54,15 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[0], yaxis[-1]]
 
     if diverging:
-        val = np.max(np.abs([np.max(img), np.min(img)]))
         kwargs['cmap'] = 'RdBu'
-        kwargs['vmin'] = -val
-        kwargs['vmax'] = val
+        val = np.max(np.abs([np.max(img), np.min(img)]))
+        if 'vmin' in kwargs and 'vmax' not in kwargs:
+                kwargs['vmax'] = -kwargs['vmin']
+        elif 'vmin' not in kwargs and 'vmax' in kwargs:
+                kwargs['vmin'] = -kwargs['vmax']
+        else:
+            kwargs['vmin'] = -val
+            kwargs['vmax'] = val
 
     im = ax.imshow(img, **kwargs)
     if cbar: fig.colorbar(im, ax=ax, label=cbar_label)
