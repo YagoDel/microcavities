@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from microcavities.utils import yaml_loader
 import numpy as np
 import yaml
 import os
@@ -117,6 +118,11 @@ def spectrometer_calibration(calibration_file, wavelength, grating=None):
     :param grating: str. Index of the grating in the JSON file
     :return:
     """
+    if not os.path.isabs(calibration_file):
+        settings = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
+        calibration_file = os.path.join(settings['calibrations_path'], calibration_file)
+    if os.path.splitext(calibration_file)[1] == '':
+        calibration_file += '.json'
     with open(calibration_file, 'r') as dfile:
         calibration = json.load(dfile)
     detector_size = calibration['detector_size']
