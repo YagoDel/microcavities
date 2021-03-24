@@ -8,9 +8,16 @@ import json
 
 
 def magnification(calibration_path, space, wavelength=800e-9):
+    if not os.path.isabs(calibration_path):
+        settings = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
+        calibration_path = os.path.join(settings['calibrations_path'], calibration_path)
+    if os.path.splitext(calibration_path)[1] == '':
+        calibration_path += '.json'
     with open(calibration_path) as dfile:
         calibration = json.load(dfile)
-    return magnification_function(calibration[space], wavelength)
+    mag = magnification_function(calibration[space], wavelength)
+    pixel_size = calibration['pixel_size']
+    return pixel_size / mag[0], mag[1]
 
 
 def magnification_old(focus_array=None, wavelength=780e-9, camera=None, settings_path='settings.yaml'):
