@@ -3,11 +3,13 @@
 import warnings
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
-from matplotlib import colors, cm
+from matplotlib import colors, cm, collections, colorbar
 import numpy as np
 from microcavities.utils import square, get_data_path
 from microcavities.analysis.utils import normalize
 import os
+from collections import OrderedDict
+from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
 
 
@@ -20,7 +22,7 @@ def default_save(figure, name, base_path=None):
     figure.savefig(os.path.join(base_path, 'figures', '%s.png' % name), dpi=1200, bbox_inches='tight')
 
 
-def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, cbar_label=None,
+def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, cbar_kwargs=None,
            xlabel=None, ylabel=None, **kwargs):
     """Utility imshow, wraps commonly used plotting tools
 
@@ -65,7 +67,21 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
             kwargs['vmax'] = val
 
     im = ax.imshow(img, **kwargs)
-    if cbar: fig.colorbar(im, ax=ax, label=cbar_label)
+    if cbar:
+        if cbar_kwargs is None:
+            cbar_kwargs = dict()
+
+        ax_divider = make_axes_locatable(ax)
+        if 'orientation' in cbar_kwargs:
+            if cbar_kwargs['orientation'] == 'horizontal':
+                cax = ax_divider.append_axes("top", size="7%", pad="2%")
+            else:
+                cax = ax_divider.append_axes("right", size="7%", pad="2%")
+        else:
+            cax = ax_divider.append_axes("right", size="7%", pad="2%")
+
+        fig.colorbar(im, cax=cax, **cbar_kwargs)
+        cax.xaxis.tick_top()
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
@@ -245,16 +261,59 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
     return fig, axs, gs
 
 
-def waterfall(lines, ax=None, xaxis=None, offset=None, xlabel=None, ylabel=None, *args, **kwargs):
+def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
+              labels=None, label_kwargs=None,
+              xlabel=None, ylabel=None,
+              peak_positions=None, peak_kwargs=None,
+              **kwargs):
     if offset is None:
         offset = 1.05 * np.abs(np.min(np.diff(lines, axis=0)))
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     else:
         fig = ax.figure
+    default_label_kwargs = dict(ha='right', va='bottom')
+    if label_kwargs is None:
+        label_kwargs = dict()
+    for key, value in default_label_kwargs.items():
+        if key not in label_kwargs:
+            label_kwargs[key] = value
     if xaxis is None:
         xaxis = np.arange(lines.shape[1])
-    [ax.plot(xaxis, x + offset * idx, *args, **kwargs) for idx, x in enumerate(lines)]
+    if cmap is None:
+        colours = [('C%d' % x) for x in range(10)]
+    else:
+        colours = cm.get_cmap(cmap, len(lines) + 1)(range(len(lines)))
+
+    if peak_positions is not None:
+        default_peak_kwargs = dict(ls='-', marker='.', color='k')
+        if peak_kwargs is None:
+            peak_kwargs = dict()
+        for key, value in default_peak_kwargs.items():
+            if key not in peak_kwargs:
+                peak_kwargs[key] = value
+        peak_lines = []
+    for idx, line in enumerate(lines):
+        offset_line = line + offset * idx
+        _kwargs = dict(kwargs)
+        if 'color' not in _kwargs:
+            _kwargs['color'] = colours[idx]
+        ax.plot(xaxis, offset_line, **_kwargs)
+        if peak_positions is not None:
+            _peak_lines = []
+            for peak in peak_positions[idx]:
+                interpolation = np.interp(peak, xaxis, offset_line)
+                _peak_lines += [(peak, interpolation)]
+            peak_lines += [_peak_lines]
+        if labels is not None:
+            _label_kwargs = dict(label_kwargs)
+            if 'color' not in _label_kwargs:
+                _label_kwargs['color'] = colours[idx]
+            ax.text(xaxis.max(), offset_line[-1], labels[idx], **_label_kwargs)
+    if peak_positions is not None:
+        peak_lines = np.array(peak_lines)
+        [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
+
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
 
@@ -299,6 +358,58 @@ def pcolormesh(img, x, y, ax=None, cbar=True, cbar_label=None, diverging=True, x
     return fig, ax
 
 
+def colorline(y, z=None, xaxis=None, ax=None, cmap='copper', vmin=None, vmax=None, *args, **kwargs):
+    """
+    http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
+    http://matplotlib.org/examples/pylab_examples/multicolored_line.html
+    Plot a colored line with coordinates x and y
+    Optionally specify colors in the array z
+    Optionally specify a colormap, a norm function and a line width
+    """
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.figure
+    if xaxis is None:
+        xaxis = np.arange(len(y))
+
+    # Default colors equally spaced on [0,1]:
+    if z is None:
+        z = np.linspace(0.0, 1.0, len(xaxis))
+
+    if vmin is None:
+        vmin = np.min(z)
+    if vmax is None:
+        vmax = np.max(z)
+    norm_colour = colors.Normalize(vmin, vmax)
+
+    # Special case if a single number:
+    # to check for numerical input -- this is a hack
+    if not hasattr(z, "__iter__"):
+        z = np.array([z])
+
+    z = np.asarray(z)
+    segments = _make_segments(xaxis, y)
+    lc = collections.LineCollection(segments, array=z, cmap=cmap, norm=norm_colour, *args, **kwargs)
+    ax.add_collection(lc)
+
+    ax.set_xlim(xaxis.min(), xaxis.max())
+    ax.set_ylim(y.min(), y.max())
+    return fig, ax
+
+
+def _make_segments(x, y):
+    """
+    Create list of line segments from x and y coordinates, in the correct format
+    for LineCollection: an array of the form numlines x (points per line) x 2 (x
+    and y) array
+    """
+
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    return segments
+
+
 def label_grid(figure, grid, label, position, offset=0.07, **kwargs):
     """Simple labelling of matplotlib.gridspec grids
 
@@ -318,3 +429,26 @@ def label_grid(figure, grid, label, position, offset=0.07, **kwargs):
         figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90, **kwargs)
     elif position == 'right':
         figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
+
+
+def unique_legend(ax, *args, **kwargs):
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = OrderedDict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), *args, **kwargs)
+
+
+def test_waterfall():
+    fig, axs = plt.subplots(1, 5, figsize=(8, 4))
+    x = np.linspace(-2*np.pi, 2*np.pi, 201)
+    lines = np.array([np.sin(x + ph) for ph in np.linspace(-np.pi, np.pi, 10)])
+    waterfall(lines, axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
+    waterfall(lines, axs[1], color='k', alpha=0.1, offset=0.1)
+    waterfall(lines, axs[2], cmap='jet', labels=range(10))
+    waterfall(lines, axs[3], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]))
+    waterfall(lines, axs[4], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]),
+              peak_kwargs=dict(ls='--', color='r'))
+
+
+if __name__ == '__main__':
+    test_waterfall()
+    plt.show(block=True)
