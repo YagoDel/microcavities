@@ -44,3 +44,11 @@ def normalize(array, percentiles=(0, 100), axis=None, cut=False):
         normed[normed > 1] = 1
         normed[normed < 0] = 0
     return normed
+
+
+def centroids(array, axis=-1):
+    """Reduce an array along an axis, giving the index centroid along that axis"""
+    axes_array = [np.arange(x) for x in array.shape]
+    mesh = np.meshgrid(*axes_array, indexing='ij')
+    img = mesh[axis]
+    return np.average(img, axis, array)
