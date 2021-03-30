@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from microcavities.utils.HierarchicalScan import AnalysisScan
-from microcavities.experiment.utils import spectrometer_calibration, spectrometer_calibration_old, magnification_old
+from microcavities.experiment.utils import spectrometer_calibration, magnification, spectrometer_calibration_old, magnification_old
 from microcavities.analysis.analysis_functions import find_k0, dispersion, find_mass, fit_quadratic_dispersion
 from microcavities.analysis.utils import normalize
 import numpy as np
@@ -74,7 +74,8 @@ def powerseries_remove_overlap(images, powers, correction_type='sum'):
 
 
 def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(780, '1200'), k_axis=None,
-                            known_sample_parameters=None, intensity_corrections=None, fig_ax=None):
+                            known_sample_parameters=None, intensity_corrections=None, fig_ax=None,
+                            powers_to_imshow=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
     Extracts the polariton mass and plots the normalised k=0 spectra as a function of power
@@ -91,6 +92,8 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     """
 
     photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkg)
+    if powers_to_imshow is None:
+        powers_to_imshow = [powers[-1][-1]]
 
     # Fitting the low-power dispersion with a quadratic
     k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(np.copy(photolum[0][:, 0]), energy_axis, k_axis, known_sample_parameters)
@@ -105,15 +108,20 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     indxs = np.argmax(k0_img, 1)
     lims = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
-    # Cropping the dispersion and condenesate images
-    condensate_img = np.mean(photolum[-1][:, -1, :, lims[0]:lims[1]], 0).transpose()
-    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
+    # Cropping the dispersion and condensate images and thresholding between 1 and 99.9
+    condensate_imgs = []
+    for power in powers_to_imshow:
+        section_idx = np.argmin([np.min(np.abs(np.array(x) - power)) for x in powers])
+        dset_idx = np.argmin(np.abs(np.array(powers[section_idx]) - power))
+        img = np.mean(photolum[section_idx][:, dset_idx, :, lims[0]:lims[1]], 0).transpose()
+        img -= np.percentile(img, 1)
+        img /= np.percentile(img, 99.9)
+        condensate_imgs += [img]
+    condensate_imgs = np.array(condensate_imgs)
 
-    # Thresholding to between 1 and 99.9 makes data clearer
+    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
     dispersion_img -= np.percentile(dispersion_img, 1)
-    condensate_img -= np.percentile(condensate_img, 1)
     dispersion_img /= np.percentile(dispersion_img, 99.9)
-    condensate_img /= np.percentile(condensate_img, 99.9)
 
     # Extracting the total emission
     k0 = int(find_k0(dispersion_img.transpose()))
@@ -132,7 +140,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     else:
         fig, axs = fig_ax
     # Plotting RGB image of lower-polariton and condensate dispersion
-    colorful_imshow(np.array([dispersion_img, condensate_img]), ax=axs[0], aspect='auto', from_black=False,
+    colorful_imshow(np.concatenate(([dispersion_img], condensate_imgs)), ax=axs[0], aspect='auto', from_black=False,
                     xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]][::-1])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
@@ -141,8 +149,9 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
                 ha='center', va='center', color='k', transform=axs[0].transAxes)
     axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(dispersion_img, 1))+10], '%gW' % powers[0][0],
                 ha='center', va='top', color='r')
-    axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(condensate_img, 1))+10], '%gW' % powers[-1][-1],
-                ha='center', va='top', color='g')
+    for idx, power in enumerate(powers_to_imshow):
+        axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(condensate_imgs[idx], 1))+10], '%gW' % power,
+                    ha='center', va='top', color='g')
     k0_idx = np.argmin(np.abs(k_axis + quad_fit[1] / (2 * quad_fit[0])))
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
 
