@@ -191,7 +191,8 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
     return fig, ax
 
 
-def colorline(y, z=None, xaxis=None, ax=None, cmap='copper', vmin=None, vmax=None, *args, **kwargs):
+def colorline(y, z=None, xaxis=None, ax=None, cmap='copper', vmin=None, vmax=None, xlabel=None, ylabel=None,
+              cbar=True, cbar_kwargs=None, *args, **kwargs):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
     http://matplotlib.org/examples/pylab_examples/multicolored_line.html
@@ -226,6 +227,26 @@ def colorline(y, z=None, xaxis=None, ax=None, cmap='copper', vmin=None, vmax=Non
 
     ax.set_xlim(xaxis.min(), xaxis.max())
     ax.set_ylim(y.min(), y.max())
+
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if ylabel is not None: ax.set_ylabel(ylabel)
+    if cbar:
+        if cbar_kwargs is None:
+            cbar_kwargs = dict()
+
+        ax_divider = make_axes_locatable(ax)
+        if 'orientation' in cbar_kwargs:
+            if cbar_kwargs['orientation'] == 'horizontal':
+                cax = ax_divider.append_axes("top", size="7%", pad="2%")
+            else:
+                cax = ax_divider.append_axes("right", size="7%", pad="2%")
+        else:
+            cax = ax_divider.append_axes("right", size="7%", pad="2%")
+
+        fig.colorbar(cm.ScalarMappable(norm=norm_colour, cmap=cmap), cax=cax, **cbar_kwargs)
+        cax.xaxis.tick_top()
+        cax.xaxis.set_label_position('top')
+
     return fig, ax
 
 
@@ -248,15 +269,18 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
     :param img: 2D array
     :param ax: pyplot.axes
-    :param diverging: whether to use a diverging colormap, centered around 0
-    :param scaling: a 2-tuple or a float. The pixel to unit conversion value
-    :param cbar: whether to add a colorbar
-    :param cbar_label: str
+    :param diverging: bool. Whether to use a diverging colormap, centered around 0
+    :param scaling: 2-tuple or a float. The pixel to unit conversion value
+    :param xaxis: 1D array
+    :param yaxis: 1D array
+    :param cbar: bool. Whether to add a colorbar
+    :param cbar_kwargs: dict or None
     :param xlabel: str
     :param ylabel: str
-    :param kwargs: any other named arguments are passed to plt.imshow
+    :param kwargs: dict. any other named arguments are passed to plt.imshow
     :return:
     """
+
     fig, ax = _make_axes(ax)
 
     if xaxis is None:
@@ -299,6 +323,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
         fig.colorbar(im, cax=cax, **cbar_kwargs)
         cax.xaxis.tick_top()
+        cax.xaxis.set_label_position('top')
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
@@ -439,10 +464,10 @@ def pcolormesh(img, x, y, ax=None, cbar=True, cbar_label=None, diverging=True, x
 
 
 # Tests
-
-def test_waterfall():
-    fig, axs = plt.subplots(1, 5, figsize=(8, 4))
+def test_1D():
     x = np.linspace(-2*np.pi, 2*np.pi, 201)
+
+    fig, axs = plt.subplots(1, 5, figsize=(8, 4))
     lines = np.array([np.sin(x + ph) for ph in np.linspace(-np.pi, np.pi, 10)])
     waterfall(lines, axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
     waterfall(lines, axs[1], color='k', alpha=0.1, offset=0.1)
@@ -450,8 +475,24 @@ def test_waterfall():
     waterfall(lines, axs[3], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]))
     waterfall(lines, axs[4], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]),
               peak_kwargs=dict(ls='--', color='r'))
+    fig.tight_layout()
+
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    x = np.linspace(-2*np.pi, 2*np.pi, 201)
+    colorline(np.sin(x), np.cos(x), ax=axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
+    colorline(np.sin(x), 10*np.cos(2*x), ax=axs[1], xaxis=x, xlabel='Phase', ylabel='amplitude',
+              cbar_kwargs=dict(orientation='horizontal', label='Anything'))
+    fig.tight_layout()
+
+def test_2D():
+    _x = np.linspace(-np.pi, np.pi, 201)
+    _y = np.linspace(-4*np.pi, 4*np.pi, 101)
+    x, y = np.meshgrid(_x, _y)
+    imshow(np.cos(x) * np.cos(y), xaxis=_x, yaxis=_y, xlabel='$x$', ylabel='$y$', cbar_kwargs=dict(label=r'$cos(x) \cdot cos(y)$'))
+    return
 
 
 if __name__ == '__main__':
-    test_waterfall()
+    # test_1D()
+    test_2D()
     plt.show(block=True)
