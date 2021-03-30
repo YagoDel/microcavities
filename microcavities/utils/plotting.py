@@ -141,14 +141,21 @@ def unique_legend(ax, *args, **kwargs):
 
 
 # 1D plots
-def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
+def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
               labels=None, label_kwargs=None,
               xlabel=None, ylabel=None,
               peak_positions=None, peak_kwargs=None,
               **kwargs):
     fig, ax = _make_axes(ax)
-    if offset is None:
-        offset = 1.05 * np.abs(np.min(np.diff(lines, axis=0)))
+    if offsets is None:
+        offsets = 1.05 * np.abs(np.min(np.diff(lines, axis=0))) * np.ones(len(lines))
+    elif offsets == 'auto':
+        offsets = 1.05 * np.abs(np.min(np.diff(lines, axis=0), 1))
+    else:
+        try:
+            len(offsets)
+        except:
+            offsets = np.ones(len(lines)) * offsets
 
     default_label_kwargs = dict(ha='right', va='bottom')
     if label_kwargs is None:
@@ -177,7 +184,7 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
             join_peaks = False
             peak_kwargs['ls'] = "None"
     for idx, line in enumerate(lines):
-        offset_line = line + offset * idx
+        offset_line = line + np.sum(offsets[:idx])
         _kwargs = dict(kwargs)
         if 'color' not in _kwargs:
             _kwargs['color'] = colours[idx]
