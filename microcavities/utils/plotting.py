@@ -31,7 +31,7 @@ def _make_axes(ax=None):
     return fig, ax
 
 
-def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex=False, sharey=False,
+def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=None, figsize=8, sharex=False, sharey=False, gridspec_loc=None,
              gridspec_kwargs=None, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
@@ -51,13 +51,16 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
     :param kwargs:
     :return:
     """
-    if len(axes) == 1:
-        n_images = datas.shape[axes[0]]
-        a, b = square(n_images)
-    elif len(axes) == 2:
-        a, b = datas.shape[axes[0]], datas.shape[axes[1]]
+    if subplots_shape is None:
+        if len(axes) == 1:
+            n_images = datas.shape[axes[0]]
+            a, b = square(n_images)
+        elif len(axes) == 2:
+            a, b = datas.shape[axes[0]], datas.shape[axes[1]]
+        else:
+            raise ValueError
     else:
-        raise ValueError
+        a, b = subplots_shape
 
     try:
         fig_size = tuple(iter(figsize))
@@ -73,10 +76,14 @@ def subplots(datas, plotting_func, axes=(0, ), fig_shape=None, figsize=8, sharex
         if any(fig_size > 20):
             fig_size = np.array([figsize, figsize])
 
-    fig = plt.figure(figsize=tuple(fig_size))
     if gridspec_kwargs is None:
         gridspec_kwargs = dict()
-    gs = gridspec.GridSpec(b, a, **gridspec_kwargs)
+    if gridspec_loc is None:
+        fig = plt.figure(figsize=tuple(fig_size))
+        gs = gridspec.GridSpec(b, a, **gridspec_kwargs)
+    else:
+        gs = gridspec.GridSpecFromSubplotSpec(b, a, gridspec_loc, **gridspec_kwargs)
+        fig = gs.figure
     axs = []
     for idx2 in range(b):
         for idx in range(a):
@@ -152,7 +159,7 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
     if xaxis is None:
         xaxis = np.arange(lines.shape[1])
     if cmap is None:
-        colours = [('C%d' % x) for x in range(10)]
+        colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(lines))]
     else:
         colours = cm.get_cmap(cmap, len(lines) + 1)(range(len(lines)))
 
