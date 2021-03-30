@@ -171,6 +171,11 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
             if key not in peak_kwargs:
                 peak_kwargs[key] = value
         peak_lines = []
+        if len(np.unique([len(x) for x in peak_positions])) == 1:
+            join_peaks = True
+        else:
+            join_peaks = False
+            peak_kwargs['ls'] = "None"
     for idx, line in enumerate(lines):
         offset_line = line + offset * idx
         _kwargs = dict(kwargs)
@@ -189,8 +194,11 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offset=None,
                 _label_kwargs['color'] = colours[idx]
             ax.text(xaxis.max(), offset_line[-1], labels[idx], **_label_kwargs)
     if peak_positions is not None:
-        peak_lines = np.array(peak_lines)
-        [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
+        if join_peaks:
+            peak_lines = np.array(peak_lines)
+            [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
+        else:
+            [ax.plot(*np.transpose(pkline), **peak_kwargs) for pkline in peak_lines]
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
