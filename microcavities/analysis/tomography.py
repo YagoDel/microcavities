@@ -33,10 +33,9 @@ class TomographyDisplay(ExtendedImageView):
         if wavelength is not None:
             z_axis = spectrometer_calibration(wavelength=wavelength)
         else:
-            z_axis = np.linspace(-1, 1, data.shape[0])
-        print(z_axis.shape)
+            z_axis = np.arange(data.shape[0])
         spectra = np.mean(data, (1, 2))
-        print(spectra.shape)
+        print(z_axis.shape, spectra.shape, data.shape)
         self.imageItem.axisOrder = 'col-major'  # without this, the LineROIs don't select the right region (not sure why)
 
         self.setImage(data, xvals=z_axis)
@@ -66,7 +65,7 @@ class TomographyDisplay(ExtendedImageView):
 
 
 class Tomography(ShowGUIMixin):
-    def __init__(self, yaml_path):
+    def __init__(self, images_or_path):
         """Extracting data and axes from a yaml location for a tomography scan"""
         super(Tomography, self).__init__()
 
@@ -78,23 +77,26 @@ class Tomography(ShowGUIMixin):
         # images = np.zeros(X.shape)
         # images[np.abs(0.5 * (X-5)**2 + 2 * (Y+5)**2 - Z**2) < 1] = 1
 
-        scan = AnalysisScan(yaml_path)
-        scan.run()
+        if type(images_or_path) is str:
+            scan = AnalysisScan(images_or_path)
+            scan.run()
 
-        keys = list(scan.analysed_data.keys())
-        images = scan.analysed_data[keys[0]]
-        rnd_grp = scan.get_random_group(scan.series_name)
-        data, attrs = scan.get_data(rnd_grp)
-        print(rnd_grp, data.shape)
-        if 'x_axis' in attrs:
-            xaxis = attrs['x_axis']
+            keys = list(scan.analysed_data.keys())
+            images = scan.analysed_data[keys[0]]
+            # rnd_grp = scan.get_random_group(scan.series_name)
+            # data, attrs = scan.get_data(rnd_grp)
+            # print(rnd_grp, data.shape)
+            # if 'x_axis' in attrs:
+            #     xaxis = attrs['x_axis']
+            # else:
+            #     xaxis = np.linspace(-1, 1, data.shape[0])
+            # if 'y_axis' in attrs:
+            #     yaxis = attrs['y_axis']
+            # else:
+            #     yaxis = np.linspace(-1, 1, data.shape[1])
+            # zaxis = list(scan.variables.items())[0][1]
         else:
-            xaxis = np.linspace(-1, 1, data.shape[0])
-        if 'y_axis' in attrs:
-            yaxis = attrs['y_axis']
-        else:
-            yaxis = np.linspace(-1, 1, data.shape[1])
-        zaxis = list(scan.variables.items())[0][1]
+            images = images_or_path
 
         self.images = self.prepare_images(images)
 
