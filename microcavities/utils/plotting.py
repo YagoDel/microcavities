@@ -168,7 +168,10 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
     if cmap is None:
         colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(lines))]
     else:
-        colours = cm.get_cmap(cmap, len(lines) + 1)(range(len(lines)))
+        try:
+            colours = cm.get_cmap(cmap, len(lines) + 1)(range(len(lines)))
+        except:
+            colours = cmap
 
     if peak_positions is not None:
         default_peak_kwargs = dict(ls='-', marker='.', color='k')
@@ -375,10 +378,8 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
 
 
 def imshow_transparency(img, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
-                        diverging=True, cbar=False, cmap='coolwarm_r', ax=None,
+                        diverging=True, cbar=False, cmap='coolwarm_r',
                         *args, **kwargs):
-    # fig, ax = _make_axes(ax)
-
     if diverging:
         if vmin is not None or vmax is not None:
             warnings.warn('Both diverging and vmin/vmax given. Defaulting to diverging.')
