@@ -140,12 +140,25 @@ def unique_legend(ax, *args, **kwargs):
     ax.legend(by_label.values(), by_label.keys(), *args, **kwargs)
 
 
+def colour_axes(ax, colour):
+    ax.tick_params(color=colour, labelcolor=colour, which='both')
+    for spine in ax.spines.values():
+        spine.set_edgecolor(colour)
+    ax.xaxis.label.set_color(colour)
+    ax.yaxis.label.set_color(colour)
+
+
 # 1D plots
 def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
               labels=None, label_kwargs=None,
               xlabel=None, ylabel=None,
               peak_positions=None, peak_kwargs=None,
               **kwargs):
+    if xaxis is not None and peak_positions is not None:
+        # assert np.diff(xaxis)[0] > 0, 'To find the correct peak heights, the xaxis needs to be increasing'
+        if np.diff(xaxis)[0] < 0:
+            lines = lines[:, ::-1]
+            xaxis = xaxis[::-1]
     fig, ax = _make_axes(ax)
     if offsets is None:
         offsets = 1.05 * np.abs(np.min(np.diff(lines, axis=0))) * np.ones(len(lines))
@@ -287,6 +300,22 @@ def _make_segments(x, y):
     return segments
 
 
+def plot_fill(x, y_array, ax=None):
+    """Plotting following seaborn.lineplot
+    Given an array of lines, plots a single central average line and a shadowed region to show the standard deviation
+    :param x:
+    :param y_array:
+    :param ax:
+    :return:
+    """
+    fig, ax = _make_axes(ax)
+    y_mean = np.nanmean(y_array, 0)
+    y_err = np.nanstd(y_array, 0)
+    ax.plot(x, y_mean)
+    ax.fill_between(x, y_mean-y_err, y_mean+y_err, alpha=0.3)
+    return fig, ax
+
+
 # 2D plots
 def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, cbar_kwargs=None,
            xlabel=None, ylabel=None, **kwargs):
@@ -357,6 +386,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
 
 def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', *args, **kwargs):
+    images = np.asarray(images)
     normed = np.array([normalize(x, norm_args) for x in images])
 
     _cmap = cm.get_cmap(cmap, normed.shape[0] + 1)
