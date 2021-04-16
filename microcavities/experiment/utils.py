@@ -157,3 +157,11 @@ def spectrometer_calibration(calibration_file, wavelength, grating=None):
     delta_wvl = pixels * dispersion_value
 
     return wavelength + delta_wvl + offset_value
+
+
+def quick_scan(setter, values, measurement):
+    data = []
+    for value in values:
+        setter(value)
+        data += [measurement()]
+    return np.array(data)

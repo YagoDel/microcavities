@@ -4,12 +4,12 @@ from nplab.utils.gui import QtWidgets, QtCore, uic, get_qt_app
 from microcavities.utils.HierarchicalScan import ExperimentScan
 from microcavities.experiment.utils import magnification
 
-center_steps = 6898000  # This value might need to be changed if the setup is realigned
+center_steps = 4398000  # This value might need to be changed if the setup is realigned
 
 stages.toggle('k_lens', 'on')
 stages.move(center_steps, 'spectrometer_lens')
 
-mag = magnification([0.01, 0.25, 0.1, 0.1, 0.2])[0]
+mag = magnification('rotation_pvcam', 'kspace')[0]
 k_fac = 20 * 1e-6 / mag  # Converting to SI and dividing by magnification
 k_fac *= 1e-6  # converting to inverse micron
 stage_steps_to_inverse_micron = 327*k_fac/660000.  # the diameter of k-space on the camera is 327 pixels

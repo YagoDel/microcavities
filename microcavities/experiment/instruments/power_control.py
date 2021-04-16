@@ -115,7 +115,7 @@ class NdWheel(SHOT, PowerWheelMixin):
         self.set_origin()
 
         powers = np.roll(powers, -minidx)
-        angles = np.roll(angles, -minidx) % 360
+        angles = (np.roll(angles, -minidx) - angles[minidx]) % 360
 
         maxidx = np.argmin(np.abs(angles - 320))
         powers = powers[:maxidx]

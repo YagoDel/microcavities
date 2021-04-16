@@ -31,8 +31,8 @@ def _make_axes(ax=None):
     return fig, ax
 
 
-def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=None, figsize=8, sharex=False, sharey=False, gridspec_loc=None,
-             gridspec_kwargs=None, *args, **kwargs):
+def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=None, figsize=8,
+             sharex=False, sharey=False, gridspec_loc=None, gridspec_kwargs=None, *args, **kwargs):
     """Utility function for plotting multiple datasets
 
     >>>> subplots(np.random.random((4, 4, 100))-0.5, plt.plot, (0, 1))
@@ -43,7 +43,7 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
     :param plotting_func:
     :param axes:
     :param fig_shape:
-    :param figsize:
+    :param figsize: float or tuple
     :param sharex:
     :param sharey:
     :param gridspec_kwargs:
@@ -51,20 +51,23 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
     :param kwargs:
     :return:
     """
+    if len(axes) > 2:
+        raise ValueError('Can only make subplots for 1 or 2 axes')
+
+    # Getting the shape of the subplot grid
     if subplots_shape is None:
         if len(axes) == 1:
             n_images = datas.shape[axes[0]]
             a, b = square(n_images)
         elif len(axes) == 2:
             a, b = datas.shape[axes[0]], datas.shape[axes[1]]
-        else:
-            raise ValueError
     else:
         a, b = subplots_shape
 
+    # Getting the size of the figure. If figsize is an iterable, use it. If it's a
     try:
         fig_size = tuple(iter(figsize))
-    except:
+    except TypeError:
         if fig_shape is None:
             if len(datas.shape) - len(axes) == 2:
                 fig_shape = (b/a) * (datas.shape[-2]/datas.shape[-1])
@@ -87,14 +90,15 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
     axs = []
     for idx2 in range(b):
         for idx in range(a):
-            try:
-                if len(axes) == 1:
-                    indx = idx2 * a + idx
-                    data = datas[indx]
-                elif len(axes) == 2:
-                    data = datas[idx, idx2]
-            except IndexError:
-                continue
+            if len(axes) == 1:
+                indx = idx2 * a + idx
+                data = np.take(datas, indx, axes[0])
+            elif len(axes) == 2:
+                _data = np.take(datas, idx, axes[0])
+                if axes[1] > axes[0]:
+                    data = np.take(_data, idx2, axes[1]-1)
+                else:
+                    data = np.take(_data, idx2, axes[1])
             _kwargs = dict()
             if len(axs) > 0:
                 if sharex:
@@ -229,7 +233,7 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
     return fig, ax
 
 
-def colorline(y, z=None, xaxis=None, ax=None, cmap='copper', vmin=None, vmax=None, xlabel=None, ylabel=None,
+def colorline(y, ax=None, z=None, xaxis=None, cmap='copper', vmin=None, vmax=None, xlabel=None, ylabel=None,
               cbar=True, cbar_kwargs=None, *args, **kwargs):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
@@ -360,6 +364,8 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         else:
             kwargs['vmin'] = -val
             kwargs['vmax'] = val
+    if 'aspect' not in kwargs:
+        kwargs['aspect'] = 'auto'
 
     im = ax.imshow(img, **kwargs)
     if cbar:
@@ -407,7 +413,7 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
     return imshow(full, ax, *args, **kwargs), _cmap(range(normed.shape[0]))
 
 
-def imshow_transparency(img, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
+def imshow_transparency(img, ax=None, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
                         diverging=True, cbar=False, cmap='coolwarm_r',
                         *args, **kwargs):
     if diverging:
@@ -426,10 +432,9 @@ def imshow_transparency(img, alpha=None, percentiles=(0, 100), vmin=None, vmax=N
 
     kwargs['diverging'] = False
     kwargs['cbar'] = False
-    # kwargs['ax'] = ax
     kwargs['vmin'] = None
     kwargs['vmax'] = None
-    fig, ax = imshow(img_array, *args, **kwargs)
+    fig, ax = imshow(img_array, ax, *args, **kwargs)
 
     cbar_ax = None
     if cbar:
@@ -480,8 +485,10 @@ def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, 
     return imshow(combined_image, *args, **kwargs)
 
 
-def pcolormesh(img, x, y, ax=None, cbar=True, cbar_label=None, diverging=True, xlabel=None, ylabel=None, *args, **kwargs):
+def pcolormesh(img, ax=None, x=None, y=None, cbar=True, cbar_label=None, diverging=True, xlabel=None, ylabel=None, *args, **kwargs):
     fig, ax = _make_axes(ax)
+    if x is None:  x = np.arange(img.shape[0])
+    if y is None:  y = np.arange(img.shape[1])
 
     if diverging:
         val = np.max(np.abs([np.max(img), np.min(img)]))
