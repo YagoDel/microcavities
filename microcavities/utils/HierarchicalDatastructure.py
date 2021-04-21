@@ -3,7 +3,10 @@
 import numpy as np
 import h5py
 import os
-import xarray
+# import xarray
+import re
+import string
+import itertools
 from microcavities.analysis.utils import SortingKey
 
 
@@ -104,6 +107,137 @@ def h5py_to_xarray(group):
     keys.sort(key=SortingKey)
     array = 0
     return array
+
+
+def h5py_string_format(data_file_path, series_name, final_name=None):
+    """Extracts the string format from a hierarchical h5py
+
+    This is for h5py files that are structured as followed:
+        series_name
+            variable1=v1val1
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+            variable1=v1val2
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+            variable1=v1val3
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+    This way, it can simply go down the hierarchy along one path to extract
+        series_name/variable1={variable1}/variable2={variable2}
+
+    :param data_file_path: str
+    :param series_name: str
+    :param final_name: str
+    :return:
+    """
+    string_format = series_name
+    dset_path = series_name
+    variable_names = []
+    with h5py.File(data_file_path, 'r') as dfile:
+        while isinstance(dfile[dset_path], h5py.Group):
+            old_dset_path = str(dset_path)
+            keys = dfile[dset_path].keys()
+            for key in keys:
+                print(key)
+                if '=' in key:
+                    variable_names += [re.findall('([^=]*)=', key)[0]]
+                    dset_path += '/' + key
+                    string_format += '/%s=${%s}' % (variable_names[-1], variable_names[-1])
+                    break
+                elif final_name == key:
+                    dset_path += '/' + key
+                    string_format += '/%s' % key
+
+                    break
+            if dset_path == old_dset_path:
+                raise ValueError('Unrecognised hierarchy')
+    return string_format
+
+
+def h5py_get_data(data_file_path, series_name, final_name=None, *args, **kwargs):
+    """Extracts the data in a hierarchical h5py.Group
+
+    This is for h5py files that are structured as followed:
+        series_name
+            variable1=v1val1
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+            variable1=v1val2
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+            variable1=v1val3
+                variable2=v2val1
+                variable2=v2val2
+                variable2=v2val3
+
+    Examples:
+        h5py_get_data(file_path, series_name) would return a numpy array of shape: (3, 3) + dataset.shape
+        h5py_get_data(file_path, series_name, v1val1) would return a numpy array of shape: (3, ) + dataset.shape
+
+    :param data_file_path:
+    :param series_name:
+    :param final_name:
+    :param args:
+    :return:
+    """
+
+    string_format = h5py_string_format(data_file_path, series_name, final_name)
+    formatter = list(string.Formatter().parse(string_format))
+    variable_names = [v[1] for v in formatter if v[1] is not None]
+    depth = formatter[0][0].count('/')
+    n_variables = len(variable_names)
+    # print('Found %d variables: ' % n_variables, variable_names)
+
+    if len(args) != n_variables:
+        for idx in range(len(args), n_variables):
+            if variable_names[idx] in kwargs:
+                args += (kwargs[variable_names[idx]], )
+            else:
+                args += (None, )
+        # print(args)
+        # args += tuple([None] * (n_variables - len(args)))
+
+    string_template = string.Template(string_format)
+    with h5py.File(data_file_path, 'r') as dfile:
+        variable_values = []
+        for idx, arg in enumerate(args):
+            if arg is None:
+                _string_format = string_template.safe_substitute({key: '%g' % value[0] for key, value in zip(variable_names, variable_values)})
+                try:
+                    _keys = list(dfile['/'.join(_string_format.split('/')[:(idx+depth)])].keys())
+                    keys = [key for key in _keys if '=' in key]
+                except KeyError as e:
+                    print(variable_names, variable_values, _string_format)
+                    print('/'.join(_string_format.split('/')[:(idx+1)]))
+                    raise(e)
+                variable_values += [np.sort([float(re.findall('=([^=]*)', x)[0]) for x in keys])]
+            else:
+                try:
+                    len(arg)
+                    variable_values += [np.array(arg)]
+                except:
+                    variable_values += [np.array([arg])]
+        print('Found variables_values: ', variable_values)
+
+        variables = itertools.product(*variable_values)
+        data = []
+        for variable in variables:
+            dset_name = string_template.safe_substitute({key: '%g' % value for key, value in zip(variable_names, variable)})
+            try:
+                data += [dfile[dset_name][...]]
+            except Exception as e:
+                print(dset_name)
+                print(list(variables))
+                raise(e)
+        data = np.array(data)
+    data = np.reshape(data, [len(x) for x in variable_values] + list(data.shape[1:]))
+    return np.squeeze(data), {key: value for key, value in zip(variable_names, variable_values)}
 
 
 if __name__ == '__main__':
