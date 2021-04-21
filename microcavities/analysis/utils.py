@@ -4,7 +4,9 @@ import re
 import ast
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from scipy.stats import zscore
 from microcavities.utils.functools import lorentzianNd, gaussianNd
+import collections
 
 
 def SortingKey(pattern):
@@ -73,6 +75,55 @@ def remove_spikes(array, thresh=5, smooth=30, max_iterations=10):
     return cleaned
 
 
+def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
+    """Uses the IQR or zscore method
+    From https://stackoverflow.com/questions/11686720/is-there-a-numpy-builtin-to-reject-outliers-from-a-list
+
+    :param x: array
+    :param axis: axis to remove along
+    :param bar:
+    :param side:
+    :param method:
+    :return:
+    """
+    assert side in ['gt', 'lt', 'both'], 'Side should be `gt`, `lt` or `both`.'
+    assert method in ['IQR', 'zscore'], 'Method should be `IQR` or `zscore`.'
+    xcopy = np.copy(x)
+    if method == 'IQR':
+        d_iqr = np.nanpercentile(xcopy, 75, axis=axis) - np.nanpercentile(xcopy, 25, axis=axis)
+        d_q1 = np.nanpercentile(xcopy, 25, axis=axis)
+        d_q3 = np.nanpercentile(xcopy, 75, axis=axis)
+        iqr_distance = np.multiply(d_iqr, bar)
+        upper_range = d_q3 + iqr_distance
+        lower_range = d_q1 - iqr_distance
+    elif method == 'zscore':
+        xcopy = zscore(xcopy, axis=axis)
+        upper_range = bar
+        lower_range = -bar
+    stat_shape = list(xcopy.shape)
+    if axis is None:
+        axis = list(range(len(stat_shape)))
+    if isinstance(axis, collections.Iterable):
+        for single_axis in axis:
+            stat_shape[single_axis] = 1
+    else:
+        stat_shape[axis] = 1
+
+    if side in ['gt', 'both']:
+        upper_outlier = np.greater(xcopy - upper_range.reshape(stat_shape), 0)
+    if side in ['lt', 'both']:
+        lower_outlier = np.less(xcopy - lower_range.reshape(stat_shape), 0)
+
+    if side == 'gt':
+        mask = upper_outlier
+    elif side == 'lt':
+        mask = lower_outlier
+    elif side == 'both':
+        mask = np.logical_or(upper_outlier, lower_outlier)
+    x[mask] = np.nan
+    return x
+
+
 def test_remove_spikes():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]
     x, y = np.meshgrid(_x, _y)
@@ -109,8 +160,38 @@ def test_remove_spikes():
     axs[1, 4].plot(remove_spikes(noisy_spectra, smooth=5))
     axs[1, 5].plot(remove_spikes(noisy_spectra, 1, 5, 100))
 
+def test_remove_outliers():
+    _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]
+    x, y = np.meshgrid(_x, _y)
+    base_img = np.random.random(x.shape)
+    base_img += 10*np.exp(-(x - 2) ** 2 / (2 * 3 ** 2) - (y - 2) ** 2 / (2 * 4 ** 2))
+    base_img += 6*np.exp(-(x + 2) ** 2 / (2 * 6 ** 2) - (y + 3) ** 2 / (2 * 10 ** 2))
+
+    nois_img = np.copy(base_img)
+    nois_img += lorentzianNd((_x, _y), 2, 1, 0.1)
+    nois_img += 100*np.exp(-(x) ** 2 / (2 * 0.1 ** 2) - (y) ** 2 / (2 * 0.1 ** 2))
+    nois_img += 100*np.exp(-(x-5) ** 2 / (2 * 0.1 ** 2) - (y+5) ** 2 / (2 * 0.1 ** 2))
+
+    _x = np.linspace(750, 850, 1340)
+    base_spectra = np.random.random(_x.shape)
+    base_spectra += gaussianNd(_x, 780, 10, 3)
+    base_spectra += lorentzianNd(_x, 800, 10, 3)
+    base_spectra += lorentzianNd(_x, 830, 10, 10)
+    noisy_spectra = np.copy(base_spectra)
+    for x0, a in zip(np.random.random(10) * 100 + 750, np.random.random(10) * 20 + 2):
+        noisy_spectra += lorentzianNd(_x, x0, a, 0.1)
+    fig, axs = plt.subplots(2, 4)
+    axs[0, 0].imshow(base_img)
+    axs[0, 1].imshow(nois_img)
+    axs[0, 2].imshow(remove_outliers(nois_img))
+    axs[0, 3].imshow(remove_outliers(nois_img, 0))
+    axs[1, 0].plot(base_spectra)
+    axs[1, 1].plot(noisy_spectra)
+    axs[1, 2].plot(remove_outliers(noisy_spectra))
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    test_remove_spikes()
+    # test_remove_spikes()
+    test_remove_outliers()
     plt.show()
