@@ -165,9 +165,9 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
             xaxis = xaxis[::-1]
     fig, ax = _make_axes(ax)
     if offsets is None:
-        offsets = 1.05 * np.abs(np.min(np.diff(lines, axis=0))) * np.ones(len(lines))
+        offsets = 1.05 * np.abs(np.nanmin(np.diff(lines, axis=0))) * np.ones(len(lines))
     elif offsets == 'auto':
-        offsets = 1.05 * np.abs(np.min(np.diff(lines, axis=0), 1))
+        offsets = 1.05 * np.abs(np.nanmin(np.diff(lines, axis=0), 1))
     else:
         try:
             len(offsets)
