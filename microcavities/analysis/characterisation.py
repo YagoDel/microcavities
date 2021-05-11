@@ -17,7 +17,7 @@ Utility functions that wrap underlying analysis functionality
 
 def realspace_power_series(yaml_paths, series_names=None, bkgs=0, exposures=None, nd_filters=None):
     photolum, powers = get_data_from_yamls(yaml_paths, series_names, bkgs)
-    mag = magnification([0.01, 0.25, 0.1, 0.2], 805e-9)
+    mag = magnification('rotation_pvcam', 'real_space', 803e-9)
     center = [40, 38]
     size = 20
     cropped = photolum[..., center[0] - size:center[0] + size, center[1] - size:center[1] + size]
@@ -156,8 +156,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
 
     # Plotting the k=0 spectra as a function of power
-    pcolormesh(k0_img[:, lims[0]:lims[1]], xaxis, yaxis[lims[0]:lims[1]], diverging=False, cbar=False, cmap='Greys',
-               ax=axs[1])
+    pcolormesh(k0_img[:, lims[0]:lims[1]], axs[1], xaxis, yaxis[lims[0]:lims[1]], diverging=False, cbar=False, cmap='Greys')
     axs[1].set_xlabel('CW power / W')
     axs[1].set_ylabel('Blueshift / meV')
 
@@ -178,7 +177,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
     # Plotting the momenta vs power
     new_images, new_powers, _ = powerseries_remove_overlap([np.mean(x, 0) for x in photolum], powers)
     img = np.array([normalize(x, (1, 99.9)) for x in np.sum(new_images[..., lims[0]:lims[1]], -1)])
-    pcolormesh(img, new_powers, k_axis, diverging=False, cbar=False, cmap='Greys', ax=axs[3])
+    pcolormesh(img, axs[3], new_powers, k_axis, diverging=False, cbar=False, cmap='Greys')
 
     # Plotting the momentum centroid on the same axes
     summed_energies = [np.sum(np.mean(x, 0)[..., lims[0]:lims[1]], -1) for x in photolum]
@@ -228,27 +227,27 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
     return photolum, powers
 
 
-def get_calibrated_mass(dispersion_imgs, energy_axis=(780, '1200'), k_axis=None, known_sample_parameters=None, plotting=False):
+def get_calibrated_mass(dispersion_imgs, energy_axis=('rotation_acton', 780, '2'), k_axis=None, known_sample_parameters=None, plotting=False):
     if len(energy_axis) <= 5:
-        try:
-            wvls = spectrometer_calibration(*energy_axis)
-        except:
-            wavelength = energy_axis[0]
-            if len(energy_axis) == 1:
-                grating = '1200'
-            else:
-                grating = energy_axis[1]
-            wvls = spectrometer_calibration_old(wavelength=wavelength, grating=grating)
+        # try:
+        wvls = spectrometer_calibration(*energy_axis)
+        # except:
+        #     wavelength = energy_axis[0]
+        #     if len(energy_axis) == 1:
+        #         grating = '1200'
+        #     else:
+        #         grating = energy_axis[1]
+        #     wvls = spectrometer_calibration_old(wavelength=wavelength, grating=grating)
         energy_axis = 1240 / wvls
 
     if k_axis is None:
-        k_axis = ('pvcam', 'k_space')
+        k_axis = ('rotation_pvcam', 'k_space')
     if len(k_axis) <= 2:
-        try:
-            mag = magnification_old(*k_axis)[0]
-            mag = 20 * 1e-12 / mag  # using the default 20um pixel size
-        except:
-            mag = magnification_old(camera=('pvcam', 'k_space'))[0]
+        # try:
+        mag = magnification(*k_axis)[0]
+        mag *= 1e-6  # using the default 20um pixel size
+        # except:
+        #     mag = magnification_old(camera=('pvcam', 'k_space'))[0]
         k0 = np.mean(list(map(find_k0, dispersion_imgs)))
         _k_axis = np.arange(dispersion_imgs.shape[1], dtype=np.float)  # pixel units
         try:
