@@ -10,6 +10,7 @@ from microcavities.analysis.utils import normalize
 import os
 from collections import OrderedDict
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
+from shapely.geometry import MultiLineString
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
 
 
@@ -345,6 +346,8 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         xaxis = np.arange(-0.5, img.shape[1]+0.5, dtype=np.float)
     if yaxis is None:
         yaxis = np.arange(-0.5, img.shape[0]+0.5, dtype=np.float)
+    assert len(xaxis) == img.shape[1]
+    assert len(yaxis) == img.shape[0]
     if scaling is not None:
         try:
             xaxis *= scaling[0]
@@ -352,7 +355,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         except:
             xaxis *= scaling
             yaxis *= scaling
-    kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[0], yaxis[-1]]
+    kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[-1], yaxis[0]]
 
     if diverging:
         kwargs['cmap'] = 'RdBu'
@@ -523,6 +526,32 @@ def pcolormesh(img, ax=None, x=None, y=None, cbar=True, cbar_label=None, divergi
     return fig, ax
 
 
+def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, colours=None):
+    if colours is None:
+        colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(images))]
+
+    if xs is None:
+        xs = [0.1*np.arange(image.shape[1]) for image in images]
+    if ys is None:
+        ys = [np.arange(image.shape[0]) for image in images]
+    fig, ax = _make_axes(ax)
+
+    lines = []
+    intersections = []
+    for image, x, y, contour, colour in zip(images, xs, ys, contour_levels, colours):
+        X, Y = np.meshgrid(x, y)
+        contour = ax.contour(X, Y, image, contour, colors=[colour])
+        line = MultiLineString(
+            [path.interpolated(1).vertices for linecol in contour.collections for path in linecol.get_paths()])
+        for prev_line in lines:
+            points = line.intersection(prev_line).geoms
+            for pnt in points:
+                ax.plot(*pnt.xy, 'ko')
+            intersections += [pnt.xy for pnt in points]
+        lines += [line]
+    return fig, ax, np.squeeze(intersections)
+
+
 # Tests
 def test_1D():
     x = np.linspace(-2*np.pi, 2*np.pi, 201)
@@ -530,7 +559,7 @@ def test_1D():
     fig, axs = plt.subplots(1, 5, figsize=(8, 4))
     lines = np.array([np.sin(x + ph) for ph in np.linspace(-np.pi, np.pi, 10)])
     waterfall(lines, axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
-    waterfall(lines, axs[1], color='k', alpha=0.1, offset=0.1)
+    waterfall(lines, axs[1], color='k', alpha=0.1, offsets=0.1)
     waterfall(lines, axs[2], cmap='jet', labels=range(10))
     waterfall(lines, axs[3], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]))
     waterfall(lines, axs[4], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]),
@@ -539,8 +568,8 @@ def test_1D():
 
     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
     x = np.linspace(-2*np.pi, 2*np.pi, 201)
-    colorline(np.sin(x), np.cos(x), ax=axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
-    colorline(np.sin(x), 10*np.cos(2*x), ax=axs[1], xaxis=x, xlabel='Phase', ylabel='amplitude',
+    colorline(np.sin(x), axs[0], np.cos(x), xaxis=x, xlabel='Phase', ylabel='amplitude')
+    colorline(np.sin(x), axs[1], 10*np.cos(2*x), xaxis=x, xlabel='Phase', ylabel='amplitude',
               cbar_kwargs=dict(orientation='horizontal', label='Anything'))
     fig.tight_layout()
 
@@ -549,10 +578,11 @@ def test_2D():
     _y = np.linspace(-4*np.pi, 4*np.pi, 101)
     x, y = np.meshgrid(_x, _y)
     imshow(np.cos(x) * np.cos(y), xaxis=_x, yaxis=_y, xlabel='$x$', ylabel='$y$', cbar_kwargs=dict(label=r'$cos(x) \cdot cos(y)$'))
-    return
+
+    contour_intersections([x**2 - y**2, x**2+y**2], [[2, 4, 6], [3, 5]])
 
 
 if __name__ == '__main__':
-    # test_1D()
+    test_1D()
     test_2D()
     plt.show(block=True)
