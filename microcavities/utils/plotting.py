@@ -117,6 +117,15 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
     return fig, axs, gs
 
 
+def label_axes(ax, xlabel=None, ylabel=None, title=None):
+    if xlabel is not None:
+        ax.set_xlabel(xlabel)
+    if ylabel is not None:
+        ax.set_ylabel(ylabel)
+    if title is not None:
+        ax.set_title(title)
+
+
 def label_grid(figure, grid, label, position, offset=0.07, **kwargs):
     """Simple labelling of matplotlib.gridspec grids
 
@@ -305,7 +314,7 @@ def _make_segments(x, y):
     return segments
 
 
-def plot_fill(x, y_array, ax=None):
+def plot_fill(y_array, ax=None, x=None):
     """Plotting following seaborn.lineplot
     Given an array of lines, plots a single central average line and a shadowed region to show the standard deviation
     :param x:
@@ -313,6 +322,7 @@ def plot_fill(x, y_array, ax=None):
     :param ax:
     :return:
     """
+    if x is None: x = np.arange(y_array.shape[1])
     fig, ax = _make_axes(ax)
     y_mean = np.nanmean(y_array, 0)
     y_err = np.nanstd(y_array, 0)
@@ -343,9 +353,9 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     fig, ax = _make_axes(ax)
 
     if xaxis is None:
-        xaxis = np.arange(-0.5, img.shape[1]+0.5, dtype=np.float)
+        xaxis = np.arange(-0.5, img.shape[1]-0.5, dtype=np.float)
     if yaxis is None:
-        yaxis = np.arange(-0.5, img.shape[0]+0.5, dtype=np.float)
+        yaxis = np.arange(-0.5, img.shape[0]-0.5, dtype=np.float)
     assert len(xaxis) == img.shape[1]
     assert len(yaxis) == img.shape[0]
     if scaling is not None:
@@ -388,8 +398,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         cax.xaxis.tick_top()
         cax.xaxis.set_label_position('top')
 
-    if xlabel is not None: ax.set_xlabel(xlabel)
-    if ylabel is not None: ax.set_ylabel(ylabel)
+    label_axes(ax, xlabel, ylabel)
 
     return fig, ax
 
@@ -531,7 +540,7 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
         colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(images))]
 
     if xs is None:
-        xs = [0.1*np.arange(image.shape[1]) for image in images]
+        xs = [np.arange(image.shape[1]) for image in images]
     if ys is None:
         ys = [np.arange(image.shape[0]) for image in images]
     fig, ax = _make_axes(ax)
@@ -544,10 +553,14 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
         line = MultiLineString(
             [path.interpolated(1).vertices for linecol in contour.collections for path in linecol.get_paths()])
         for prev_line in lines:
-            points = line.intersection(prev_line).geoms
-            for pnt in points:
-                ax.plot(*pnt.xy, 'ko')
-            intersections += [pnt.xy for pnt in points]
+            points = line.intersection(prev_line)
+            try:
+                for pnt in points.geoms:
+                    ax.plot(*pnt.xy, 'ko')
+                intersections += [pnt.xy for pnt in points]
+            except:
+                ax.plot(*points.xy, 'ko')
+                intersections += [points.xy]
         lines += [line]
     return fig, ax, np.squeeze(intersections)
 
