@@ -3,6 +3,7 @@
 import re
 import ast
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter
 from scipy.stats import zscore
 from microcavities.utils.functools import lorentzianNd, gaussianNd
@@ -124,6 +125,106 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
     return x
 
 
+def step_round(value, step):
+    """Round a float to the nearest step
+    :param value:
+    :param step:
+    :return:
+    """
+    up_down = (value % step // (step/2))
+    if up_down:
+        offset = -value % step
+    else:
+        offset = -(value % step)
+    return value + offset
+
+
+def stitch_datasets(x_sets, y_sets, interpolation='even'):
+    """Stitching
+
+    TODO: allow for more complicated stitching than just averaging: previous, next, or a smooth transition from one to the next
+
+    :param x_sets: iterable of iterables
+    :param y_sets: iterable of iterables
+    :param interpolation: str
+    :return:
+    """
+
+    if interpolation == 'even':
+        x_step = [np.diff(x)[0] for x in x_sets]
+        x_new = np.arange(np.min(np.concatenate(x_sets)),
+                          np.max(np.concatenate(x_sets))+np.min(x_step)/2,
+                          np.min(x_step))
+    elif interpolation == 'same':
+        x_new = []
+        for idx, x in enumerate(x_sets):
+            if idx == 0:
+                next_x = x_sets[idx + 1]
+                if np.max(x) > np.min(next_x):
+                    max_index = np.min(np.argwhere(x > np.min(next_x))) - 1
+                    next_index = np.max(np.argwhere(next_x <= np.max(x))) + 1
+                    arrays = [x[max_index:], next_x[:next_index]]
+                    joined = np.concatenate(arrays)
+                    try:
+                        min_step = np.min([np.diff(arr) for arr in arrays])
+                        rounded = step_round(joined, min_step)
+                    except ValueError:
+                        rounded = joined
+                    x_new += [np.concatenate([x[:max_index], np.unique(rounded)])]
+                else:
+                    x_new += [x]
+            elif idx == len(x_sets) - 1:
+                prev_x = x_sets[idx - 1]
+                if np.min(x) < np.max(prev_x):
+                    min_index = np.max(np.argwhere(x <= np.max(prev_x))) + 1
+                    x_new += [x[min_index:]]
+                else:
+                    x_new += [x]
+            else:
+                next_x = x_sets[idx + 1]
+                prev_x = x_sets[idx - 1]
+                if np.max(x) > np.min(next_x) and np.min(x) < np.max(prev_x):
+                    min_index = np.max(np.argwhere(x <= np.max(prev_x))) + 1
+                    max_index = np.min(np.argwhere(x > np.min(next_x))) - 1
+                    next_index = np.max(np.argwhere(next_x <= np.max(x))) + 1
+                    arrays = [x[max_index:], next_x[:next_index]]
+                    joined = np.concatenate(arrays)
+                    try:
+                        min_step = np.min([np.diff(arr) for arr in arrays])
+                        rounded = step_round(joined, min_step)
+                    except ValueError:
+                        rounded = joined
+                    x_new += [np.concatenate([x[min_index:max_index], np.unique(rounded)])]
+                elif np.max(x) > np.min(next_x):
+                    max_index = np.min(np.argwhere(x > np.min(next_x))) - 1
+                    next_index = np.max(np.argwhere(next_x <= np.max(x))) + 1
+                    arrays = [x[max_index:], next_x[:next_index]]
+                    joined = np.concatenate(arrays)
+                    try:
+                        min_step = np.min([np.diff(arr) for arr in arrays])
+                        rounded = np.round(joined, min_step)
+                    except ValueError:
+                        rounded = joined
+                    x_new += [np.concatenate([x[:max_index], np.unique(rounded)])]
+                elif np.min(x) < np.max(prev_x):
+                    min_index = np.max(np.argwhere(x <= np.max(prev_x))) + 1
+                    x_new += [x[min_index:]]
+                else:
+                    x_new += [x]
+        x_new = np.concatenate(x_new)
+    else:
+        raise ValueError("Unrecognised interpolation %s. Needs to be one of: 'even', 'same'" % interpolation)
+
+    interpolated_datasets = [interp1d(x, y, bounds_error=False) for x, y in zip(x_sets, y_sets)]
+    y_new = np.nanmean([f(x_new) for f in interpolated_datasets], 0)
+    return x_new, y_new
+
+# def reduce_chunks(reduction_function, array, chunk_size, axis=-1):
+#     indexes = np.arange(array.shape[axis])
+#     reshaped_array = np.reshape(array, old_shape + (a, b))
+#     reduced = reduction_function(reshaped_array, axis)
+#     return np.
+
 def test_remove_spikes():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]
     x, y = np.meshgrid(_x, _y)
@@ -188,6 +289,17 @@ def test_remove_outliers():
     axs[1, 0].plot(base_spectra)
     axs[1, 1].plot(noisy_spectra)
     axs[1, 2].plot(remove_outliers(noisy_spectra))
+
+def test_stitch_datasets():
+    x = [np.linspace(-2, -1, 11), np.linspace(0, 5, 11), np.linspace(2.5, 7, 33),
+         np.linspace(8, 13, 55), np.linspace(10, 15, 68), np.linspace(14, 19, 74),
+         np.linspace(20, 25, 1000), np.linspace(21, 26, 768), np.linspace(22, 27, 31)]
+    y = [(idx % 3 +np.random.random(len(_x))) for idx, _x in enumerate(x)]
+
+    fig, axs = plt.subplots(1, 2)
+    for ax, interpolation in zip(axs, ['even', 'same']):
+        [ax.plot(_x, _y) for _x, _y in zip(x, y)]
+        ax.plot(*stitch_datasets(x, y, interpolation), '--')
 
 
 if __name__ == '__main__':
