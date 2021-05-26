@@ -314,7 +314,7 @@ def _make_segments(x, y):
     return segments
 
 
-def plot_fill(y_array, ax=None, x=None):
+def plot_fill(y_array, ax=None, x=None, *args, **kwargs):
     """Plotting following seaborn.lineplot
     Given an array of lines, plots a single central average line and a shadowed region to show the standard deviation
     :param x:
@@ -326,8 +326,10 @@ def plot_fill(y_array, ax=None, x=None):
     fig, ax = _make_axes(ax)
     y_mean = np.nanmean(y_array, 0)
     y_err = np.nanstd(y_array, 0)
-    ax.plot(x, y_mean)
-    ax.fill_between(x, y_mean-y_err, y_mean+y_err, alpha=0.3)
+    ax.plot(x, y_mean, *args, **kwargs)
+    # if 'label' in kwargs:
+    kwargs['label'] = None
+    ax.fill_between(x, y_mean-y_err, y_mean+y_err, alpha=0.3, **kwargs)
     return fig, ax
 
 
@@ -369,7 +371,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
     if diverging:
         kwargs['cmap'] = 'RdBu'
-        val = np.max(np.abs([np.max(img), np.min(img)]))
+        val = np.nanmax(np.abs([np.nanmax(img), np.nanmin(img)]))
         if 'vmin' in kwargs and 'vmax' not in kwargs:
                 kwargs['vmax'] = -kwargs['vmin']
         elif 'vmin' not in kwargs and 'vmax' in kwargs:
