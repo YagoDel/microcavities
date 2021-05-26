@@ -125,7 +125,7 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
     return x
 
 
-def step_round(value, step):
+def around_step(value, step):
     """Round a float to the nearest step
     :param value:
     :param step:
@@ -167,7 +167,7 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
                     joined = np.concatenate(arrays)
                     try:
                         min_step = np.min([np.diff(arr) for arr in arrays])
-                        rounded = step_round(joined, min_step)
+                        rounded = around_step(joined, min_step)
                     except ValueError:
                         rounded = joined
                     x_new += [np.concatenate([x[:max_index], np.unique(rounded)])]
@@ -191,7 +191,7 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
                     joined = np.concatenate(arrays)
                     try:
                         min_step = np.min([np.diff(arr) for arr in arrays])
-                        rounded = step_round(joined, min_step)
+                        rounded = around_step(joined, min_step)
                     except ValueError:
                         rounded = joined
                     x_new += [np.concatenate([x[min_index:max_index], np.unique(rounded)])]
