@@ -142,7 +142,7 @@ def h5py_string_format(data_file_path, series_name, final_name=None):
             old_dset_path = str(dset_path)
             keys = dfile[dset_path].keys()
             for key in keys:
-                print(key)
+                # print(key)
                 if '=' in key:
                     variable_names += [re.findall('([^=]*)=', key)[0]]
                     dset_path += '/' + key
@@ -219,11 +219,11 @@ def h5py_get_data(data_file_path, series_name, final_name=None, *args, **kwargs)
                 variable_values += [np.sort([float(re.findall('=([^=]*)', x)[0]) for x in keys])]
             else:
                 try:
-                    len(arg)
+                    # len(arg)
                     variable_values += [np.array(arg)]
                 except:
                     variable_values += [np.array([arg])]
-        print('Found variables_values: ', variable_values)
+        # print('Found variables_values: ', variable_values)
 
         variables = itertools.product(*variable_values)
         data = []
