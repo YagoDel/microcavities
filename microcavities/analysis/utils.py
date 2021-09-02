@@ -56,7 +56,7 @@ def centroids(array, axis=-1):
     axes_array = [np.arange(x) for x in array.shape]
     mesh = np.meshgrid(*axes_array, indexing='ij')
     img = mesh[axis]
-    return np.average(img, axis, array)
+    return np.ma.average(img, axis, array)
 
 
 def remove_spikes(array, thresh=5, smooth=30, max_iterations=10):
@@ -218,6 +218,7 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
     interpolated_datasets = [interp1d(x, y, bounds_error=False) for x, y in zip(x_sets, y_sets)]
     y_new = np.nanmean([f(x_new) for f in interpolated_datasets], 0)
     return x_new, y_new
+
 
 # def reduce_chunks(reduction_function, array, chunk_size, axis=-1):
 #     indexes = np.arange(array.shape[axis])
