@@ -11,6 +11,8 @@ import os
 from collections import OrderedDict
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from shapely.geometry import MultiLineString
+from scipy.interpolate import interp1d
+from matplotlib.colors import LogNorm
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
 
 
@@ -21,7 +23,10 @@ def default_save(figure, name, base_path=None):
         assert os.path.exists(base_path)
     if not os.path.exists(os.path.join(base_path, 'figures')):
         os.makedirs(os.path.join(base_path, 'figures'))
-    figure.savefig(os.path.join(base_path, 'figures', '%s.png' % name), dpi=1200, bbox_inches='tight')
+    name, extension = os.path.splitext(name)
+    if extension == '':
+        extension = '.png'
+    figure.savefig(os.path.join(base_path, 'figures', ''.join([name, extension])), dpi=1200, bbox_inches='tight')
 
 
 def _make_axes(ax=None):
@@ -93,13 +98,19 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
         for idx in range(a):
             if len(axes) == 1:
                 indx = idx2 * a + idx
-                data = np.take(datas, indx, axes[0])
+                try:
+                    data = np.take(datas, indx, axes[0])
+                except IndexError:
+                    continue
             elif len(axes) == 2:
-                _data = np.take(datas, idx, axes[0])
-                if axes[1] > axes[0]:
-                    data = np.take(_data, idx2, axes[1]-1)
-                else:
-                    data = np.take(_data, idx2, axes[1])
+                try:
+                    _data = np.take(datas, idx, axes[0])
+                    if axes[1] > axes[0]:
+                        data = np.take(_data, idx2, axes[1]-1)
+                    else:
+                        data = np.take(_data, idx2, axes[1])
+                except IndexError:
+                    continue
             _kwargs = dict()
             if len(axs) > 0:
                 if sharex:
@@ -160,6 +171,45 @@ def colour_axes(ax, colour):
         spine.set_edgecolor(colour)
     ax.xaxis.label.set_color(colour)
     ax.yaxis.label.set_color(colour)
+
+
+def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arrow_props=None):
+    if arrow_props is None:
+        arrow_props = dict(arrowstyle="-|>", shrinkA=0, shrinkB=0, color='black', connectionstyle="arc3")
+    if ax2_ypos is not None:
+        for _yaxis in ax.get_ylim():
+            ax.annotate("",
+                        xy=(ax.get_xlim()[0], _yaxis), xycoords='data',
+                        xytext=(ax.get_xlim()[0] - offsets[0], np.mean(ax.get_ylim())), textcoords='data',
+                        arrowprops=dict(arrowstyle="-", shrinkA=0, shrinkB=0, color='black',
+                                        connectionstyle="arc3"))
+        ax.annotate("",
+                    xytext=(ax.get_xlim()[0] - offsets[0], np.mean(ax.get_ylim())), textcoords='data',
+                    xy=(ax2.get_xlim()[1] - offsets[1], ax2_ypos), xycoords=ax2.transData,
+                    arrowprops=dict(arrowstyle="-", shrinkA=0, shrinkB=0, color='black',
+                                    connectionstyle="arc3"))
+        ax.annotate("",
+                    xytext=(ax2.get_xlim()[1] - offsets[1], ax2_ypos), textcoords=ax2.transData,
+                    xy=(ax2.get_xlim()[1], ax2_ypos), xycoords=ax2.transData,
+                    arrowprops=arrow_props)
+    elif ax2_xpos is not None:
+        for _xaxis in ax.get_xlim():
+            ax.annotate("",
+                        xy=(_xaxis, ax.get_ylim()[1]), xycoords='data',
+                        xytext=(np.mean(ax.get_xlim()), ax.get_ylim()[1] + offsets[0]), textcoords='data',
+                        arrowprops=dict(arrowstyle="-", shrinkA=0, shrinkB=0, color='black',
+                                        connectionstyle="arc3"))
+        ax.annotate("",
+                    xytext=(np.mean(ax.get_xlim()), ax.get_ylim()[1] + offsets[0]), textcoords='data',
+                    xy=(ax2_xpos, ax2.get_ylim()[0] - offsets[1]), xycoords=ax2.transData,
+                    arrowprops=dict(arrowstyle="-", shrinkA=0, shrinkB=0, color='black',
+                                    connectionstyle="arc3"))
+        ax.annotate("",
+                    xytext=(ax2_xpos, ax2.get_ylim()[0] - offsets[1]), textcoords=ax2.transData,
+                    xy=(ax2_xpos, ax2.get_ylim()[0]), xycoords=ax2.transData,
+                    arrowprops=arrow_props)
+    else:
+        raise ValueError('Need to provide ax2_ypos or ax2_xpos')
 
 
 # 1D plots
@@ -355,9 +405,9 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     fig, ax = _make_axes(ax)
 
     if xaxis is None:
-        xaxis = np.arange(-0.5, img.shape[1]-0.5, dtype=np.float)
+        xaxis = np.linspace(-0.5, img.shape[1]-0.5, img.shape[1])
     if yaxis is None:
-        yaxis = np.arange(-0.5, img.shape[0]-0.5, dtype=np.float)
+        yaxis = np.linspace(-0.5, img.shape[0]-0.5, img.shape[0])
     assert len(xaxis) == img.shape[1]
     assert len(yaxis) == img.shape[0]
     if scaling is not None:
@@ -537,7 +587,8 @@ def pcolormesh(img, ax=None, x=None, y=None, cbar=True, cbar_label=None, divergi
     return fig, ax
 
 
-def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, colours=None):
+def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, colours=None,
+                          extrapolate=False, max_extrapolation_percent=0.1):
     if colours is None:
         colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(images))]
 
@@ -552,8 +603,14 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
     for image, x, y, contour, colour in zip(images, xs, ys, contour_levels, colours):
         X, Y = np.meshgrid(x, y)
         contour = ax.contour(X, Y, image, contour, colors=[colour])
-        line = MultiLineString(
-            [path.interpolated(1).vertices for linecol in contour.collections for path in linecol.get_paths()])
+        path_points = [path.interpolated(1).vertices for linecol in contour.collections for path in linecol.get_paths()]
+        if extrapolate:
+            xranges = [np.max(pp[:, 0])-np.min(pp[:, 0]) for pp in path_points]
+            funcs = [interp1d(pp[:, 0], pp[:, 1], fill_value="extrapolate") for pp in path_points]
+            new_x = [np.linspace(np.min(pp[:, 0])-xrange*max_extrapolation_percent,
+                                 np.max(pp[:, 0])+xrange*max_extrapolation_percent) for pp, xrange in zip(path_points, xranges)]
+            path_points = [np.transpose([xrange, func(xrange)]) for xrange, func in zip(new_x, funcs)]
+        line = MultiLineString(path_points)
         for prev_line in lines:
             points = line.intersection(prev_line)
             try:
@@ -561,10 +618,13 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
                     ax.plot(*pnt.xy, 'ko')
                 intersections += [pnt.xy for pnt in points]
             except:
-                ax.plot(*points.xy, 'ko')
-                intersections += [points.xy]
+                try:
+                    ax.plot(*points.xy, 'ko')
+                    intersections += [points.xy]
+                except:
+                    pass
         lines += [line]
-    return fig, ax, np.squeeze(intersections)
+    return fig, ax, np.squeeze(intersections), lines
 
 
 # Tests
