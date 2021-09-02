@@ -5,6 +5,7 @@ from io import IOBase
 import os
 import datetime
 import warnings
+from functools import partial
 
 
 def depth(lst):
@@ -157,3 +158,51 @@ def get_data_path(filename=None, create_folder=True):
             os.mkdir(folder_name)
 
     return full_path
+
+
+def interpolated_array(array, axes=None):
+    from scipy.interpolate import interpn
+    if axes is None: axes = [np.arange(x) for x in array.shape]
+    return partial(interpn, axes, array)
+
+
+def random_choice(array, axes=(0,), return_indices=False):
+    """Returns a randomly-selected part of the array
+
+    :param array:
+    :param axes:
+    :param return_indices: bool
+    :return:
+    """
+    indices = ()
+    for idx in range(len(array.shape)):
+        if idx in axes:
+            indices += (np.random.randint(array.shape[idx]), )
+        else:
+            indices += (slice(0, array.shape[idx]), )
+    if return_indices:
+        return array[indices], indices
+    else:
+        return array[indices]
+
+
+def apply_along_axes(func, axes, array, n_outputs=None):
+    shape = np.array(array.shape)
+    mask = np.full(len(shape), True)
+    mask[(axes, )] = False
+    mask2 = np.full(len(shape), np.s_[:])
+
+    outputs = [()] * n_outputs
+    indices = np.ndindex(tuple(shape[mask]))
+    for idx in indices:
+        mask2[mask] = idx
+        try:
+            results = func(array[tuple(mask2)])
+        except Exception as e:
+            print('Failed at indices: ', idx)
+            raise e
+        for idx2, result in enumerate(results):
+            outputs[idx2] += (result, )
+    outputs = [np.array(output) for output in outputs]
+    reshaped_outputs = [np.reshape(output, tuple(shape[mask]) + output.shape[1:]) for output in outputs]
+    return reshaped_outputs
