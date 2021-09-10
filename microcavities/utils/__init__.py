@@ -3,6 +3,7 @@ import numpy as np
 import yaml
 from io import IOBase
 import os
+import subprocess
 import datetime
 import warnings
 from functools import partial
@@ -110,9 +111,13 @@ def get_data_directory():
     yml_dict = yaml_loader(os.path.join(os.path.dirname(__file__), '..', 'settings.yaml'))
     if os.sys.platform == 'win32':
         computer_name = os.environ['COMPUTERNAME']
+        # computer_name = os.getenv('HOSTNAME', os.getenv('COMPUTERNAME', platform.node())).split('.')[0]
         home_path = os.environ['HOMEPATH']
     elif os.sys.platform == 'darwin':
-        computer_name = os.uname()[1]
+        cmd = "system_profiler SPHardwareDataType | grep 'Serial Number' | awk '{print $4}'"
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, shell=True, check=True)
+        computer_name = result.stdout.strip().decode()
+        # computer_name = os.uname()[1]
         home_path = os.environ['HOME']
     else:
         raise ValueError('Unrecognised platform %s' % os.sys.platform)
