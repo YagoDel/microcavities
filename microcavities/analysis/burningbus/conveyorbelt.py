@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import numpy as np
+
 from microcavities.utils.plotting import *
 import lmfit
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
 from microcavities.simulations.quantum_box import kinetic_matrix, normalise_potential, plot, solve
 from matplotlib.colors import LogNorm
+from microcavities.utils import apply_along_axes, random_choice
 from microcavities.analysis.characterisation import *
 from microcavities.analysis.phase_maps import low_pass
 from scipy.signal import find_peaks
@@ -12,10 +15,15 @@ from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 from sklearn.neighbors import KDTree
 from skimage.feature import peak_local_max
-from sklearn.decomposition import PCA
-import shapely
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.ensemble import RandomForestClassifier
+# from sklearn.decomposition import PCA
+# import shapely
 import pyqtgraph as pg
 from nplab.utils.log import create_logger
+from itertools import combinations
+from copy import deepcopy
+from functools import partial
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
 
@@ -421,31 +429,657 @@ class FitQHOModes:
             gs1 = gridspec.GridSpecFromSubplotSpec(len(slices), 1, gs[1])
             axs = gs1.subplots()
             for idx, _fit, energ, tilt, slice in zip(range(len(_fits)), _fits, energies, tilts, slices):
+                color = cm.get_cmap('Iris', len(_fits))(idx)
                 func = np.poly1d(_fit)
                 x_points = self.k_func([0, self.smoothened_image.shape[1]-1])
                 ax0.plot(x_points, func(x_points))
-                ax0.plot(self.k_func(_coords[idx][1].flatten()), self.energy_func(_coords[idx][0].flatten()), '.', ms=0.3)
+                ax0.plot(self.k_func(_coords[idx][1].flatten()), self.energy_func(_coords[idx][0].flatten()),
+                         '.', ms=0.3, color=color)
                 try:
                     axs[idx].imshow(slice.transpose())
+                    colour_axes(axs[idx], color)
                 except TypeError:
                     axs.imshow(slice.transpose())
 
         return np.array(energies), np.array(tilts), np.array(slices)
 
 
-class FitQHOManifolds:
+class SingleImageModeDetection:
+    """
+    example_config = dict(
+        plotting=False, #['make_bands'],  #True,  # ['image_preprocessing', 'peak_finding']
+        image_preprocessing=dict(
+            normalization_percentiles=[0, 100],
+            low_pass_threshold=0.4),
+        peak_finding=dict(peak_width=3, savgol_filter=dict(), find_peaks=dict(height=0.007, prominence=0.00001)),
+        clustering=dict(#shear=-0.03, #scale=0.01,
+                        # AgglomerativeClustering=dict(n_clusters=15, distance_threshold=None,
+                        #                              compute_distances=True),
+                        energy_limit=30,
+                        min_cluster_size=15, min_cluster_distance=3),
+        make_bands=dict(k0=-0.2, k_acceptance=1, bandwidth=0.3),
+        analyse_bands=dict(k_range_fit=0.5)
+    )
+    """
+    def __init__(self, image, configuration):
+        self.configuration = deepcopy(configuration)  #{**configuration}
+
+        if 'plotting' not in configuration:
+            self.configuration['plotting'] = False
+        self.raw_image = image
+        self.image = self._preprocess(image)
+
+        if 'energy_axis' not in self.configuration:
+            e_roi = self.configuration['energy_roi']
+            _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
+            self.energy_axis = 1240 / _wvls
+        else:
+            self.energy_axis = self.configuration['energy_axis']
+        self.energy_func = interp1d(range(len(self.energy_axis)), self.energy_axis, bounds_error=False, fill_value=np.nan)
+        self.e_inverse = interp1d(self.energy_axis, range(len(self.energy_axis)))
+        if 'k_axis' not in self.configuration:
+            self.k_axis = np.arange(self.image.shape[1], dtype=np.float) - self.configuration['k_masking']['k0']
+            self.k_axis *= momentum_scale
+        else:
+            self.k_axis = self.configuration['k_axis']
+        self.k_func = interp1d(range(len(self.k_axis)), self.k_axis, bounds_error=False, fill_value=np.nan)
+        self.k_inverse = interp1d(self.k_axis, range(len(self.k_axis)))
+
+    def _to_plot(self, step_name):
+        if isinstance(self.configuration['plotting'], bool):
+            return self.configuration['plotting']
+        elif step_name in self.configuration['plotting']:
+            return True
+        else:
+            return False
+
+    def _preprocess(self, image):
+        """
+        TODO: low_pass with different amplitudes in different directions? So smoothen k, but keep E sharp
+        :param image:
+        :return:
+        """
+        if 'image_preprocessing' in self.configuration:
+            if self._to_plot('image_preprocessing'):
+                fig, axs = plt.subplots(1, 3, sharex=True, sharey=True)
+                imshow(image, axs[0], cbar=False, diverging=False)
+            defaults = dict(normalization_percentiles=[0, 100],
+                            low_pass_threshold=0.4)
+            config = {**defaults, **self.configuration['image_preprocessing']}
+            if 'normalization_percentiles' in config:
+                image = normalize(image, config['normalization_percentiles'])
+                if self._to_plot('image_preprocessing'): imshow(image, axs[1], cbar=False, diverging=False)
+            if 'low_pass_threshold' in config:
+                image = low_pass(image, config['low_pass_threshold'])
+                if self._to_plot('image_preprocessing'): imshow(image, axs[2], cbar=False, diverging=False)
+        return image
+
+    @staticmethod
+    def _find_peaks(x, savgol_kwargs=None, *args, **kwargs):
+        """Simple extension of find_peaks to give more than single-pixel accuracy"""
+        if savgol_kwargs is None: savgol_kwargs = dict()
+        savgol_kwargs = {**dict(window_length=5, polyorder=3), **savgol_kwargs}
+
+        smoothened = savgol_filter(x, **savgol_kwargs)
+        sampling = interp1d(range(len(smoothened)), smoothened, 'quadratic')
+        new_x = np.linspace(0, len(smoothened) - 1, len(smoothened) * 10)
+        new_y = sampling(new_x)
+        results = find_peaks(new_y, *args, **kwargs)
+        return new_x[results[0]], results[1]
+
+    def _calculate_shear(self, points=None):
+        if points is None:
+            points = self.find_peaks_1d()
+        pair_points = np.array(list(combinations(points, 2)))
+        vectors = np.squeeze(np.diff(pair_points, axis=1))
+        angles = np.arctan2(vectors[:, 1], vectors[:, 0])
+
+        histogram, bins = np.histogram(angles, 30, [-0.2, 0.2])
+        bin_centers = np.mean([bins[:-1], bins[1:]], 0)
+        mode = bin_centers[np.argmax(histogram)]
+
+        if self._to_plot('calculate_shear'):
+            fig, ax = plt.subplots(1, 1, num='Shear')
+            ax.hist(angles, 30, [-0.2, 0.2])
+            ax.set_title('mean=%g  median=%g  mode=%g' % (np.mean(angles), np.median(angles), mode))
+
+        shear = - 1 * np.tan(mode) * np.sign(self.configuration['laser_angle'])
+        LOGGER.debug('Found shear: %g' % shear)
+        return shear
+
+    def find_peaks_1d(self, ax=None, **plot_kwargs):
+        config = self.configuration['peak_finding']
+        if 'peak_width' in config:
+            for key in ['savgol_filter', 'find_peaks']:
+                if key not in config:
+                    config[key] = dict()
+            if 'window_length' not in config['savgol_filter']:
+                wlen = 2*int(np.round(config['peak_width']))
+                config['savgol_filter']['window_length'] = wlen + (wlen+1) % 2
+            if 'width' not in config['find_peaks']:
+                config['find_peaks']['width'] = config['peak_width']
+
+        peaks = []
+        for idx, x in enumerate(self.image.transpose()):
+            pks = self._find_peaks(x, **config['find_peaks'])[0]
+            peaks += [(idx, pk) for pk in pks]
+        peaks = np.asarray(peaks, dtype=float)
+
+        if self._to_plot('peak_finding') and ax is None:
+            _, ax = plt.subplots(1, 1, num='peak_finding')
+        if ax is not None:
+            imshow(self.image, ax, cmap='Greys', diverging=False, norm=LogNorm(),
+                   xaxis=self.k_axis, yaxis=self.energy_axis)
+            plot_kwargs = {**dict(ms=1, ls='None', marker='.'), **plot_kwargs}
+            ax.plot(self.k_func(peaks[:, 0]), self.energy_func(peaks[:, 1]), **plot_kwargs)
+        return peaks
+
+    def cluster(self, points=None, ax=None):
+        if points is None:
+            points = self.find_peaks_1d()
+        config = self.configuration['clustering']
+
+        if 'energy_limit' in config:
+            max_energy = np.argmax(np.sum(self.image, -1))
+            try:
+                e_limits = [max_energy - config['energy_limit'][1],
+                            max_energy + config['energy_limit'][0]]
+            except:
+                e_limits = [max_energy - config['energy_limit'],
+                            self.image.shape[-1]]
+            mask = np.logical_and(points[:, 1] < e_limits[1],
+                                  points[:, 1] > e_limits[0])
+            points = points[mask]
+        if 'scale' not in config:
+            config['scale'] = 1.2 / self.image.shape[0]
+        if 'shear' not in config:
+            config['shear'] = self._calculate_shear(points)
+
+        shear_matrix = [[1, config['shear']], [0, 1]]
+        scaling_matrix = [[config['scale'], 0], [0, 1]]
+
+        sheared = np.dot(points, shear_matrix)
+        scaled = np.dot(sheared, scaling_matrix)
+
+        if 'AgglomerativeClustering' in config:
+            kwargs = config['AgglomerativeClustering']
+        else:
+            kwargs = dict()
+        # defaults = dict(n_clusters=None, distance_threshold=1, compute_full_tree=True, linkage='single')
+        defaults = dict(n_clusters=len(points) // 10, distance_threshold=None,
+                        compute_full_tree=True, linkage='single')
+        kwargs = {**defaults, **kwargs}
+
+        model = AgglomerativeClustering(**kwargs)
+        clusters = model.fit(scaled)
+        first_labels = deepcopy(clusters.labels_)
+        labels = clusters.labels_
+
+        if 'noise_cluster_size' in config:
+            # By first using many clusters, and then removing small clusters, we get rid of noisy regions
+            _labels = list(labels)
+            counts = np.array([_labels.count(x) for x in _labels])
+            mask = counts > config['noise_cluster_size']
+            labels[~mask] = -1
+
+        if 'min_cluster_distance' in config and model.n_clusters_ > 1:
+            # DON'T USE THE CLUSTER CENTERS
+            cluster_centers = np.array([np.mean(scaled[labels == l], 0) for l in range(model.n_clusters_)])
+            cluster_indices = np.arange(len(cluster_centers))
+            _mask = ~np.isnan(np.mean(cluster_centers, 1))
+            if len(cluster_centers[_mask]) > 1:
+                _model = AgglomerativeClustering(n_clusters=None, distance_threshold=config['min_cluster_distance'],
+                                                 compute_full_tree=True, linkage='single')
+                clusters_of_clusters = _model.fit(cluster_centers[_mask])
+                new_labels = np.copy(labels)
+                for idx, new_label in zip(cluster_indices[_mask], clusters_of_clusters.labels_):
+                    new_labels[labels == idx] = new_label
+                labels = new_labels
+
+        # if 'noise_cluster_size' in config:
+        #     # By first using many clusters, and then removing small clusters, we get rid of noisy regions
+        #     _labels = list(labels)
+        #     counts = np.array([_labels.count(x) for x in _labels])
+        #     mask = counts > config['noise_cluster_size']
+        #     labels[~mask] = -1
+
+        if 'min_cluster_size' in config:
+            _labels = list(labels)
+            counts = np.array([_labels.count(x) for x in _labels])
+            mask = counts > config['min_cluster_size']
+            labels[~mask] = -1
+
+        if 'bandwidth' in config:
+            # cluster_heights = np.array([np.ptp(scaled[labels == l][:, 1]) for l in range(model.n_clusters_)])
+            # print(cluster_heights)
+
+            for label in range(model.n_clusters_):
+                _points = scaled[labels == label]
+                if len(_points) > 0:
+                    width = np.percentile(_points[:, 1], 90) - np.percentile(_points[:, 1], 10)
+                    if width > config['bandwidth']:
+                        labels[labels == label] = -1
+                        average_energy = np.mean(_points[:, 1])
+                        LOGGER.debug('Excluding band %d by bandwidth: %s energy %s bandwidth' % (label, average_energy,
+                                                                                             width))
+
+            # widths = [np.ptp(scaled[labels == l][:, 1]) for l in range(model.n_clusters_)]
+            # # widths = np.array([np.ptp(scaled[:, 1]) for band in labels])
+            # masks = widths < config['bandwidth']
+            # for idx, mask in enumerate(masks):
+            #     if not mask:
+            #         average_energy = np.mean(scaled[labels == idx][:, 1])
+            #         LOGGER.debug('Excluding band %d by bandwidth: %s energy %s bandwidth' % (idx, average_energy, widths[idx]))
+            # labels[masks] = -1
+            # bands = [g for g, m in zip(bands, masks) if m]
+
+        LOGGER.debug('Found %d clusters with labels %s' % (len(np.unique(labels[mask])), np.unique(labels[mask])))
+
+        # masked_points = points[mask]
+        # masked_scaled = scaled[mask]
+        # masked_labels = labels[mask]
+        masked_clusters = [points[labels == l] for l in np.unique(labels) if l >= 0]
+        # masked_clusters_scaled = [masked_scaled[masked_labels == l] for l in np.unique(masked_labels) if l >= 0]
+
+        # N_SAMPLES = 5000
+        # RANDOM_STATE = 42
+        # classifier = RandomForestClassifier(random_state=RANDOM_STATE)
+        # classifier.fit(masked_scaled, masked_labels)
+        # classifier.predict()
+        # print([m.shape for m in masked_clusters])
+        # print(masked_clusters[0])
+        # tree = KDTree(scaled)
+        # expanded_clusters = [tree.query_radius(cluster, r=2, count_only=False, return_distance=False) for cluster in masked_clusters_scaled]
+        # print(len(expanded_clusters[0]), expanded_clusters[0])
+        # cluster_classifiers = [KDTree(cluster) for cluster in masked_clusters]
+        # print(len(cluster_classifiers[0].query_radius(points, r=2, count_only=False, return_distance=False)))
+        # print(len(points))
+        # expanded_clusters = [cluster[tree.query_radius(points, r=2, count_only=False, return_distance=False)]
+        #                      for cluster, tree in zip(masked_clusters, cluster_classifiers)]
+
+        if self._to_plot('clustering'):
+            fig, axs = plt.subplots(1, 6, num='clustering')
+            axs[0].scatter(self.k_func(points[:, 0]), self.energy_func(points[:, 1]), c=first_labels)
+            axs[1].scatter(*sheared.transpose(), c=first_labels)
+            axs[2].scatter(*scaled.transpose(), c=first_labels)
+            axs[2].scatter(*cluster_centers.transpose(), c='k')
+            sizes = np.linspace(5, 15, 5)[np.arange(len(clusters_of_clusters.labels_)) % 5]
+            axs[3].scatter(*cluster_centers[_mask].transpose(), c=clusters_of_clusters.labels_, s=sizes)
+            axs[4].scatter(*points.transpose(), c=labels)
+            # axs[-1].scatter(self.k_func(points[:, 0]), self.energy_func(points[:, 1]), c=labels)
+            [axs[-1].plot(self.k_func(x[:, 0]), self.energy_func(x[:, 1]), '.') for x in masked_clusters]
+            [imshow(self.image, ax, cmap='Greys', diverging=False, norm=LogNorm(), cbar=False,
+                    xaxis=self.k_axis, yaxis=self.energy_axis) for ax in axs[[0, -1]]]
+        elif ax is not None:
+            imshow(self.image, ax, cmap='Greys', diverging=False, norm=LogNorm(), cbar=False,
+                   xaxis=self.k_axis, yaxis=self.energy_axis)
+            ax.scatter(self.k_func(points[mask, 0]), self.energy_func(points[mask, 1]), c=labels[mask], s=0.1)
+
+        return masked_clusters
+
+    def _make_units(self, points):
+        return np.array([self.k_func(points[:, 0]), self.energy_func(points[:, 1])]).transpose()
+
+    def make_bands(self, clusters=None, ax=None):
+        # Order clusters by energy
+        # Exclude clusters by bandwidth and central momentum
+        if clusters is None:
+            clusters = [self._make_units(c) for c in self.cluster()]
+
+        config = self.configuration['make_bands']
+
+        average_energies = [np.mean(p[:, 1]) for p in clusters]
+        argsort = np.argsort(average_energies)
+        bands = [clusters[idx] for idx in argsort]
+
+        if 'k_acceptance' in config:
+            # Excluding groups that have average momentum too far from 0
+            # TODO: using the mean momentum of a band leads to issues when the band extends towards untrapped polaritons
+            #  Two solutions:
+            # * Find a way of systematically removing untrapped polaritons
+            # * Calculate the symmetry of the band around k0, instead of the mean, e.g. grab the nearest N points to k0 and get the average momentum of those
+
+            k0 = config['k0']
+            ka = config['k_acceptance']
+            # average_energies = np.array([np.mean(p[:, 1], 0) for p in bands])
+            # masks = np.array([k0-ka < np.mean(g[:, 0]) < k0+ka for g in bands])
+            masks = []
+            for idx, band in enumerate(bands):
+                # nearest_points = band[np.abs(band[:, 0]) < k_limit]
+                left_points = band[band[:, 0] < 0][:, 0]
+                right_points = band[band[:, 0] >= 0][:, 0]
+                left_points = left_points[np.argsort(np.abs(left_points))]
+                right_points = right_points[np.argsort(np.abs(right_points))]
+                n_points = int(np.min([10, np.max([len(b) for b in [left_points, right_points]])]))
+                left_right_asymmetry = np.abs(np.mean(-left_points[:n_points]) - np.mean(right_points[:n_points]))
+                mask = left_right_asymmetry < ka
+                if mask:
+                    average_energy = np.mean(band[:, 1])
+                    LOGGER.debug('Excluding band %d by momentum: %s energy %s momentum asymmetry' % (idx, average_energy, left_right_asymmetry))
+                masks += [mask]
+            masks = np.array(masks)
+            bands = [g for g, m in zip(bands, masks) if m]
+
+        if 'bandwidth' in config:
+            widths = np.array([np.ptp(band[:, 1]) for band in bands])
+            mask = widths < config['bandwidth']
+            bands = [band for m, band in zip(mask, bands) if m]
+            if mask.any():
+                for idx in range(len(bands)):
+                    if mask[idx]:
+                        average_energy = np.mean(bands[idx][:, 1])
+                        LOGGER.debug('Excluding band %d by bandwidth: %s energy %s bandwidth' % (idx, average_energy,
+                                                                                                 widths[idx]))
+
+        if self._to_plot('make_bands'):
+            fig, ax = plt.subplots(1, 1, num='make_bands')
+            imshow(self.image, ax, cmap='Greys', diverging=False, norm=LogNorm(), cbar=False,
+                   xaxis=self.k_axis, yaxis=self.energy_axis)
+            [ax.plot(*band.transpose(), '.') for band in bands]
+        elif ax is not None:
+            imshow(self.image, ax, cmap='Greys', diverging=False, norm=LogNorm(), cbar=False,
+                   xaxis=self.k_axis, yaxis=self.energy_axis)
+            [ax.plot(*band.transpose(), '.', ms=0.2) for band in bands]
+        return bands
+
+    def _calculate_slice(self, linear_fit, band_width, image=None):
+        if image is None:
+            image = self.image
+        full_func = np.poly1d(linear_fit)
+        slope_func = np.poly1d([linear_fit[0], 0])
+        start_slice = (full_func(0) - band_width / 2, 0)
+        end_slice = (image.shape[1], band_width)
+        v1 = [slope_func(1), 1]
+        v2 = [1, -slope_func(1)]
+        vectors = np.array([v1, v2])
+        vectors = [v / np.linalg.norm(v) for v in vectors]
+        LOGGER.debug('Slice at: %s %s %s' % (vectors, start_slice, end_slice))
+        return vectors, start_slice, end_slice
+
+    def analyse_bands(self, bands=None, n_bands=None, gs=None):
+        if bands is None:
+            bands = self.make_bands()
+        if n_bands is None:
+            n_bands = len(bands)
+
+        config = self.configuration['analyse_bands']
+
+        _fits = []
+        _coords = []
+        energies = []
+        tilts = []
+        slices = []
+        for idx in range(n_bands):
+            band_width = 4
+            def _return_NaN():
+                return np.nan, np.nan, np.full((self.image.shape[1], band_width), np.nan), np.nan, np.nan
+            if idx >= len(bands):
+                k0_energy, tilt, slice, coords, fit = _return_NaN()
+            else:
+                band = bands[idx]
+                if 'k_range_fit' in config:
+                    mask = config['k_range_fit'] > np.abs(band[:, 0])
+                    band = band[mask]
+                    LOGGER.debug('Excluding %d points in band %d from linear fit' % (np.sum(~mask), idx))
+                if len(band) > 0:
+                    fit = np.polyfit(band[:, 0], band[:, 1], 1)
+                    # func = np.poly1d(fit)
+                    k0_energy = np.poly1d(fit)(0)  # func(self.config['k_masking']['k0'])
+                    tilt = fit[0]
+                    inverse_fit = np.polyfit(self.k_inverse(band[:, 0]), self.e_inverse(band[:, 1]), 1)
+                    vectors, start_slice, end_slice = self._calculate_slice(inverse_fit, band_width)
+                    slice, coords = pg.affineSlice(self.image, end_slice, start_slice, vectors, (0, 1),
+                                                   returnCoords=True)
+                else:
+                    k0_energy, tilt, slice, coords, fit = _return_NaN()
+
+            _coords += [coords]
+            _fits += [fit]
+            energies += [k0_energy]
+            tilts += [tilt]
+            slices += [slice]
+            # else:
+            #     energies += [np.nan]
+            #     tilts += [np.nan]
+            #     slices += [np.full((self.smoothened_image.shape[1], band_width), np.nan)]
+
+        if self._to_plot('analyse_bands'):
+            fig = plt.figure(num='analyse_bands')
+            gs = gridspec.GridSpec(1, 2, fig)
+        if gs is not None:
+            ax0 = plt.subplot(gs[0])
+            imshow(self.image, ax0, diverging=False, cmap='Greys', norm=LogNorm(), xaxis=self.k_axis,
+                   yaxis=self.energy_axis)
+
+            gs1 = gridspec.GridSpecFromSubplotSpec(2*len(slices), 1, gs[1])
+            axs = gs1.subplots()
+            for idx, _fit, energ, tilt, slice in zip(range(len(_fits)), _fits, energies, tilts, slices):
+                color = cm.get_cmap('viridis', len(_fits))(idx)
+                # func = np.poly1d(_fit)
+                # x_points = self.k_func([0, self.image.shape[1] - 1])
+                # ax0.plot(x_points, func(x_points))
+                if not np.isnan(energ):
+                    ax0.plot(self.k_func(_coords[idx][1].flatten()),
+                             self.energy_func(_coords[idx][0].flatten()), '.',
+                             ms=0.3, color=color)
+                    try:
+                        imshow(slice.transpose(), axs[-1-2*idx], cbar=False, diverging=False)
+                        y = np.sum(slice, 1)
+                        axs[-2-2*idx].semilogy(y, color=color)
+                        [axs[-2-2*idx].axvline(x) for x in find_peaks(-y, width=6, distance=6, prominence=0.01)[0]]
+                        colour_axes(axs[-1-2*idx], color)
+                        colour_axes(axs[-2-2*idx], color)
+                    except TypeError:
+                        imshow(slice.transpose(), axs, cbar=False, diverging=False)
+
+        return np.array(energies), np.array(tilts), np.array(slices)
+
+
+class FullDatasetModeDetection:
+    """
+    Ideas:
+        Use the frequency series to estimate the shear (instead of doing it on each image)
+
+    More:
+        Build manifolds over the parameters
+    """
     def __init__(self, dataset, configuration):
-        self.dataset = dataset
         self.configuration = configuration
+        if 'data_axes_order' in configuration:
+            self.dataset = np.transpose(dataset, configuration['data_axes_order'])
+        else:
+            self.dataset = dataset
+        return
 
-    def find_peaks_1d(self):
-        def _func(image):
-            cls = FitQHOModes(image, self.configuration)
-            return cls.find_peaks_1d()
-        return apply_along_axes(_func, (-2, -1), self.dataset)
+    def _choose_random_image(self):
+        image, indices = random_choice(self.dataset, tuple(range(len(self.dataset.shape) - 2)), return_indices=True)
+        LOGGER.debug('Indices %s' % (indices,))
+        return image
+
+    def _cluster_single_image(self, image=None, ax=None):
+        if image is None: image = self._choose_random_image()
+        cls = SingleImageModeDetection(image, self.configuration)
+        return cls.cluster(ax=ax)
+
+    def _make_bands_single_image(self, image=None, ax=None):
+        if image is None: image = self._choose_random_image()
+        cls = SingleImageModeDetection(image, self.configuration)
+        return cls.make_bands(ax=ax)
+
+    def _analyse_bands_single_image(self, image=None, bands=None, n_bands=None, gs=None):
+        if image is None: image = self._choose_random_image()
+        cls = SingleImageModeDetection(image, self.configuration)
+        return cls.analyse_bands(bands=bands, n_bands=n_bands, gs=gs)
+
+    def _make_subplots(self, name=None):
+        iteraxes = self.dataset.shape[:-2]
+        if len(iteraxes) == 2:
+            _fig, axs = plt.subplots(*iteraxes, sharex=True, sharey=True, figsize=(10, 10), num=name)
+            fig = [_fig]
+        else:
+            axs = []
+            fig = []
+            for idx in range(iteraxes[0]):
+                _fig, _axs = plt.subplots(*iteraxes[1:], sharex=True, sharey=True, figsize=(10, 10), num='%s_%d' % (name, idx))
+                axs += [_axs]
+                fig += [_fig]
+            axs = np.array(axs)
+        return fig, axs, iteraxes
+
+    def cluster(self):
+        LOGGER.info('FullDatasetModeDetection.cluster')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            figs, axs, iteraxes = self._make_subplots('cluster')
+            clusters = []
+            progress = 0
+            for indices in np.ndindex(iteraxes):
+                if (indices[0] * 100 / iteraxes[0]) > progress:
+                    LOGGER.info('cluster %d %%' % (indices[0] * 100 / iteraxes[0]))
+                    progress += 10
+                data = self.dataset[indices]
+                clusters += [self._cluster_single_image(data, axs[indices])]
+            return clusters, figs
+            # for idx0 in range(iteraxes[0]):
+            #     for idx1 in range(iteraxes[1]):
+            #         self._cluster_single_image(self.dataset[idx0, idx1], axs[idx0, idx1])
+
+    def make_bands(self):
+        LOGGER.info('FullDatasetModeDetection.make_bands')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            figs, axs, iteraxes = self._make_subplots('make_bands')
+            bands = []
+            progress = 0
+            for indices in np.ndindex(iteraxes):
+                if (indices[0] * 100 / iteraxes[0]) > progress:
+                    LOGGER.info('make_bands %d %%' % (indices[0] * 100 / iteraxes[0]))
+                    progress += 10
+                data = self.dataset[indices]
+                bands += [self._make_bands_single_image(data, axs[indices])]
+            bands = np.reshape(bands, iteraxes)
+            return bands, figs
+            # iteraxes = self.dataset.shape[:2]
+            # fig, axs = plt.subplots(*iteraxes, sharex=True, sharey=True, figsize=(10, 10))
+            # for idx0 in range(iteraxes[0]):
+            #     for idx1 in range(iteraxes[1]):
+            #         self._make_bands_single_image(self.dataset[idx0, idx1], axs[idx0, idx1])
+
+    def analyse_bands(self, bands=None, n_bands=None):
+        LOGGER.info('FullDatasetModeDetection.analyse_bands')
+        with warnings.catch_warnings():
+            if bands is None:
+                bands, _ = self.make_bands()
+
+            warnings.simplefilter("ignore")
+            # _figs, _, iteraxes = self._make_subplots('analyse_bands')
+            # [plt.close(fig) for fig in _figs]
+
+            iteraxes = self.dataset.shape[:-2]
+            if n_bands is None:
+                n_bands = int(np.max([len(bands[indices]) for indices in np.ndindex(iteraxes)]))
+
+            energies = []
+            tilts = []
+            slices = []
+            progress = 0
+            for indices in np.ndindex(iteraxes):
+                if (indices[0] * 100 / iteraxes[0]) > progress:
+                    LOGGER.info('analyse_bands %d %%' % (indices[0] * 100 / iteraxes[0]))
+                    progress += 10
+                data = self.dataset[indices]
+                _bands = bands[indices]
+                e, t, s = self._analyse_bands_single_image(data, _bands, n_bands)
+                energies += [e]
+                tilts += [t]
+                slices += [s]
+            LOGGER.debug('Reshaping analysed band data')
+            energies = np.reshape(energies, iteraxes + (n_bands, ))
+            tilts = np.reshape(tilts, iteraxes + (n_bands, ))
+            slices = np.reshape(slices, iteraxes + s.shape)
+
+            # iteraxes = self.dataset.shape[:2]
+            # # fig, axs = plt.subplots(*iteraxes, sharex=True, sharey=True, figsize=(10, 10))
+            # energies = []
+            # tilts = []
+            # slices = []
+            # for idx0 in range(iteraxes[0]):
+            #     _energy = []
+            #     _tilt = []
+            #     _slice = []
+            #     for idx1 in range(iteraxes[1]):
+            #         e, t, m = self._analyse_bands_single_image(self.dataset[idx0, idx1], n_bands)
+            #         _energy += [e]
+            #         _tilt += [t]
+            #         _slice += [m]
+            #     energies += [_energy]
+            #     tilts += [_tilt]
+            #     slices += [_slice]
+            # energies = np.array(energies)
+            # tilts = np.array(tilts)
+            # slices = np.array(slices)
+            # # print(tilts.shape, energies.shape, slices.shape)
+            # # print(slices[0,0,0].shape)
+
+            LOGGER.debug('Plotting analysed band data')
+            # print(tilts.shape, slices.shape, energies.shape, len(iteraxes))
+            if len(iteraxes) == 2:
+                fig1, _, _ = subplots(tilts,
+                                      partial(imshow, diverging=False, cmap='RdBu', cbar=False, vmin=-1e-4, vmax=1e-4),
+                                      (-1,))
+                fig2, _, _ = subplots(normalize(np.nanmean(slices, -1), axis=-1), waterfall, (0, 1))
+                # freq_idx = tilts.shape[0] // 2
+                # waterfall(normalize(np.nanmean(slices[freq_idx, -1], -1), axis=-1))
+                fig3, _, _ = subplots((energies-np.nanmean(energies))*1e3,
+                                      partial(imshow, diverging=False, vmin=-1, vmax=1, cmap='viridis', cbar=False),
+                                      (-1, ))
+            else:
+                fig1, _, _ = subplots(tilts,
+                                      partial(imshow, diverging=False, cmap='RdBu', cbar=False, vmin=-1e-4, vmax=1e-4),
+                                      (0, -1,))
+                fig2, _, _ = subplots(normalize(np.nanmean(slices[-1], -1), axis=-1), waterfall, (0, 1))
+                # freq_idx = tilts.shape[0] // 2
+                # waterfall(normalize(np.nanmean(slices[freq_idx, -1], -1), axis=-1))
+                fig3, _, _ = subplots((energies-np.nanmean(energies))*1e3,
+                                      partial(imshow, diverging=False, vmin=-1, vmax=1, cmap='viridis', cbar=False),
+                                      (0, -1,))
+            # plt.show()
+            return energies, tilts, slices, (fig1, fig2, fig3)
 
 
+def clusterND(points, shear=0, scale=1, scale2=1, **kwargs):
+    shear_matrix = np.identity(points.shape[1])
+    shear_matrix[0, 1] = shear
+    scaling_matrix = np.identity(points.shape[1])
+    scaling_matrix[0, 0] = scale
+    scaling_matrix[-1, -1] = scale2
 
+    sheared = np.dot(points, shear_matrix)
+    scaled = np.dot(sheared, scaling_matrix)
+
+    defaults = dict(distance_threshold=2, compute_full_tree=True, linkage='single')
+    [kwargs.setdefault(key, value) for key, value in defaults.items() if key not in kwargs]
+    model = AgglomerativeClustering(None, **kwargs)
+    clusters = model.fit(scaled)
+
+    if points.shape[1] == 3:
+        n_images = int(np.max(points[:, 2])) + 1
+        a, b = square(n_images)
+        fig = plt.figure()
+        gs = gridspec.GridSpec(1, 2, fig)
+        gs1 = gridspec.GridSpecFromSubplotSpec(a, b, gs[0])
+        gs2 = gridspec.GridSpecFromSubplotSpec(a, b, gs[1])
+        # fig, axs = plt.subplots(a, b, sharex=True, sharey=True)
+        axs = gs1.subplots(sharex=True, sharey=True)
+        for idx in range(n_images):
+            ax = axs.flatten()[idx]
+            indices = points[:, 2] == idx
+            ax.scatter(*points[indices].transpose(), c=clusters.labels_[indices])
+        axs = gs2.subplots(sharex=True, sharey=True)
+        for idx in range(n_images):
+            ax = axs.flatten()[idx]
+            indices = points[:, 2] == idx
+            ax.scatter(*scaled[indices].transpose(), c=clusters.labels_[indices])
 
 
 def fit_peak(spectra, xaxis=None, find_peaks_kwargs=None, n_peaks=None, axplot=None):
@@ -784,3 +1418,76 @@ def find_two_parameters(ground_state, splitting, xaxis, yaxis, plot=False, colou
         plt.close('all')
     return intersection_points, lines
 
+
+if __name__ == '__main__':
+    LOGGER.setLevel('INFO')
+    import h5py
+    from microcavities.utils import random_choice
+    collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
+    collated_analysis_path = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+
+    example_config = dict(
+        plotting=False, #['make_bands'],  #True,  # ['image_preprocessing', 'peak_finding']
+        image_preprocessing=dict(
+            # normalization_percentiles=[0, 100],
+            # low_pass_threshold=0.4
+        ),
+        peak_finding=dict(peak_width=3, savgol_filter=dict(), find_peaks=dict(height=0.01, prominence=0.01)),
+        clustering=dict(#shear=-0.03, #scale=0.01,
+                        # AgglomerativeClustering=dict(n_clusters=15,
+                        #                              # distance_threshold=None,
+                        #                              # compute_distances=True
+                        #                              ),
+                        energy_limit=30,
+                        min_cluster_size=10, min_cluster_distance=3),
+        make_bands=dict(k0=-0.1,
+                        k_acceptance=0.5,
+                        # k_acceptance=1,
+                        bandwidth=0.3),
+        analyse_bands=dict(k_range_fit=1.5)
+    )
+
+    with h5py.File(collated_analysis_path, 'r') as dfile:
+        laser_separations = dfile['laser_separations'][...]
+
+    dataset_index = 3
+    with h5py.File(collated_data_path, 'r') as dfile:
+        dset = dfile['alignment%d/scan' % dataset_index]
+        data = dset[...]
+        _v = dset.attrs['variables']
+        variables = eval(_v)
+        eax = dset.attrs['eaxis']
+        kax = dset.attrs['kaxis']
+    example_config['k_axis'] = kax
+    example_config['energy_axis'] = eax
+    example_config['laser_angle'] = laser_separations[dataset_index]
+
+    # for example_image in [data[-1, 5, -1], data[-1, 6, -3]]:  #data[1, 9, 8], data[2, 7, -4], data[0, 2, 5], data[1, 3, 5], data[2, 10, 9], data[1, 2, 1]]:
+    #     example_config['plotting'] = ['make_bands']
+    #     tst = SingleImageModeDetection(example_image, example_config)
+    #     # labels, mask = tst.cluster()
+    #     tst.make_bands()
+    #     del example_config['clustering']['shear']
+
+    # example_image, _indices = random_choice(data, (0, 1, 2), True)
+    # print(_indices)
+    # example_image = data[-1, -5, 5]
+    # example_image = data[-1, 2, -2]
+    # tst = SingleImageModeDetection(example_image, example_config)
+    # tst.analyse_bands()
+
+    example_config['plotting'] = True
+    example_full_config = dict(# shear_slope=0.01, period=1,
+                               example_config)
+    full_fit = FullDatasetModeDetection(data, example_full_config)
+    # full_fit._analyse_bands_single_image(data[3, 1, 1])
+    # full_fit._analyse_bands_single_image()
+    full_fit.analyse_bands()
+    # # print(full_fit._calculate_single_shear(data[-1, 0, 0]))
+    # # shear = full_fit.calculate_shear()[0]
+    # full_fit.cluster()
+    # full_fit.analyse_bands(n_bands=5)
+    # print(shear.shape)
+    # imshow(shear)
+
+    plt.show()
