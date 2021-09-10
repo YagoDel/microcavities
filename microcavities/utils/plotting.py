@@ -137,16 +137,24 @@ def label_axes(ax, xlabel=None, ylabel=None, title=None):
         ax.set_title(title)
 
 
-def label_grid(figure, grid, label, position, offset=0.07, **kwargs):
+def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
     """Simple labelling of matplotlib.gridspec grids
 
-    :param figure: matplotlib.figure
-    :param grid: matplotlib.gridspec
+    :param figure_grid: matplotlib.figure or matplotlib.gridspec
     :param label: string
     :param position: string
     :param offset: float
     :return:
     """
+    if isinstance(figure_grid, plt.Figure):
+        assert len(figure_grid._gridspecs)
+        grid = figure_grid._gridspecs[0]
+        figure = figure_grid
+    elif isinstance(figure_grid, gridspec.GridSpecBase):
+        grid = figure_grid
+        figure = figure_grid.figure
+    else:
+        raise ValueError('Unrecognised type for figure_grid: %s' % figure_grid)
     _pos = grid.get_grid_positions(figure)
     if position == 'bottom':
         figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center', **kwargs)
@@ -420,7 +428,8 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[-1], yaxis[0]]
 
     if diverging:
-        kwargs['cmap'] = 'RdBu'
+        if 'cmap' not in kwargs:
+            kwargs['cmap'] = 'RdBu'
         val = np.nanmax(np.abs([np.nanmax(img), np.nanmin(img)]))
         if 'vmin' in kwargs and 'vmax' not in kwargs:
                 kwargs['vmax'] = -kwargs['vmin']
