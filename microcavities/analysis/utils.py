@@ -104,7 +104,7 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
     stat_shape = list(xcopy.shape)
     if axis is None:
         axis = list(range(len(stat_shape)))
-    if isinstance(axis, collections.Iterable):
+    if isinstance(axis, collections.abc.Iterable):
         for single_axis in axis:
             stat_shape[single_axis] = 1
     else:
