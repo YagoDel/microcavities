@@ -76,14 +76,16 @@ def find_smooth_region(data, threshold=0.1):
     return boundaries, data[boundaries[0]:boundaries[1]]
 
 
-def guess_peak(data, xaxis=None):
+def guess_peak(data, xaxis=None, width_lims=(5, 0.001)):
+    """Peak property guessing
 
-    # if x is None:
-    #     x = np.arange(len(data))
-    #
-    # # Fitting a (single) Lorentzian to the spectra
-    # model = LorentzianModel() + ConstantModel()
+    Guesses the background, peak height, peak position and FHWM. Used to initialise a fitting procedure
 
+    :param data:
+    :param xaxis:
+    :param width_lims:
+    :return:
+    """
     # Guessing initial parameters for a fit
     if xaxis is None:
         xaxis = list(range(len(data)))
@@ -94,13 +96,23 @@ def guess_peak(data, xaxis=None):
     minima = np.argsort(np.abs(data - bkg - (data[center_idx] - bkg) / 2))
     minimum_1 = minima[0]
     for dum in minima[1:]:
-        if np.abs(dum - minimum_1) > 5:
+        if np.abs(dum - minimum_1) > width_lims[0]:
             minimum_2 = dum
             break
-    width = np.min([np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2, 0.001])
+    width = np.min([np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2, width_lims[1]])
     ampl = np.pi * width * (data[center_idx] - bkg)
 
     return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
+
+
+def fit_energy(spectra, energy_axis, model=None, guess_kwargs=None):
+    if model is None:
+        model = LorentzianModel() + ConstantModel()
+    if guess_kwargs is None: guess_kwargs = dict()
+    my_guess = guess_peak(spectra, energy_axis, **guess_kwargs)
+    params_guess = model.make_params(sigma=my_guess['sigma'], center=my_guess['center'],
+                                     amplitude=my_guess['amplitude'], c=my_guess['background'])
+    return model.fit(spectra, params_guess, x=energy_axis)
 
 
 # DISPERSION ANALYSIS FUNCTIONS
@@ -119,15 +131,10 @@ def find_mass(image, energy, wavevector, plotting=None):
     # found phenomenologically
     hbar = 0.658  # in meV*ps
     c = 300  # in um/ps
-    mass_conversion_factor = (hbar * c) ** 2  # for meV / c**2 units
-    mass_conversion_factor /= 10 ** 9  # for MeV / c**2
-    mass_conversion_factor /= 0.511  # for ratio with free electron mass
 
     quad_fit = fit_quadratic_dispersion(image, energy, wavevector, plotting)
 
     a = np.abs(quad_fit[0])  # meV * um**2
-    mass = 1 / (2 * a)
-    mass *= mass_conversion_factor
     mass = hbar**2 / (2 * a)  # (meV*ps)**2 / meV * um**2  = meV*ps**2 / um**2
     mass *= c**2  # for meV / c**2 units
     mass /= 10**9  # for MeV / c**2
@@ -167,7 +174,7 @@ def fit_quadratic_dispersion(image, energy=None, wavevector=None, plotting=None,
             fig, ax = plotting
         except:
             fig, ax = plt.subplots(1, 1, figsize=(7, 6))
-        pcolormesh(image, wavevector, energy, diverging=False, cbar=False, cmap='Greys', ax=ax)
+        pcolormesh(image, ax, wavevector, energy, diverging=False, cbar=False, cmap='Greys')
         ax.plot(wavevector, energies, '--', lw=0.7)
         ax.plot(fitting_x, np.poly1d(quad_fit)(fitting_x), '--', lw=1)
     return quad_fit

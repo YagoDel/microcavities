@@ -73,7 +73,7 @@ def powerseries_remove_overlap(images, powers, correction_type='sum'):
     return new_images, new_powers, calculated_intensity_correction
 
 
-def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(780, '1200'), k_axis=None,
+def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('rotation_acton', 780, '2'), k_axis=None,
                             known_sample_parameters=None, intensity_corrections=None, fig_ax=None,
                             powers_to_imshow=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
@@ -141,7 +141,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=(7
         fig, axs = fig_ax
     # Plotting RGB image of lower-polariton and condensate dispersion
     colorful_imshow(np.concatenate(([dispersion_img], condensate_imgs)), ax=axs[0], aspect='auto', from_black=False,
-                    xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]][::-1])
+                    xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]]) #[::-1])
     axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
     axs[0].set_ylabel('Energy / eV')
     axs[0].text(0.5, 1, (r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)) + '\n' +
@@ -229,9 +229,11 @@ def get_data_from_yamls(yaml_paths, series_names, bkg=0, average=False):
 
 def get_calibrated_mass(dispersion_imgs, energy_axis=('rotation_acton', 780, '2'), k_axis=None, known_sample_parameters=None, plotting=False):
     if len(energy_axis) <= 5:
-        # try:
-        wvls = spectrometer_calibration(*energy_axis)
-        # except:
+        try:
+            wvls = spectrometer_calibration(*energy_axis)
+        except Exception as e:
+            print(energy_axis)
+            raise e
         #     wavelength = energy_axis[0]
         #     if len(energy_axis) == 1:
         #         grating = '1200'
