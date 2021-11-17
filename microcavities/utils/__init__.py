@@ -165,10 +165,14 @@ def get_data_path(filename=None, create_folder=True):
     return full_path
 
 
-def interpolated_array(array, axes=None):
-    from scipy.interpolate import interpn
+def interpolated_array(array, axes=None, **kwargs):
+    from scipy.interpolate import LinearNDInterpolator
+    # from scipy.interpolate import interpn
+    # if axes is None: axes = [np.arange(x) for x in array.shape]
+    # return partial(interpn, axes, array, **kwargs)
     if axes is None: axes = [np.arange(x) for x in array.shape]
-    return partial(interpn, axes, array)
+    axes_arrays = [x.flatten() for x in np.meshgrid(*axes, indexing='ij')]
+    return LinearNDInterpolator(list(zip(*axes_arrays)), array.flatten(), **kwargs)
 
 
 def random_choice(array, axes=(0,), return_indices=False):
