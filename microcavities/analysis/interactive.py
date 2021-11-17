@@ -22,6 +22,8 @@ class InteractiveBase(ShowGUIMixin):
             names = ['var %d' % x for x in range(len(self._original_shape) - 2)]
             values = [list(range(x)) for x in self._original_shape[:-2]]
             self.variables = {key: value for key, value in zip(names, values)}
+        else:
+            self.variables = variables
 
     def get_qt_ui(self):
         return InteractiveBaseUi(self)
@@ -94,20 +96,22 @@ class InteractiveBaseUi(QtWidgets.QMainWindow):
         self._plot()
 
     def next_image(self):
-        for idx, sb in enumerate(self.indx_spinboxes):
-            val = sb.value()
-            if val < self.object._original_shape[idx] - 1:
-                sb.setValue(val + 1)
-                break
-            else:
-                sb.setValue(0)
+        current_indices = np.array([self._indxs]).transpose()
+        flat_index = np.ravel_multi_index(current_indices, self.object._original_shape[:-2])[0]
+        if flat_index < np.prod(self.object._original_shape[:-2]) - 1:
+            next_indices = np.unravel_index(flat_index + 1, self.object._original_shape[:-2])
+            for idx, (old, new) in enumerate(zip(current_indices.flatten(), next_indices)):
+                if old != new:
+                    self.indx_spinboxes[idx].setValue(new)
 
     def prev_image(self):
-        for idx, sb in enumerate(self.indx_spinboxes[::-1]):
-            val = sb.value()
-            if val > 0:
-                sb.setValue(val - 1)
-                break
+        current_indices = np.array([self._indxs]).transpose()
+        flat_index = np.ravel_multi_index(current_indices, self.object._original_shape[:-2])[0]
+        if flat_index > 0:
+            next_indices = np.unravel_index(flat_index - 1, self.object._original_shape[:-2])
+            for idx, (old, new) in enumerate(zip(current_indices.flatten(), next_indices)):
+                if old != new:
+                    self.indx_spinboxes[idx].setValue(new)
 
     def save(self):
         raise NotImplementedError
@@ -137,15 +141,51 @@ class InteractiveCrosshairsUI(InteractiveBaseUi):
         return np.array(positions)
 
     def save(self):
-        # print(self._indxs, self.object.crosshair_positions.shape)
         self.object.crosshair_positions[tuple(self._indxs)] = self.analyse()
-        # print(self.object.crosshair_positions)
+
+
+class InteractiveLines(InteractiveBase):
+    def __init__(self, images, variables=None, n_lines=1):
+        super(InteractiveLines, self).__init__(images, variables)
+        self.n_lines = n_lines
+
+    def get_qt_ui(self):
+        return InteractiveLinesUI(self)
+
+
+class InteractiveLinesUI(InteractiveBaseUi):
+    def __init__(self, *args, **kwargs):
+        super(InteractiveLinesUI, self).__init__(*args, **kwargs)
+        x_size, y_size = self.object.images.shape[-2], self.object.images.shape[-1]
+        self.lines = []
+        n_lines = self.object.n_lines
+        for idx in range(n_lines):
+            line = pg.LineSegmentROI([[0, idx * y_size/n_lines],
+                                      [x_size, idx * y_size/n_lines]], pen=pg.mkPen(pg.intColor(idx, n_lines),
+                                                                                    width=3, style=QtCore.Qt.DashLine) )
+            self.ImageDisplay.addItem(line)
+            self.lines += [line]
+
+        self.object.line_positions = self.object._none_array(self.object._original_shape[:-2] + (n_lines, 2, 2))
+
+    def analyse(self):
+        positions = []
+        n_lines = self.object.n_lines
+        for idx in range(n_lines):
+            point_list = self.lines[idx].getState()['points']
+            positions += [[(p.x(), p.y()) for p in point_list]]
+        return np.array(positions)
+
+    def save(self):
+        self.object.line_positions[tuple(self._indxs)] = self.analyse()
 
 
 def test_interactive():
     data = np.random.random((2, 3, 100, 100))
-    interactive = InteractiveCrosshairs(data)
+    # interactive = InteractiveCrosshairs(data)
+    interactive = InteractiveLines(data, n_lines=3)
     interactive.show_gui()
+    print(interactive.line_positions[0,0])
 
 
 if __name__ == '__main__':
