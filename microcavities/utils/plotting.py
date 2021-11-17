@@ -89,11 +89,11 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
         gridspec_kwargs = dict()
     if gridspec_loc is None:
         fig = plt.figure(figsize=tuple(fig_size))
-        gs = gridspec.GridSpec(b, a, **gridspec_kwargs)
+        gs = gridspec.GridSpec(b, a, figure=fig, **gridspec_kwargs)
     else:
         gs = gridspec.GridSpecFromSubplotSpec(b, a, gridspec_loc, **gridspec_kwargs)
         fig = gs.figure
-    axs = []
+    axs = gs.subplots(sharex=sharex, sharey=sharey)
     for idx2 in range(b):
         for idx in range(a):
             if len(axes) == 1:
@@ -112,14 +112,13 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
                 except IndexError:
                     continue
             _kwargs = dict()
-            if len(axs) > 0:
-                if sharex:
-                    _kwargs['sharex'] = axs[0]
-                if sharey:
-                    _kwargs['sharey'] = axs[0]
 
-            ax = plt.subplot(gs[idx2, idx], **_kwargs)
-            axs += [ax]
+            if a == 1:
+                ax = axs[idx2]
+            elif b == 1:
+                ax = axs[idx]
+            else:
+                ax = axs[idx2, idx]
 
             try:
                 plotting_func(data, ax, *args, **kwargs)
