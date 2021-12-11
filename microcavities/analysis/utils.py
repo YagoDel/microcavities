@@ -76,7 +76,7 @@ def remove_spikes(array, thresh=5, smooth=30, max_iterations=10):
     return cleaned
 
 
-def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
+def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR', return_mask=False):
     """Uses the IQR or zscore method
     From https://stackoverflow.com/questions/11686720/is-there-a-numpy-builtin-to-reject-outliers-from-a-list
 
@@ -122,7 +122,10 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR'):
     elif side == 'both':
         mask = np.logical_or(upper_outlier, lower_outlier)
     x[mask] = np.nan
-    return x
+    if return_mask:
+        return x, mask
+    else:
+        return x
 
 
 def around_step(value, step):
