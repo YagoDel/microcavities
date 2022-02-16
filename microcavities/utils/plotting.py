@@ -127,13 +127,23 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
     return fig, axs, gs
 
 
-def label_axes(ax, xlabel=None, ylabel=None, title=None):
+def label_axes(ax, xlabel=None, ylabel=None, title=None, xlabel_kw=None, ylabel_kw=None, letter=None, letter_kw=None,
+               letter_position=(-0.025, 1.025)):
+    if xlabel_kw is None: xlabel_kw = dict()
+    if ylabel_kw is None: ylabel_kw = dict()
+    if letter_kw is None: letter_kw = dict()
+    letter_kw = {**dict(weight='bold', fontsize=9, ha='right', va='bottom', transform=ax.transAxes), **letter_kw}
+
     if xlabel is not None:
-        ax.set_xlabel(xlabel)
+        ax.set_xlabel(xlabel, **xlabel_kw)
     if ylabel is not None:
-        ax.set_ylabel(ylabel)
+        ax.set_ylabel(ylabel, **ylabel_kw)
     if title is not None:
         ax.set_title(title)
+
+    if letter is not None:
+        fig = ax.figure
+        fig.text(letter_position[0], letter_position[1], letter, **letter_kw)
 
 
 def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
@@ -167,7 +177,7 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
 
 def unique_legend(ax, *args, **kwargs):
     """Removes repeated labels in a legend"""
-    handles, labels = plt.gca().get_legend_handles_labels()
+    handles, labels = ax.get_legend_handles_labels()
     by_label = OrderedDict(zip(labels, handles))
     ax.legend(by_label.values(), by_label.keys(), *args, **kwargs)
 
@@ -217,6 +227,18 @@ def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arro
                     arrowprops=arrow_props)
     else:
         raise ValueError('Need to provide ax2_ypos or ax2_xpos')
+
+
+def my_annotate(ax, text, xy, xy_end, length=None, *args, **kwargs):
+    xy = np.array(xy, dtype=float)
+    xy_end = np.array(xy_end, dtype=float)
+    unit_vector = xy_end - xy
+    if length is None:
+        length = np.sqrt(np.sum(unit_vector**2))
+    unit_vector /= np.sqrt(np.sum(unit_vector**2))
+    # print(length, unit_vector, xy, xy+length*unit_vector)
+    ax.annotate(text, xy, xy-length*unit_vector, *args, **kwargs)
+    ax.annotate(text, xy_end, xy_end+length*unit_vector, *args, **kwargs)
 
 
 # 1D plots

@@ -16,7 +16,12 @@ hbar = 0.658  # in meV ps
 electron_mass = 5.68e3  # in meV ps2 um-2
 
 
-def kinetic_matrix(size=101, mass=1e-3, x_spacing=1):
+def polariton_mass(detuning, rabi_splitting, photon_mass=1e-5, exciton_mass=0.35):
+    hopfield = 0.5 * (1 + detuning/np.sqrt(detuning**2 + rabi_splitting**2))
+    return 1 / (hopfield / exciton_mass + (1-hopfield) / photon_mass)
+
+
+def kinetic_matrix(size=101, mass=1e-3, x_spacing=1.0):
     """
 
     :param size: int. Size of the square array to be returned
@@ -24,7 +29,10 @@ def kinetic_matrix(size=101, mass=1e-3, x_spacing=1):
     :param x_spacing: in microns
     :return:
     """
-    mass = np.ones(size) * mass
+    try:
+        assert len(mass) == size
+    except TypeError:
+        mass = np.ones(size) * mass
     mass = np.pad(mass, (1, 1), 'edge')
     mass_forward = np.mean([np.roll(mass, -1), mass], 0)
     mass_backward = np.mean([np.roll(mass, 1), mass], 0)
@@ -33,7 +41,7 @@ def kinetic_matrix(size=101, mass=1e-3, x_spacing=1):
     down = 1/mass_backward[2:-1]  # 1 / (mass + np.roll(mass, -1))
     # print(mass, mass_forward, mass_backward, np.mean([mass_forward, mass_backward], 0))
     matrix = np.diag(diag) + np.diag(up, 1) + np.diag(down, -1)
-    diff = matrix / x_spacing**2
+    diff = matrix / (x_spacing**2)
     return - hbar**2 * diff / (2 * electron_mass)
 
     #
@@ -207,7 +215,7 @@ def normalise_potential(matrix):
     return matrix_return
 
 
-def solve(matrix, sort=True):
+def solve(matrix, sort=True, lifetime=False):
     size = matrix.shape[0]
     vals, vecs = np.linalg.eig(matrix)
     vecs = vecs.T
@@ -215,12 +223,25 @@ def solve(matrix, sort=True):
         idxs = np.argsort(vals.real)
         vals = vals[idxs][:int(size/2)]
         vecs = vecs[idxs][:int(size/2)]
-        if not any(vals.real < 0):
-            print('No bound states. Sorting by lifetime')
-            idxs = np.argsort(vals.imag)[::-1]
-            vals = vals[idxs]
-            vecs = vecs[idxs]
-    return vals, vecs
+        if lifetime:
+            if not any(vals.real < 0):
+                print('No bound states. Sorting by lifetime')
+                idxs = np.argsort(vals.imag)[::-1]
+                vals = vals[idxs]
+                vecs = vecs[idxs]
+            # return np.full(vals.shape, np.nan), np.full(vecs.shape, np.nan)
+    return vals, vecs #np.sign(np.real(vals)) * np.sqrt(np.abs(vals)), vecs
+
+
+def transform_fourier(matrix, scaling=1, direction='forward'):
+    assert direction in ['forward', 'backward']
+    N = matrix.shape[0]
+    forward = np.array([[np.exp(-1j * 2 * np.pi * scaling * n * k / N) for n in range(N)] for k in range(N)])
+    backward = np.linalg.inv(forward)
+    if direction == 'forward':
+        return np.matmul(np.matmul(backward, matrix), forward)
+    elif direction == 'backward':
+        return np.matmul(np.matmul(forward, matrix), backward)
 
 
 def plot(pot, kin, x, bound_modes=True, couplings=True):
@@ -236,13 +257,17 @@ def plot(pot, kin, x, bound_modes=True, couplings=True):
         gs1 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1], hspace=0.02)
         gs2 = gridspec.GridSpecFromSubplotSpec(2, 2, gs[2], hspace=0.01, wspace=0.01)
         _poss = gs.get_grid_positions(fig)
-        # print(_poss)
         fig.text(np.mean([_poss[2][-1], _poss[3][-1]]), _poss[1], 'Mode profiles', ha='center')
     else:
+        n_bound_modes = int(np.sum(vals.real < 0))
         fig = plt.figure(figsize=(8, 6))
-        gs = gridspec.GridSpec(1, 3)
-        gs0 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+        gs = gridspec.GridSpec(1, 2)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+        gs00 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[0], hspace=0.01)
+        gs01 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[1], hspace=0.01)
+        # gs1 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1], hspace=0.02)
         gs2 = gridspec.GridSpecFromSubplotSpec(2, 2, gs[1], hspace=0.01, wspace=0.01)
+
     ax0 = plt.subplot(gs00[0])
     ax0.plot(vals.real, '.-')
     ax0.set_xticklabels([])
@@ -285,6 +310,129 @@ def plot(pot, kin, x, bound_modes=True, couplings=True):
         fig.suptitle("Coupling: %g + 1j * %g meV (%g%%)" % (coupling.real, coupling.imag, 100*coupling.imag/coupling.real))
         # on_site = vals[1] + vals[0]
     return fig
+
+
+def test_free_space():
+    N = 1353
+    MASS = 3e-5  # electron_mass
+    SPATIAL_SCALE = 0.03
+    # x = np.arange(N) * SPATIAL_SCALE
+    k_range = np.linspace(0, 1, N//2) * np.pi / (2*SPATIAL_SCALE)
+
+    kin = kinetic_matrix(N, MASS, SPATIAL_SCALE)
+    vals, vecs = solve(kin)
+    analytical = (hbar*k_range)**2 / (2*MASS*electron_mass)
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].plot(vals, label='numerical')
+    axs[0].plot(analytical, '-.', label='analytical')
+    axs[0].legend()
+    axs[1].plot(analytical, vals)
+
+
+def test_infinite_potential_well():
+    N = 501
+    MASS = 3e-5
+    WIDTH = 20
+    DEPTH = -20
+
+    def infinite_potential_well(mass, width):
+        return np.array([n**2 * np.pi**2 * hbar**2 / (2*mass*width**2) for n in range(1, 11)])
+
+    pot, kin, x = single_trap(DEPTH, WIDTH, N, 0, MASS)
+    vals, vecs = solve(pot + kin)
+    vals2, _ = solve(transform_fourier(pot + kin))
+    analytical = infinite_potential_well(MASS*electron_mass, WIDTH)+DEPTH
+
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].plot(x, np.diag(pot).real)
+    axs[0].hlines(analytical, WIDTH/2, 3*WIDTH/2, colors='k', label='analytical')
+    axs[0].hlines(vals[:10], -3*WIDTH/2, -WIDTH/2, colors='r', label='numerical')
+    axs[0].hlines(vals2[:10], -5*WIDTH/2, -3*WIDTH/2, colors='b', label='numerical')
+    axs[0].legend(loc='upper right')
+    axs[1].plot(analytical, vals[:10], '.')
+    axs[1].plot(analytical, analytical, '--', alpha=0.5)
+
+
+def test_harmonic_potential():
+    SIZE = 501
+    MASS = 3e-5
+    OMEGA0 = 4
+    XRANGE = 5e1
+
+    def harmonic_potential_energies(omega0):
+        return np.array([(2*n + 1) * hbar*omega0/2 for n in range(10)])
+
+    def harmonic_potential(omega0, mass, size=1001, x_range=10):
+        x = np.linspace(-x_range/2, x_range/2, size)
+        return np.diag(mass * electron_mass * (omega0 * x)**2 / 2), x
+
+    pot, x = harmonic_potential(OMEGA0, MASS, SIZE, XRANGE)
+    kin = kinetic_matrix(SIZE, MASS, np.diff(x)[0])
+    vals, vecs = solve(pot + kin)
+    vals2, vecs2 = solve(transform_fourier(pot + kin))
+
+    analytical = harmonic_potential_energies(OMEGA0)
+
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].plot(x, np.diag(pot).real)
+    ax2 = axs[0].twinx()
+    ax2.hlines(analytical, -XRANGE/4, 0, colors='r', label='analytical')
+    ax2.hlines(vals[:10], 0, XRANGE/4, colors='k', label='numerical')
+    ax2.hlines(vals2[:10], XRANGE/4, XRANGE/2, colors='b', label='numerical_FFT')
+    ax2.legend()
+    axs[1].plot(analytical, vals[:10], '.')
+    axs[1].plot(analytical, analytical, '--', alpha=0.5)
+
+
+def test_momentum_space():
+    x_scaling = 0.28
+    mass = 0.035
+    N = 101
+    index = np.linspace(0, 1, N//2) * (hbar / (2*mass*electron_mass))
+    k = np.arange(N)*np.pi/(x_scaling*N)
+    kinetic_kmatrix = hbar * np.diag((1*k)**2) / (2*mass*electron_mass)
+    kinetic_xmatrix = kinetic_matrix(N, mass, x_scaling)
+
+    vals, vecs = solve(kinetic_xmatrix)
+    vals2, vecs2 = solve(kinetic_kmatrix)
+    vals3, vecs3 = solve(transform_fourier(kinetic_xmatrix))
+    fig, axs = plt.subplots(1, 3)
+    axs[0].plot(vals, 'k')
+    axs[0].plot(vals2, '--')
+    axs[0].plot(vals3, '-.')
+    axs[1].plot(np.sqrt(vals), 'k')
+    axs[1].plot(np.sqrt(vals2), '--')
+    axs[1].plot(np.sqrt(vals3), '-.')
+    # axs[1].plot(index, 'k')
+    axs[2].plot(vals/vals2)
+    axs[2].plot(vals/vals3)
+
+    # Test:
+    #     Solve momentum space on the square potential and the quadratic potential
+    #     Build the two mode polariton matrix and plot the dispersions for free space
+    # Sinusoidal potential
+    #     Can we see smaller splittings?
+
+
+def polaritons():
+    def coupling_hamiltonian(k, mass_x=1, mass_p=1e-5, detuning=0, rabi=1):
+        return np.array([[(hbar*k)**2 / (2*mass_x)+detuning, rabi], [rabi, (hbar*k)**2 / (2*mass_p)]])
+
+    krange = np.linspace(-1e-2, 1e-2, 101)
+    energies = np.array([np.sort(np.linalg.eig(coupling_hamiltonian(k))[0]) for k in krange])
+    [plt.plot(e) for e in energies.transpose()]
+
+    SIZE = 501
+    exciton_mass = 10
+    photon_mass = 1
+    rabi = 10
+    exciton_hamiltonian = transform_fourier(kinetic_matrix(SIZE, exciton_mass))
+    photon_hamiltonian = transform_fourier(kinetic_matrix(SIZE, photon_mass))
+    rabi_hamiltonian = np.full((SIZE, SIZE), rabi)
+    polariton_hamiltonian = np.block([[exciton_hamiltonian, rabi_hamiltonian],
+                                      [rabi_hamiltonian, photon_hamiltonian]])
+    vals, _ = np.linalg.eig(polariton_hamiltonian)
+    plt.semilogy(np.sort(np.abs(vals)))
 
 
 if __name__ == '__main__':
@@ -415,8 +563,3 @@ if __name__ == '__main__':
     for idx in range(4):
         ax = plt.subplot(gs1[idx])
         ax.plot(vecs[idx])
-
-
-
-
-    # MAKE THE ENERGIES UNIVERSAL AS FUNCTION OF RABI SPLITTING
