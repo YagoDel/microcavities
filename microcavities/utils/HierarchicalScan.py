@@ -295,7 +295,7 @@ class ExperimentScan(HierarchicalScan):
 
         if not DRY_RUN:
             self.gui = gui
-            self.gui.abortScan = False
+            self.gui._abort_scan = False
         if settings_yaml is None:
             settings_yaml = self.settings_popup()
 

@@ -44,8 +44,8 @@ PvcamServer = create_server_class(MyPvcam)
 PvcamClient = create_client_class(MyPvcam,
                                   list(PvcamSdk.__dict__.keys()) + ["get_camera_parameter", "set_camera_parameter", 'raw_image'],
                                   ('get_qt_ui', "get_control_widget", "get_preview_widget", 'get_wavelength', 'set_wavelength'),
-                                  ('latest_frame', 'latest_raw_frame'),
-                                  ('_preview_widgets', 'wavelength'))
+                                  ('latest_frame', 'latest_raw_frame', 'exposure'),
+                                  ('_preview_widgets', 'wavelength', 'exposure'))
 
 AndorServer = create_server_class(Andor)
 AndorClient = create_client_class(Andor,

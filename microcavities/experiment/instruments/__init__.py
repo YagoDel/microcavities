@@ -2,6 +2,8 @@
 
 from nplab.instrument.spectrometer.Acton import SP2750
 from nplab.instrument.camera.Andor import Andor
+from microcavities.experiment.instruments.power_control import AcoustoOpticModulator
+from nplab.utils.notified_property import NotifiedProperty
 from microcavities.experiment.instruments.tcp_connection import PvcamClient
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 import os
@@ -27,13 +29,12 @@ def unitful_camera_factory(camera_class):
             with open(self.camera_calibration_file) as dfile:
                 calibration = json.load(dfile)
             detector_shape = calibration['detector_shape']
-            pixel_size = calibration['pixel_size']
             xaxis = np.arange(detector_shape[0], dtype=np.float)
             xaxis -= np.mean(xaxis)
-            xaxis *= pixel_size/magn
+            xaxis *= magn
             yaxis = np.arange(detector_shape[1], dtype=np.float)
             yaxis -= np.mean(yaxis)
-            yaxis *= pixel_size/magn
+            yaxis *= magn
             if value == 'real_space':  # default units for display is microns
                 xaxis *= 1e6
                 yaxis *= 1e6
@@ -165,51 +166,83 @@ class AndorActon(AndorActon_base):
                 return img
         return img
 
-# class AndorActon(Andor):
-#     def __init__(self, acton_address, acton_calibration_file=None, *args, **kwargs):
-#         super(AndorActon, self).__init__(*args, **kwargs)
-#         self.spectrometer = SP2750(acton_address)
-#         self.calibration_file = acton_calibration_file
-#         self.wavelength = self.wavelength  # ensures the widget displays things
-#
-#     @property
-#     def wavelength(self):
-#         return self.spectrometer.wavelength
-#
-#     @wavelength.setter
-#     def wavelength(self, wvl):
-#         self.spectrometer.wavelength = wvl
-#         if wvl > 10:
-#             self.x_axis = self.wavelengths
-#         else:
-#             self.x_axis = None
-#         self.update_widgets()
-#
-#     @property
-#     def wavelengths(self):
-#         return self.get_wavelengths()
-#
-#     # CALIBRATED MEASUREMENT
-#     @property
-#     def calibration_file(self):
-#         """Path to the calibration file"""
-#         if self._calibration_file is None:
-#             self._calibration_file = os.path.join(os.path.dirname(__file__), 'default_calibration.json')
-#         return self._calibration_file
-#
-#     @calibration_file.setter
-#     def calibration_file(self, path):
-#         """Ensures the path is absolute and points to a .json file"""
-#         if not os.path.isabs(path):
-#             default_directory = os.path.dirname(__file__)
-#             path, ext = os.path.splitext(path)
-#             if ext != 'json':
-#                 if ext != '':
-#                     self._logger.warn('Changing file type to JSON')
-#                 ext = 'json'
-#                 path = os.path.join(default_directory, path + '.' + ext)
-#         self._calibration_file = path
-#
-#     def get_wavelengths(self):
-#         """Returns the current wavelength range being shown on a detector attached to the SP2750"""
-#         return spectrometer_calibration(self.calibration_file, self.wavelength, self.spectrometer.get_grating())
+    def auto_exposure(self, min_value=None, max_value=None, max_attempts=10, precision=None, max_exposure=30):
+        if max_value is None:
+            max_value = 0.8 * (2 ** self.BitDepth)
+        if min_value is None:
+            min_value = 0.1 * (2 ** self.BitDepth)
+        image = self.raw_image(False, True)
+        current_exposure = self.Exposure
+        # Takes the 10th brightest pixel
+        ignore_n_pixels = 10
+        percentile = 100 * (1 - ignore_n_pixels / np.prod(image.shape))
+        brightest_pixel = np.percentile(image, percentile)
+        okay = True
+        attempt = 0
+
+        while (brightest_pixel > max_value or brightest_pixel < min_value) and okay:
+            attempt += 1
+
+            # adjust the exposure time
+            if brightest_pixel > max_value:
+                print("REDUCE exposure time...\n")
+                new_exposure = current_exposure / 2
+            elif brightest_pixel < min_value:
+                print("INCREASE exposure time...\n")
+                new_exposure = current_exposure / brightest_pixel * max_value * 0.99
+            else:
+                raise ValueError('This should not happen')
+            if new_exposure > max_exposure:
+                new_exposure = 30
+                okay = False
+            # try the new exposure time
+            previous_exposure = current_exposure
+            current_exposure = new_exposure
+            self.Exposure = new_exposure
+
+            image = self.raw_image(False, True)
+            brightest_pixel = np.percentile(image, percentile)
+
+            if precision is not None:
+                # don't keep on trying the same exposure
+                if np.abs(previous_exposure - current_exposure) < precision: okay = False
+            # don't keep on trying forever
+            if attempt > max_attempts: okay = False
+
+        return image
+
+
+class AndorActonAom(AndorActon):
+    def __init__(self, aom_args, *args, **kwargs):
+        super(AndorActonAom, self).__init__(*args, **kwargs)
+        self.aom1 = AcoustoOpticModulator(1, *aom_args)
+        self.aom2 = AcoustoOpticModulator(2, *aom_args)
+
+    @NotifiedProperty
+    def Exposure(self):
+        return self._exposure_aom_time
+
+    @Exposure.setter
+    def Exposure(self, value):
+        self.aom1.exposure = value
+        self.aom2.exposure = value
+        self.set_andor_parameter('Exposure', value)
+        self._exposure_aom_time = value
+
+
+class AndorAom(unitful_camera_factory(Andor)):
+    def __init__(self, aom_args, *args, **kwargs):
+        super(AndorAom, self).__init__(*args, **kwargs)
+        self.aom1 = AcoustoOpticModulator(1, *aom_args)
+        self.aom2 = AcoustoOpticModulator(2, *aom_args)
+
+    @NotifiedProperty
+    def Exposure(self):
+        return self._exposure_aom_time
+
+    @Exposure.setter
+    def Exposure(self, value):
+        self.aom1.exposure = value
+        self.aom2.exposure = value
+        self.set_andor_parameter('Exposure', value)
+        self._exposure_aom_time = value

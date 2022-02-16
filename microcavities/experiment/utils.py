@@ -136,7 +136,11 @@ def spectrometer_calibration(calibration_file, wavelength, grating=None):
 
     dispersion = calibration['dispersion']
     if isinstance(dispersion, dict):
-        dispersion = dispersion[grating]
+        if grating in dispersion:
+            dispersion = dispersion[grating]
+        else:
+            print('Grating %s is uncalibrated in %s' % (grating, calibration_file))
+            return np.arange(detector_size)
     poly = np.poly1d(dispersion)  # poly1d handles it whether you give it a number on an iterable
     dispersion_value = poly(wavelength)
 

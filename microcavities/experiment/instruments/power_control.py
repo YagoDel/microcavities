@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-# from nplab.instrument import Instrument
+from nplab.instrument.message_bus_instrument import queried_property
 from nplab.instrument.stage.SigmaKoki import SHOT
 from nplab.instrument.electronics.Meadowlark import VariableRetarder
 from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
 from nplab.instrument.electronics.NewportPowermeter import NewportPowermeter
 from nplab.instrument.stage.wheel_of_power import PowerWheelMixin
-# import nidaqmx
-# import nidaqmx.stream_writers
+from nplab.instrument.electronics.rigol import RigolDG1022Lite, rigol_property
 import time
 import numpy as np
 
@@ -43,31 +42,11 @@ class RetarderPower(VariableRetarder, PowerWheelMixin):
     def raw_power(self, value):
         self.voltage = value
 
-
-# class Flipper(Instrument):
-#
-#     def __init__(self, device="Dev1", channel="PFI0"):
-#         super(Flipper, self).__init__()
-#         self.id = "%s/%s" % (device, channel)
-#         self.state = None
-#
-#     def on(self):
-#         with nidaqmx.Task() as task:
-#             task.do_channels.add_do_chan('Dev1/PFI0')
-#             task.write(True)
-#         self.state = True
-#
-#     def off(self):
-#         with nidaqmx.Task() as task:
-#             task.do_channels.add_do_chan('Dev1/PFI0')
-#             task.write(False)
-#         self.state = False
-#
-#     def toggle(self):
-#         if self.state:
-#             self.off()
-#         else:
-#             self.on()
+    def plot_calibration(self, ax=None):
+        if ax is None:
+            from microcavities.utils.plotting import plt
+            fig, ax = plt.subplots(1, 1)
+        ax.plot(*self.calibration)
 
 
 class NdWheel(SHOT, PowerWheelMixin):
@@ -123,6 +102,12 @@ class NdWheel(SHOT, PowerWheelMixin):
 
         return np.array([angles, powers])
 
+    def plot_calibration(self, ax=None):
+        if ax is None:
+            from microcavities.utils.plotting import plt
+            fig, ax = plt.subplots(1, 1)
+        ax.semilogy(*self.calibration)
+
 
 class PowerMeterFlipper(NewportPowermeter):
     on_state = 0
@@ -152,3 +137,93 @@ class PowerMeterFlipper(NewportPowermeter):
             self.flipper.write(0x046A, param1=0x01, param2=0x01)
         else:
             self.flipper.write(0x046A, param1=0x01, param2=0x02)
+
+
+class AcoustoOpticModulator(RigolDG1022Lite, PowerWheelMixin):
+    DELAY = 0.01
+
+    def __init__(self, default_channel=1, *args, **kwargs):
+        super(AcoustoOpticModulator, self).__init__(*args, **kwargs)
+        self.DEFAULT_CHANNEL = default_channel
+        self.output = 0
+        self.offset = 0.1
+        self.output_polarity = 'normal'
+        self.trigger_source = 'external'
+        self.output_mode = 'normal'
+        self.mode('pulse')
+        self.frequency = 500
+        # self.voltage_high = 0.1
+        self.voltage_low = 0
+        self.pulse_width = 1e-3
+        self.pulse_period = self.pulse_width + 1e-3
+        self.phase = 0
+        self.output = 1
+
+    def mode(self, mode):
+        assert mode in ['dc', 'pulse', 'chopper']
+        self._mode = mode
+
+        if mode == 'dc':
+            self.waveform = 'dc'
+            self.output_polarity = 'normal'
+            self.offset = self.voltage_high
+        elif mode == 'pulse':
+            self.waveform = 'pulse'
+            self.voltage_high = self.offset
+            self.output_polarity = 'normal'
+            self.burst = 1
+            self.burst_mode = 'triggered'
+            self.burst_ncycles = 1
+            self.burst_idle = 'bottom'
+        elif mode == 'chopper':
+            self.waveform = 'pulse'
+            self.voltage_high = self.offset
+            self.output_polarity = 'inverted'
+            self.burst = 0
+
+    @property
+    def amplitude(self):
+        if self._mode == 'dc':
+            return self.offset
+        elif self._mode == 'pulse':
+            return self.voltage_high
+        else:
+            raise ValueError()
+    @amplitude.setter
+    def amplitude(self, value):
+        assert 0 <= value <= 1
+        if self._mode == 'dc':
+            self.offset = value
+        elif self._mode == 'pulse':
+            self.voltage_high = value
+        else:
+            raise ValueError()
+
+    @property
+    def exposure(self):
+        return self.pulse_width
+
+    @exposure.setter
+    def exposure(self, value):
+        # self.frequency = 1 / 1.1*value
+        self.pulse_period = 1.1*value  # does not matter, as long as it's larger than the pulse width
+        self.pulse_width = value
+
+    @property
+    def raw_power(self):
+        return self.amplitude
+
+    @raw_power.setter
+    def raw_power(self, value):
+        self.amplitude = value
+
+    def calibrate(self, *args, **kwargs):
+        self.mode('dc')
+        super(AcoustoOpticModulator, self).calibrate(*args, **kwargs)
+        # TODO: automatically reset the mode after the background thread ends
+
+    def plot_calibration(self, ax=None):
+        if ax is None:
+            from microcavities.utils.plotting import plt
+            fig, ax = plt.subplots(1, 1)
+        ax.plot(*self.calibration)

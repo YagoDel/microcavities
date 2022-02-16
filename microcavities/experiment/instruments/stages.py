@@ -73,8 +73,8 @@ class Stages(HIT):
 
     def __init__(self, address):
         super(Stages, self).__init__(address)
-        self.axis_names = ("spectrometer_lens", "k_lens", "filter_x", "filter_y", "stokes", "streak_lens")
-        self.axis_LUT = dict(list(zip(self.axis_names, (3, 0, 4, 5, 1, 2))))
+        self.axis_names = ("spectrometer_lens", "k_lens", "filter_x", "filter_y", "stokes", "streak_lens", "michelson")
+        self.axis_LUT = dict(list(zip(self.axis_names, (3, 0, 4, 5, 1, 2, 6))))
         for axis in range(6):
             self.set_speed(axis, 1, 500000, 1000)
 
