@@ -44,10 +44,7 @@ class Experiment(ShowGUIMixin):
             full_settings = yaml.full_load(settings_file)
         self.settings = full_settings
         self.instrument_settings = full_settings['instruments']
-        self.gui_settings = {}
-        for variable in ['working_directory', 'scripts_path', 'dock_settings_path', 'file_path']:
-            if variable in full_settings:
-                self.gui_settings[variable] = full_settings[variable]
+        self.gui_settings = full_settings['gui_settings']
 
     @staticmethod
     def _open_instrument(setting):
