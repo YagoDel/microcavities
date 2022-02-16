@@ -13,7 +13,18 @@ from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from shapely.geometry import MultiLineString
 from scipy.interpolate import interp1d
 from matplotlib.colors import LogNorm
+from matplotlib import transforms
+import matplotlib.patches as mpatches
+import re
+import imageio
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
+
+
+def default_extension(path, default):
+    name, extension = os.path.splitext(path)
+    if extension == '':
+        extension = default
+    return ''.join([name, extension])
 
 
 # Utils
@@ -23,10 +34,8 @@ def default_save(figure, name, base_path=None):
         assert os.path.exists(base_path)
     if not os.path.exists(os.path.join(base_path, 'figures')):
         os.makedirs(os.path.join(base_path, 'figures'))
-    name, extension = os.path.splitext(name)
-    if extension == '':
-        extension = '.png'
-    figure.savefig(os.path.join(base_path, 'figures', ''.join([name, extension])), dpi=1200, bbox_inches='tight')
+    name = default_extension(name, '.png')
+    figure.savefig(os.path.join(base_path, 'figures', name), dpi=1200, bbox_inches='tight')
 
 
 def _make_axes(ax=None):
@@ -113,7 +122,9 @@ def subplots(datas, plotting_func, axes=(0, ), subplots_shape=None, fig_shape=No
                     continue
             _kwargs = dict()
 
-            if a == 1:
+            if a == 1 and b == 1:
+                ax = axs
+            elif a == 1:
                 ax = axs[idx2]
             elif b == 1:
                 ax = axs[idx]
@@ -175,11 +186,22 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
 
 
-def unique_legend(ax, *args, **kwargs):
+def unique_legend(ax, sort=False, *args, **kwargs):
     """Removes repeated labels in a legend"""
     handles, labels = ax.get_legend_handles_labels()
     by_label = OrderedDict(zip(labels, handles))
-    ax.legend(by_label.values(), by_label.keys(), *args, **kwargs)
+    values = np.array(list(by_label.values()))
+    keys = np.array(list(by_label.keys()))
+    if sort:
+        if type(sort) == bool:
+            regex_str = '-?[0-9]*.[0-9]*'
+        else:
+            regex_str = sort
+        parsed_values = [float(re.match(regex_str, key).groups()[0]) for key in keys]
+        indices = np.argsort(parsed_values)
+        values = values[indices]
+        keys = keys[indices]
+    ax.legend(values, keys, *args, **kwargs)
 
 
 def colour_axes(ax, colour):
@@ -241,18 +263,70 @@ def my_annotate(ax, text, xy, xy_end, length=None, *args, **kwargs):
     ax.annotate(text, xy_end, xy_end+length*unit_vector, *args, **kwargs)
 
 
+def make_gif(figures, gif_path):
+    filenames = []
+    for i, fig in enumerate(figures):
+        # create file name and append it to a list
+        filename = get_data_path(f'{i}.png')
+        filenames.append(filename)
+
+        # save frame
+        default_save(fig, filename)
+    # build gif
+    gif_path = default_extension(gif_path, '.gif')
+    with imageio.get_writer(gif_path, mode='I') as writer:
+        for filename in filenames:
+            image = imageio.imread(filename)
+            writer.append_data(image)
+        for filename in filenames:
+            os.remove(get_data_path(filename))
+
+
 # 1D plots
 def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
               labels=None, label_kwargs=None,
               xlabel=None, ylabel=None,
-              peak_positions=None, peak_kwargs=None,
+              peak_positions=None, peak_kwargs=None, join_peaks=True,
               **kwargs):
-    if xaxis is not None and peak_positions is not None:
-        # assert np.diff(xaxis)[0] > 0, 'To find the correct peak heights, the xaxis needs to be increasing'
-        if np.diff(xaxis)[0] < 0:
-            lines = lines[:, ::-1]
-            xaxis = xaxis[::-1]
+    """
+
+    :param lines: 2D or 3D
+    :param ax:
+    :param cmap:
+    :param xaxis:
+    :param offsets:
+    :param labels:
+    :param label_kwargs:
+    :param xlabel:
+    :param ylabel:
+    :param peak_positions:
+    :param peak_kwargs:
+    :param join_peaks:
+    :param kwargs:
+    :return:
+    """
     fig, ax = _make_axes(ax)
+
+    # Handling defaults
+    if label_kwargs is None: label_kwargs = dict()
+    default_label_kwargs = dict(ha='right', va='bottom')
+    label_kwargs = {**default_label_kwargs, **label_kwargs}
+    if peak_kwargs is None: peak_kwargs = dict()
+    default_peak_kwargs = dict(ls='-', marker='.', color='k')
+    peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
+
+    # Handling the shape of lines. If it is 2D, add an additional axis that will be handled by plot_fill
+    lines = np.asarray(lines)
+    if len(lines.shape) == 2:
+        lines = lines[:, np.newaxis, :]
+
+    # To find the correct peak heights, the xaxis needs to be increasing (a feature of np.interpolate)
+    if xaxis is not None and peak_positions is not None:
+        if np.diff(xaxis)[0] < 0:
+            lines = lines[..., ::-1]
+            xaxis = xaxis[::-1]
+
+    # Finding offsets between lines
     if offsets is None:
         offsets = 1.05 * np.abs(np.nanmin(np.diff(lines, axis=0))) * np.ones(len(lines))
     elif offsets == 'auto':
@@ -263,14 +337,8 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
         except:
             offsets = np.ones(len(lines)) * offsets
 
-    default_label_kwargs = dict(ha='right', va='bottom')
-    if label_kwargs is None:
-        label_kwargs = dict()
-    for key, value in default_label_kwargs.items():
-        if key not in label_kwargs:
-            label_kwargs[key] = value
     if xaxis is None:
-        xaxis = np.arange(lines.shape[1])
+        xaxis = np.arange(lines.shape[-1])
     if cmap is None:
         colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(lines))]
     else:
@@ -280,41 +348,37 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
             colours = cmap
 
     if peak_positions is not None:
-        default_peak_kwargs = dict(ls='-', marker='.', color='k')
-        if peak_kwargs is None:
-            peak_kwargs = dict()
-        for key, value in default_peak_kwargs.items():
-            if key not in peak_kwargs:
-                peak_kwargs[key] = value
-        peak_lines = []
-        if len(np.unique([len(x) for x in peak_positions])) == 1:
-            join_peaks = True
-        else:
-            join_peaks = False
-            peak_kwargs['ls'] = "None"
+        # Handling the joining of lines
+        if join_peaks:
+            peak_lines = []
+            if len(np.unique([len(x) for x in peak_positions])) != 1:
+                peak_kwargs['ls'] = "None"
+                join_peaks = False
+                warnings.warn('join_peaks == True but # of peaks per line is not the same')
+
     for idx, line in enumerate(lines):
         offset_line = line + np.sum(offsets[:idx])
-        _kwargs = dict(kwargs)
-        if 'color' not in _kwargs:
-            _kwargs['color'] = colours[idx]
-        ax.plot(xaxis, offset_line, **_kwargs)
+        _kwargs = {**dict(color=colours[idx]), **kwargs}
+        plot_fill(offset_line, ax, xaxis, **_kwargs)
+        # ax.plot(xaxis, offset_line, **_kwargs)
+
+        # Labelling the lines
+        if labels is not None:
+            _label_kwargs = {**dict(color=colours[idx]), **label_kwargs}
+            ax.text(xaxis.max(), np.nanmean(offset_line[:, -1]), labels[idx], **_label_kwargs)
+
+        # Making the peak lines:
         if peak_positions is not None:
             _peak_lines = []
             for peak in peak_positions[idx]:
-                interpolation = np.interp(peak, xaxis, offset_line)
+                interpolation = np.interp(peak, xaxis, np.nanmean(offset_line, 0))
                 _peak_lines += [(peak, interpolation)]
-            peak_lines += [_peak_lines]
-        if labels is not None:
-            _label_kwargs = dict(label_kwargs)
-            if 'color' not in _label_kwargs:
-                _label_kwargs['color'] = colours[idx]
-            ax.text(xaxis.max(), offset_line[-1], labels[idx], **_label_kwargs)
-    if peak_positions is not None:
-        if join_peaks:
-            peak_lines = np.array(peak_lines)
-            [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
-        else:
-            [ax.plot(*np.transpose(pkline), **peak_kwargs) for pkline in peak_lines]
+            if join_peaks:
+                peak_lines += [_peak_lines]
+            else:
+                ax.plot(*np.transpose(_peak_lines), **peak_kwargs)
+    if peak_positions is not None and join_peaks:
+        [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
 
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
@@ -406,8 +470,10 @@ def plot_fill(y_array, ax=None, x=None, *args, **kwargs):
     y_mean = np.nanmean(y_array, 0)
     y_err = np.nanstd(y_array, 0)
     ax.plot(x, y_mean, *args, **kwargs)
-    # if 'label' in kwargs:
     kwargs['label'] = None
+    if 'alpha' in kwargs:
+        warnings.warn('You have given an alpha for both the line and the fill')
+        kwargs.pop('alpha')
     ax.fill_between(x, y_mean-y_err, y_mean+y_err, alpha=0.3, **kwargs)
     return fig, ax
 
@@ -434,9 +500,18 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     fig, ax = _make_axes(ax)
 
     if xaxis is None:
-        xaxis = np.linspace(-0.5, img.shape[1]-0.5, img.shape[1])
+        # xaxis = np.linspace(-0.5, img.shape[1]-0.5, img.shape[1])
+        xaxis = np.linspace(0, img.shape[1]-1, img.shape[1])
+    # else:
+    #     xdiff = np.mean(np.diff(xaxis))
+    #     xaxis = np.linspace(xaxis.min() - xdiff/2, xaxis.max() + xdiff/2, len(xaxis))
     if yaxis is None:
-        yaxis = np.linspace(-0.5, img.shape[0]-0.5, img.shape[0])
+        # yaxis = np.linspace(-0.5, img.shape[0]-0.5, img.shape[0])
+        yaxis = np.linspace(0, img.shape[0]-1, img.shape[0])
+    # else:
+    #     ydiff = np.mean(np.diff(yaxis))
+    #     yaxis = np.linspace(yaxis.min() - ydiff/2, yaxis.max() + yaxis/2, len(yaxis))
+
     assert len(xaxis) == img.shape[1]
     assert len(yaxis) == img.shape[0]
     if scaling is not None:
@@ -446,7 +521,13 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         except:
             xaxis *= scaling
             yaxis *= scaling
-    kwargs['extent'] = [xaxis[0], xaxis[-1], yaxis[-1], yaxis[0]]
+        xaxis -= np.mean(xaxis)
+        yaxis -= np.mean(yaxis)
+
+    xdiff = np.mean(np.diff(xaxis))
+    ydiff = np.mean(np.diff(yaxis))
+    kwargs['extent'] = [xaxis[0] - xdiff/2, xaxis[-1] + xdiff/2,
+                        yaxis[-1] + ydiff/2, yaxis[0] - ydiff/2]
 
     if diverging:
         if 'cmap' not in kwargs:
@@ -485,7 +566,21 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
     return fig, ax
 
 
-def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', *args, **kwargs):
+def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', labels=None,
+                    legend_kwargs=None, *args, **kwargs):
+    """Displays a list of images, each with a different colormap going from white/black to a saturated color
+
+    :param images: list of 2D arrays
+    :param ax:
+    :param norm_args:
+    :param from_black:
+    :param cmap:
+    :param labels:
+    :param legend_kwargs:
+    :param args:
+    :param kwargs:
+    :return:
+    """
     images = np.asarray(images)
     normed = np.array([normalize(x, norm_args) for x in images])
 
@@ -504,7 +599,16 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
 
     kwargs['diverging'] = False
     kwargs['cbar'] = False
-    return imshow(full, ax, *args, **kwargs), _cmap(range(normed.shape[0]))
+    fig, ax = imshow(full, ax, *args, **kwargs)
+
+    clrs = _cmap(range(normed.shape[0]))
+    if labels is not None:
+        patches = []
+        for lbl, clr in zip(labels, clrs):
+            patches += [mpatches.Patch(color=clr, label=lbl)]
+        if legend_kwargs is None: legend_kwargs = dict()
+        ax.legend(handles=patches, **legend_kwargs)
+    return (fig, ax), clrs
 
 
 def imshow_transparency(img, ax=None, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
@@ -537,11 +641,12 @@ def imshow_transparency(img, ax=None, alpha=None, percentiles=(0, 100), vmin=Non
     return fig, ax, cbar_ax
 
 
-def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, *args, **kwargs):
+def combined_imshow(images, ax=None, axes=(0, ), normalise=False, normalise_kwargs=None, *args, **kwargs):
     """    For making arrays of images, faster than making tons of subplots.
     Makes a large array with NaNs to separate different images, which can then be plotted in a single Matplotlib artist
 
     :param images:
+    :param ax:
     :param axes:
     :param normalise:
     :param normalise_kwargs:
@@ -576,7 +681,7 @@ def combined_imshow(images, axes=(0, ), normalise=False, normalise_kwargs=None, 
                     normalise_kwargs = dict()
                 img = normalize(img, **normalise_kwargs)
             combined_image[idx * stepx + idx:(idx + 1) * stepx + idx, idx2 * stepy + idx2:(idx2 + 1) * stepy + idx2] = img
-    return imshow(combined_image, *args, **kwargs)
+    return imshow(combined_image, ax, *args, **kwargs)
 
 
 def pcolormesh(img, ax=None, x=None, y=None, cbar=True, cbar_label=None, diverging=True, xlabel=None, ylabel=None, *args, **kwargs):
@@ -666,7 +771,7 @@ def test_1D():
     waterfall(lines, axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
     waterfall(lines, axs[1], color='k', alpha=0.1, offsets=0.1)
     waterfall(lines, axs[2], cmap='jet', labels=range(10))
-    waterfall(lines, axs[3], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]))
+    waterfall(lines, axs[3], xaxis=x, peak_positions=[np.linspace(-6, 6, np.random.randint(15)) for _ in range(10)])
     waterfall(lines, axs[4], xaxis=x, peak_positions=np.transpose([np.linspace(1, -1, 10), np.linspace(3, 2, 10)]),
               peak_kwargs=dict(ls='--', color='r'))
     fig.tight_layout()
@@ -685,6 +790,8 @@ def test_2D():
     imshow(np.cos(x) * np.cos(y), xaxis=_x, yaxis=_y, xlabel='$x$', ylabel='$y$', cbar_kwargs=dict(label=r'$cos(x) \cdot cos(y)$'))
 
     contour_intersections([x**2 - y**2, x**2+y**2], [[2, 4, 6], [3, 5]])
+
+    colorful_imshow([np.exp(-(x+1)**2 - (y+1)**2), np.exp(-(x-1)**2 - (y-1)**2)], xaxis=_x, yaxis=_y, labels=['++', '--'])
 
 
 if __name__ == '__main__':
