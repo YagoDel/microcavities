@@ -22,6 +22,9 @@ from tqdm import tqdm
 from microcavities.analysis.interactive import InteractiveBase, InteractiveBaseUi
 from pyqtgraph.parametertree import ParameterTree, Parameter
 import h5py
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormatter, ScalarFormatter, LogLocator
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
 
@@ -31,6 +34,7 @@ spatial_scale = magnification('rotation_pvcam', 'real_space')[0] * 1e6
 momentum_scale = magnification('rotation_pvcam', 'k_space')[0] * 1e-6
 mu = '\u03BC'
 delta = '\u0394'
+pi = '\u03C0'
 
 # List of parameters required for different steps in the analysis for each of the 9 datasets
 configurations = [
@@ -141,16 +145,18 @@ def get_experimental_data_base(dataset_index):
     variables = eval(_v)
 
     config = configurations[dataset_index]
-    if 'data_axes_order' in config:
-        data = np.transpose(data, config['data_axes_order'])
-
-    normal_laser_size = np.pi * (20**2)
+    if config is None:
+        config = dict()
+    ellipse_a = 20
+    ellipse_b = 40
     _mom = 2*np.pi / 0.805
     angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom
-    laser_size = normal_laser_size * np.sin(angle_of_incidence)
+    laser_size = np.pi * ellipse_a * ellipse_b * np.sin(angle_of_incidence)
     norm_ax = variables['vwp'] / laser_size
 
     variables['normalised_power_axis'] = norm_ax
+    if 'data_axes_order' in config:
+        data = np.transpose(data, config['data_axes_order'])
     config['k_axis'] = kax
     config['energy_axis'] = eax
     config['laser_angle'] = laser_separations[dataset_index]
@@ -172,8 +178,13 @@ def get_experimental_data(dataset_index):
         bands = np.load(get_data_path('2021_07_conveyorbelt/bands/dataset%d.npy' % dataset_index), allow_pickle=True)
         analysed_bands = cls.analyse_bands(bands)
     else:
+        with h5py.File(get_data_path('2021_07_conveyorbelt/collated_analysed_data.h5'), 'r') as full_file:
+            dset = full_file['speeds%d' % (dataset_index + 1)]
+            mode_tilts = dset[...]
         bands = None
-        analysed_bands = None
+        analysed_bands = (None, mode_tilts, None, None)
+        # bands = None
+        # analysed_bands = None
     return data, bands, config, analysed_bands, variables
 
 
@@ -2006,14 +2017,29 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=False):
     if selected_indices is None:
         selected_indices = tuple([slice(x) for x in bands.shape])
     exper_energy_array = analysis_results[0][selected_indices]
-    # print(exper_energy_array.shape)
-    # n_bands = exper_energy_array.shape[-1]
+    # print(analysis_results[0].shape, analysis_results[1].shape)
+    angle = analysis_results[1][selected_indices] * np.diff(config['k_axis'])[0] / np.diff(config['energy_axis'])[0]
+    angle = angle[..., 1:4]  # ignoring the ground state
+
     if len(exper_energy_array.shape) > 1:
         initial_shape = exper_energy_array.shape[:-1]
         # exper_energy_array = exper_energy_array
     else:
         initial_shape = (1, )
         exper_energy_array = np.array([exper_energy_array])
+        angle = np.array([angle])
+    shape = angle.shape
+    if len(shape) == 4:
+        angle = remove_outliers(angle, (0, 2, 3))
+        # mask = np.abs(angle > )
+        angle = np.nanmean(angle, (0, 2, 3))
+        angle = np.repeat(angle[np.newaxis, :], shape[0], 0)
+        angle = np.repeat(angle[..., np.newaxis], shape[2], 2)
+    else:
+        angle = remove_outliers(angle, (1, 2))
+        angle = np.nanmean(angle, (1, 2))
+        angle = np.repeat(angle[..., np.newaxis], shape[1], 1)
+    # print(angle.shape, shape)
 
     # Theory
     if run_sims:
@@ -2027,11 +2053,14 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=False):
     all_splittings = np.diff(theory_centers, axis=-1)
     first_splitting = all_splittings[..., 0]
     theory_depth_vs_splitting = interp1d(first_splitting, theory_depths, bounds_error=False, fill_value=np.nan)
+    # theory_depth_vs_gs = interp1d(theory_centers[:, 0], theory_depths, bounds_error=False, fill_value=np.nan)
 
     # Fitting
     fitted_results = dict(depths=[], centers=[], widths=[], edges=[])
     n_bands = 5
     exper_split = np.diff(exper_energy_array*1e3, axis=-1)[..., 0]  # [(e[1] - e[0]) * 1e3 for e in exper_energy_array]
+    exper_split *= np.cos(angle)
+
     fitted_depths = theory_depth_vs_splitting(exper_split)  #[theory_depth_vs_splitting(e) for e in exper_split]
     # print(fitted_depths.shape)
     for depth in tqdm(fitted_depths.flatten(), 'fit_theory'):
@@ -2123,7 +2152,10 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
                 centers, edges, depths)
     for ax, bnd, img, exper_energy, cntrs, dgs, depth in zip(*iterable):
         if 'brillouin_plot' in config:
-            k0_offset = config['brillouin_plot']['k0_offset']
+            if 'k0_offset' in config['brillouin_plot']:
+                k0_offset = config['brillouin_plot']['k0_offset']
+            else:
+                k0_offset = 0
         else:
             k0_offset = 0
         imshow(img, ax, xaxis=np.array(config['k_axis'])-k0_offset, yaxis=config['energy_axis'], **imshow_kw)
@@ -2155,15 +2187,16 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
             if 'label_string' in plotting_kw:
                 label = ''
             else:
+                label = '%s$k_{laser}$=%.2g%sm$^{-1}$\n' % (delta, config['laser_angle'], mu)
                 try:
                     # power_label = power_axis[selected_indices[-1]]
                     power_label = variables['normalised_power_axis'][selected_indices[-1]] * 1e3
-                    label = 'P=%.1fmW%sm$^{-2}$\n' % (power_label, mu)
+                    label += '$P_s$=%.1fmW%sm$^{-2}$\n' % (power_label, mu)
                 except:
-                    label = ''
+                    pass
                 if not np.isnan(depth):
                     label += '$V_{eff}$=%.2fmeV' % depth
-            ax.text(0.5, 0.95, label, ha='center', va='top', transform=ax.transAxes)
+            ax.text(0.5, 0.99, label, ha='center', va='top', transform=ax.transAxes)
 
     # if not np.isnan(depth):
     #     eigenvalues, (centers, widths, edges) = run_simulations([depth], [period], 0, MASS, MODE, n_bands=5)
@@ -2180,6 +2213,46 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
     #         lw = 1e-4
     #         ax.fill_between(config['k_axis'], tf - lw / 2, tf + lw / 2, color='C8', alpha=0.7)
     #     ax.set_title(r'$V_{depth}$=%.2f' % (depth, ))
+
+
+def figsize_(aspect_ratio, columns='double', margins=5, column_separation=5):
+    a4_width = 210
+    if columns == 'double':
+        width = (a4_width-2*margins) * (1 / 25.4)  # in inches
+    elif columns == 'single':
+        width = ((a4_width - 2*margins - column_separation)/2) * (1 / 25.4)  # in inches
+    else:
+        raise ValueError('Unrecognised columns: %s' % columns)
+    return width, aspect_ratio*width
+
+
+class dummy_formatter(ScalarFormatter):
+    def __init__(self, offset, *args, **kwargs):
+        super(dummy_formatter, self).__init__(*args, **kwargs)
+        self.my_offset = offset
+        self.offset_flag = True
+    def __call__(self, *args, **kwargs):
+        tick = super(dummy_formatter, self).__call__(*args, **kwargs)
+        try:
+            return '%g' % (float(tick.replace('\u2212', '-'))*1e3)
+        except Exception as e:
+            print(e)
+            print(tick)
+            return tick
+    def _compute_offset(self):
+        self.offset = self.my_offset
+    def get_offset(self):
+        if self.offset_flag:
+            return '+%geV' % (self.my_offset)
+        else:
+            return ''
+
+
+with h5py.File(collated_data_path, 'r') as dfile:
+    laser_separations = dfile['laser_separations'][...]
+dataset_order = np.argsort(np.abs(laser_separations))
+normalized_laser_separations = normalize(np.abs(laser_separations))
+colormap_laser_separation = cm.get_cmap('Greens')((normalized_laser_separations + 0.2)/1.2)
 
 
 # def find_two_parameters(ground_state, splitting, xaxis, yaxis, plot=False, colours=None):
