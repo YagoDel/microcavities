@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
-import numpy as np
+from microcavities.utils.plotting import *
 from scipy.signal import convolve, fftconvolve
 from skimage.restoration import unwrap_phase
+from skimage.feature import peak_local_max
 from nplab.instrument.electronics.SLM import zernike_polynomial
 
 
@@ -148,12 +149,121 @@ def remove_fringes(image, center_offset, sigma):
     _x, _y = np.meshgrid(*_xy)
     image_center = np.array([x/2 for x in image.shape[::-1]])
     fltr = np.ones(image.shape)
-    for sign in [-1, 1]:
-        center = image_center + sign * center_offset
-        fltr -= np.exp(-((_x - center[0])**2)/(2*sigma[0]**2)-((_y - center[1])**2)/(2*sigma[1]**2))
+    fltr[(((_x-image_center[0])/sigma[0])**2 + ((_y-image_center[1])/sigma[1])**2) > 1] = 0
+    # for sign in [1]:
+    #     center = image_center + sign * center_offset
+    #     fltr -= np.exp(-((_x - center[0])**2)/(2*sigma[0]**2)-((_y - center[1])**2)/(2*sigma[1]**2))
 
     frequency_space = np.fft.fftshift(np.fft.fft2(image))
-    filtered = fltr * frequency_space
-    real_space = np.fft.ifft2(filtered)
-    return np.abs(real_space) * np.sign(image)
+    rolled = np.roll(frequency_space, center_offset, (1, 0))
+    imshow(np.abs(frequency_space))
+    colorful_imshow([np.abs(rolled), fltr])
 
+    filtered = fltr * frequency_space  # np.roll(fltr * frequency_space, image_center + center_offset, (0, 1))
+    real_space = np.fft.ifft2(filtered)
+    colorful_imshow([np.abs(frequency_space), fltr])
+    return real_space #np.abs(real_space) * np.sign(image)
+
+
+def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwargs=None):
+    """Extracts phase and visibility from an interference pattern
+
+    :param image: 2D array
+    :param offset: 2-tuple. Pixels to shift the Fourier plane. Corresponds to spatial frequency of fringes in image
+    :param mask_radius: float
+    :param plot: bool
+    :param peak_kwargs: dict
+    :return:
+    """
+    center = np.asarray(image.shape, int) // 2
+
+    # Fourier plane
+    fourier = np.fft.fftshift(np.fft.fft2(image))
+    # Centering the frequency peak
+    if offset is None:
+        if peak_kwargs is None: peak_kwargs = dict()
+        default_peak_kwargs = dict(min_distance=5, threshold_abs=0.01)
+        peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
+        peaks = peak_local_max(normalize(np.abs(fourier)), **peak_kwargs)
+        # assert np.all(center == peaks[1])
+        print(center, peaks)
+        offset = peaks[2] - peaks[1]
+    rolled = np.roll(fourier, offset, (0, 1))
+
+    # Defining a centered circular hard mask
+    axes = [np.arange(x) for x in image.shape]
+    grid = np.array(np.meshgrid(*axes, indexing='ij'))
+    _grid = np.array([g - o for g, o in zip(grid, center)])
+    r = np.sqrt(np.sum(_grid**2, 0))
+    if mask_radius is None:
+        mask_radius = np.sqrt(np.sum(offset**2))/2
+    mask = np.asarray(r**2 < mask_radius**2, int)
+
+    # Separating the interference term from the envelope term
+    cw = np.abs(np.fft.ifft2(mask * fourier))
+    mod = 2 * np.fft.ifft2(mask * rolled)  # factor of 2 from mask taking out half the frequency plane
+
+    # Visibility
+    visibility = np.abs(mod) / (cw + 1e-6)  # 1e-6 ensures we don't divide by zero
+
+    # Phase
+    angle = np.angle(mod)
+    angle = ((2 * angle) % (2*np.pi))  # HACK: factor of 2 unwinds pixel-to-pixel variations that come from np.angle
+    angle = unwrap_phase(angle) / 2
+    angle = angle % (2 * np.pi) - np.pi  # makes it go from -pi to pi
+
+    if plot:
+        # Plot results
+        fig, axs = plt.subplots(2, 3)
+        imshow(image, axs[0, 0], diverging=False, cbar=False, cmap='Greys')
+        imshow_transparency(visibility, axs[0, 1], cw, cmap="Greys")
+        imshow_transparency(angle, axs[0, 2], cw, cmap='coolwarm')
+        colorful_imshow([np.log(np.abs(fourier) + 1e2), mask], axs[1, 0], from_black=False)
+
+        idx = image.shape[0]//2
+        axs[1, 1].plot(image[idx])
+        axs[1, 1].plot(cw[idx])
+        ip = cw + np.abs(mod)
+        im = cw - np.abs(mod)
+        vs = (ip - im) / (ip + im)
+        axs[1, 1].plot(ip[idx])
+        axs[1, 1].plot(im[idx])
+        axs[1, 2].plot(vs[idx])
+
+    return visibility, angle
+
+
+def test_analyse_fringes(interference_type='flat', options=None):
+    """
+
+    :param interference_type: str. One of 'flat' 'retroreflected'
+    :param options: list. Can contain 'noise', 'incoherent'
+    :return:
+    """
+    if options is None: options = []
+    from microcavities.utils.functools import lg_mode
+
+    axes = [np.linspace(-5, 5, 1001), np.linspace(-5, 5, 501)]
+    grid = np.array(np.meshgrid(*axes))
+    r = np.sqrt(np.sum(grid ** 2, 0))
+    angle_offset = 40
+
+    field1 = lg_mode(0, 1, axes, (0.5, 0))
+    field1 /= np.max(np.abs(field1))
+    incoherent = 0
+    if 'noise' in options:
+        field1 += 0.1 * np.random.random(r.shape) * np.exp(1j * 0.1 * 2 * np.pi * np.random.random(r.shape))
+    if 'incoherent' in options:
+        incoherent = 0.1 * np.abs(field1) ** 2
+
+    if interference_type == 'flat':
+        field2 = np.exp(1j * angle_offset * grid[0])
+    elif interference_type == 'retroreflected':
+        field2 = np.fliplr(field1) * np.exp(1j * angle_offset * grid[0])
+    else:
+        raise ValueError
+
+    interference = field1 + field2
+    measurement = incoherent + np.abs(interference) ** 2
+
+    analyse_fringes(measurement, plot=True)
