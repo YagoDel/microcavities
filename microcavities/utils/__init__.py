@@ -210,7 +210,7 @@ def apply_along_axes(func, axes, array, n_outputs=None):
         except Exception as e:
             print('Failed at indices: ', idx)
             raise e
-        for idx2, result in enumerate(results):
+        for idx2, result in enumerate(results):  # TODO: this fails if the output of func is not an iterable
             outputs[idx2] += (result, )
     outputs = [np.array(output) for output in outputs]
     reshaped_outputs = [np.reshape(output, tuple(shape[mask]) + output.shape[1:]) for output in outputs]

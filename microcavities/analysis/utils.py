@@ -149,10 +149,13 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
 
     :param x_sets: iterable of iterables
     :param y_sets: iterable of iterables
-    :param interpolation: str
+    :param interpolation: str. Currently just a way of selecting x values
+        'even'  -  selects a range of x-values that is evenly spaced between the minimum and the maximum x values
+        'same'  -  selects an range of x-values that follows x_sets but removes the overlaps.
     :return:
     """
 
+    # Choosing an array of x-values
     if interpolation == 'even':
         x_step = [np.diff(x)[0] for x in x_sets]
         x_new = np.arange(np.min(np.concatenate(x_sets)),
@@ -217,6 +220,7 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
         x_new = np.concatenate(x_new)
     else:
         raise ValueError("Unrecognised interpolation %s. Needs to be one of: 'even', 'same'" % interpolation)
+
 
     interpolated_datasets = [interp1d(x, y, bounds_error=False) for x, y in zip(x_sets, y_sets)]
     y_new = np.nanmean([f(x_new) for f in interpolated_datasets], 0)
