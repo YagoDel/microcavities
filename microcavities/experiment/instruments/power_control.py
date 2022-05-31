@@ -141,6 +141,7 @@ class PowerMeterFlipper(NewportPowermeter):
 
 class AcoustoOpticModulator(RigolDG1022Lite, PowerWheelMixin):
     DELAY = 0.01
+    VOLTAGE_LIMIT = 1
 
     def __init__(self, default_channel=1, *args, **kwargs):
         super(AcoustoOpticModulator, self).__init__(*args, **kwargs)
@@ -191,7 +192,7 @@ class AcoustoOpticModulator(RigolDG1022Lite, PowerWheelMixin):
             raise ValueError()
     @amplitude.setter
     def amplitude(self, value):
-        assert 0 <= value <= 1
+        assert 0 <= value <= self.VOLTAGE_LIMIT
         if self._mode == 'dc':
             self.offset = value
         elif self._mode == 'pulse':
@@ -206,8 +207,8 @@ class AcoustoOpticModulator(RigolDG1022Lite, PowerWheelMixin):
     @exposure.setter
     def exposure(self, value):
         # self.frequency = 1 / 1.1*value
-        self.pulse_period = 1.1*value  # does not matter, as long as it's larger than the pulse width
-        self.pulse_width = value
+        self.pulse_period = np.round(1.1*value, 8)  # does not matter, as long as it's larger than the pulse width
+        self.pulse_width = np.round(value, 9)
 
     @property
     def raw_power(self):
@@ -217,9 +218,11 @@ class AcoustoOpticModulator(RigolDG1022Lite, PowerWheelMixin):
     def raw_power(self, value):
         self.amplitude = value
 
-    def calibrate(self, *args, **kwargs):
+    def calibrate(self, power_meter, points=51, min_power=None, max_power=None):
+        if min_power is None: min_power = 0
+        if max_power is None: max_power = self.VOLTAGE_LIMIT
         self.mode('dc')
-        super(AcoustoOpticModulator, self).calibrate(*args, **kwargs)
+        super(AcoustoOpticModulator, self).calibrate(power_meter, points, min_power=min_power, max_power=max_power)
         # TODO: automatically reset the mode after the background thread ends
 
     def plot_calibration(self, ax=None):
