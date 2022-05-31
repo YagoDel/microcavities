@@ -28,14 +28,14 @@ def default_extension(path, default):
 
 
 # Utils
-def default_save(figure, name, base_path=None):
+def default_save(figure, name, base_path=None, dpi=1200):
     if base_path is None:
         base_path = os.path.dirname(get_data_path(None, False))
         assert os.path.exists(base_path)
     if not os.path.exists(os.path.join(base_path, 'figures')):
         os.makedirs(os.path.join(base_path, 'figures'))
     name = default_extension(name, '.png')
-    figure.savefig(os.path.join(base_path, 'figures', name), dpi=1200, bbox_inches='tight')
+    figure.savefig(os.path.join(base_path, 'figures', name), dpi=dpi, bbox_inches='tight')
 
 
 def _make_axes(ax=None):
@@ -204,12 +204,27 @@ def unique_legend(ax, sort=False, *args, **kwargs):
     ax.legend(values, keys, *args, **kwargs)
 
 
-def colour_axes(ax, colour):
-    ax.tick_params(color=colour, labelcolor=colour, which='both')
-    for spine in ax.spines.values():
-        spine.set_edgecolor(colour)
-    ax.xaxis.label.set_color(colour)
-    ax.yaxis.label.set_color(colour)
+def colour_axes(ax, colour, axis='both', which='both'):
+    ax.tick_params(axis=axis, color=colour, labelcolor=colour, which='both')
+    if axis == 'both':
+        for spine in ax.spines.values():
+            spine.set_edgecolor(colour)
+        ax.xaxis.label.set_color(colour)
+        ax.yaxis.label.set_color(colour)
+    elif axis in ['y', 'left', 'right']:
+        ax.yaxis.label.set_color(colour)
+        if which == 'both':
+            ax.spines['right'].set_edgecolor(colour)
+            ax.spines['left'].set_edgecolor(colour)
+        else:
+            ax.spines[which].set_edgecolor(colour)
+    elif axis in ['x', 'bottom', 'top']:
+        ax.xaxis.label.set_color(colour)
+        if which == 'both':
+            ax.spines['top'].set_edgecolor(colour)
+            ax.spines['bottom'].set_edgecolor(colour)
+        else:
+            ax.spines[which].set_edgecolor(colour)
 
 
 def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arrow_props=None):
@@ -263,23 +278,64 @@ def my_annotate(ax, text, xy, xy_end, length=None, *args, **kwargs):
     ax.annotate(text, xy_end, xy_end+length*unit_vector, *args, **kwargs)
 
 
-def make_gif(figures, gif_path):
+def make_gif(figures, gif_path, **kwargs):
     filenames = []
     for i, fig in enumerate(figures):
         # create file name and append it to a list
-        filename = get_data_path(f'{i}.png')
+        filename = get_data_path(f'gif{i}.png')
         filenames.append(filename)
-
         # save frame
-        default_save(fig, filename)
+        default_save(fig, filename, os.path.dirname(gif_path))
     # build gif
     gif_path = default_extension(gif_path, '.gif')
-    with imageio.get_writer(gif_path, mode='I') as writer:
+    with imageio.get_writer(gif_path, mode='I', **kwargs) as writer:
         for filename in filenames:
             image = imageio.imread(filename)
             writer.append_data(image)
         for filename in filenames:
             os.remove(get_data_path(filename))
+
+
+def rainbow_text(x, y, strings, colors, orientation='horizontal',
+                 ax=None, **kwargs):
+    """
+    Take a list of *strings* and *colors* and place them next to each
+    other, with text strings[i] being shown in colors[i].
+
+    Parameters
+    ----------
+    x, y : float
+        Text position in data coordinates.
+    strings : list of str
+        The strings to draw.
+    colors : list of color
+        The colors to use.
+    orientation : {'horizontal', 'vertical'}
+    ax : Axes, optional
+        The Axes to draw into. If None, the current axes will be used.
+    **kwargs
+        All other keyword arguments are passed to plt.text(), so you can
+        set the font size, family, etc.
+    """
+    if ax is None:
+        ax = plt.gca()
+    t = ax.transData
+    canvas = ax.figure.canvas
+
+    assert orientation in ['horizontal', 'vertical']
+    if orientation == 'vertical':
+        kwargs.update(rotation=90, verticalalignment='bottom')
+
+    for s, c in zip(strings, colors):
+        text = ax.text(x, y, s + " ", color=c, transform=t, **kwargs)
+
+        # Need to draw to update the text position.
+        text.draw(canvas.get_renderer())
+        ex = text.get_window_extent()
+        if orientation == 'horizontal':
+            t = text.get_transform() + transforms.Affine2D().translate(ex.width, 0)
+        else:
+            t = text.get_transform() + transforms.Affine2D().translate(0, ex.height)
 
 
 # 1D plots
@@ -544,6 +600,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
         kwargs['aspect'] = 'auto'
 
     im = ax.imshow(img, **kwargs)
+    cax = None
     if cbar:
         if cbar_kwargs is None:
             cbar_kwargs = dict()
@@ -563,7 +620,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
     label_axes(ax, xlabel, ylabel)
 
-    return fig, ax
+    return fig, ax, cax
 
 
 def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', labels=None,
@@ -584,7 +641,7 @@ def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='
     images = np.asarray(images)
     normed = np.array([normalize(x, norm_args) for x in images])
 
-    _cmap = cm.get_cmap(cmap, normed.shape[0] + 1)
+    _cmap = cm.get_cmap(cmap, normed.shape[0] + 0.01)
     full = np.zeros(images.shape[1:] + (4,))
     for idx in range(normed.shape[0]):
         tst = np.tile(normed[idx], (4, 1, 1))
