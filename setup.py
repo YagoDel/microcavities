@@ -13,7 +13,7 @@ setup(name='microcavities',
       packages=find_packages(),
       install_requires=[
           'numpy<2.0dev',
-          'matplotlib<3.0dev',
+          'matplotlib<=3.0dev',
           'h5py<3.0',
           'pyyaml<6.0',
           'pymsgbox<2.0',
