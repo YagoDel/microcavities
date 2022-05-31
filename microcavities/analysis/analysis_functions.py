@@ -95,6 +95,7 @@ def guess_peak(data, xaxis=None, width_lims=(5, 0.001)):
 
     minima = np.argsort(np.abs(data - bkg - (data[center_idx] - bkg) / 2))
     minimum_1 = minima[0]
+    minimum_2 = -1
     for dum in minima[1:]:
         if np.abs(dum - minimum_1) > width_lims[0]:
             minimum_2 = dum
@@ -287,6 +288,80 @@ def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=Non
         raise ValueError('Need to give either energies or masses')
     photon_fraction = 1 - exciton_fraction
     return exciton_fraction, photon_fraction
+
+
+def _up_low_polariton(exciton, photon, rabi_splitting):
+    average_energy = (exciton + photon) / 2
+    detuning = exciton - photon
+    offset = np.sqrt(detuning**2 + rabi_splitting**2) / 2
+
+    up = average_energy + offset
+    low = average_energy - offset
+    return low, up
+
+
+def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass, for_fit=True):
+    hbar = 0.658  # in meV*ps
+    c = 300  # in um/ps
+
+    # mass *= c**2  # for meV / c**2 units
+    # mass /= 10**9  # for MeV / c**2
+    # mass /= 0.511  # for ratio with free electron mass
+
+    exciton_mass *= (0.511 * 1e9) / c**2
+    photon_mass *= (0.511 * 1e9) / c**2
+
+    exciton_dispersion = exciton_energy + (hbar * k_axis)**2 / (2*exciton_mass)
+    photon_dispersion = photon_energy + (hbar * k_axis)**2 / (2*photon_mass)
+
+    lower_p, upper_p = _up_low_polariton(exciton_dispersion, photon_dispersion, rabi_splitting)
+    if for_fit:
+        return lower_p
+    else:
+        return lower_p, upper_p, exciton_dispersion, photon_dispersion
+
+
+def fit_dispersion(energy, momenta):
+
+    k0 = 0.12
+    energy = e_axis[353:796][np.argmax(gaussian_filter(lowpower, 1), 1)[10:-10]]
+    momenta = (k_axis[20:371]+k0)[10:-10]
+    exciton_mass = 0.35
+
+    # Unconstrained fit
+    f = partial(exciton_photon_dispersions, exciton_mass=exciton_mass)
+    results = curve_fit(f, momenta, energy, p0=(3e-5, 1545, 8, 1555))
+    residuals = (energy - f(momenta, *results[0]))**2
+    rsquared = 1 - np.sum(residuals) / np.sum((energy - np.mean(energy))**2)
+    a, b, c, d = exciton_photon_dispersions(momenta, *results[0], exciton_mass=exciton_mass, for_fit=False)
+    fig, ax = imshow(lowpower.transpose(), yaxis=e_axis[353:796], xaxis=k_axis[20:371] + k0, diverging=False)
+    [ax.plot(momenta, x, '--', alpha=0.7) for x in [a, b, c, d]]
+
+    all_results = []
+    rsquared = []
+    for exciton_energy in np.linspace(1554, 1565, 11):
+        f = partial(exciton_photon_dispersions, exciton_mass=exciton_mass, exciton_energy=exciton_energy)
+        results = curve_fit(f, momenta, energy, p0=(3e-5, 1545, 8)) #, bounds=([1e-5, 1540, 0], [4e-5, 1550, 20]))
+        residuals = (energy - f(momenta, *results[0])) ** 2
+        rsquared += [1 - np.sum(residuals) / np.sum((energy - np.mean(energy)) ** 2)]
+        all_results += [results[0]]
+
+        a, b, c, d = exciton_photon_dispersions(momenta, *results[0],
+                                                exciton_energy=exciton_energy, exciton_mass=exciton_mass, for_fit=False)
+        fig, ax = imshow(lowpower.transpose(), yaxis=e_axis[353:796], xaxis=k_axis[20:371] + k0, diverging=False)
+        [ax.plot(momenta, x, '--', alpha=0.7) for x in [a, b, c, d]]
+
+        # , sigma=None, absolute_sigma=False, check_finite=True,
+        #                      bounds=(- inf, inf), method=None, jac=None, **kwargs)
+
+    # (array([2.68095489e-05, 1.54419911e+03, 1.17100123e+01])   # So a rabi splitting of ~12meV and a detuning of 10meV
+    # Estimate some errors on that. Try relaxing the given conditions
+    # Checklist
+    #    exciton mass = 0.35   does not matter
+    #    exciton energy +- 1meV
+    #    Trying the other dispersion image
+
+
 
 # IMAGE ANALYSIS
 # Functions to be used on real- and k-space images
