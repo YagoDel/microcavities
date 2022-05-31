@@ -185,9 +185,10 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         default_peak_kwargs = dict(min_distance=5, threshold_abs=0.01)
         peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
         peaks = peak_local_max(normalize(np.abs(fourier)), **peak_kwargs)
-        # assert np.all(center == peaks[1])
-        print(center, peaks)
-        offset = peaks[2] - peaks[1]
+        peak_intensities = [np.abs(fourier)[peak[0], peak[1]] for peak in peaks]
+        idxs = np.argsort(peak_intensities)[::-1]
+        sorted_peaks = peaks[idxs]
+        offset = sorted_peaks[1] - sorted_peaks[0]
     rolled = np.roll(fourier, offset, (0, 1))
 
     # Defining a centered circular hard mask
@@ -219,6 +220,7 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         imshow_transparency(visibility, axs[0, 1], cw, cmap="Greys")
         imshow_transparency(angle, axs[0, 2], cw, cmap='coolwarm')
         colorful_imshow([np.log(np.abs(fourier) + 1e2), mask], axs[1, 0], from_black=False)
+        axs[1, 0].text(0.5, 1, offset, ha='center', va='top')
 
         idx = image.shape[0]//2
         axs[1, 1].plot(image[idx])
@@ -229,8 +231,9 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         axs[1, 1].plot(ip[idx])
         axs[1, 1].plot(im[idx])
         axs[1, 2].plot(vs[idx])
-
-    return visibility, angle
+        axs[1, 2].set_ylim(0, 1)
+        return visibility, angle, cw, fig, axs
+    return visibility, angle, cw
 
 
 def test_analyse_fringes(interference_type='flat', options=None):
