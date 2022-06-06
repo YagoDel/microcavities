@@ -10,7 +10,7 @@ from microcavities.analysis.utils import normalize
 import os
 from collections import OrderedDict
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
-from shapely.geometry import MultiLineString
+# from shapely.geometry import MultiLineString
 from scipy.interpolate import interp1d
 from matplotlib.colors import LogNorm
 from matplotlib import transforms
@@ -25,6 +25,11 @@ def default_extension(path, default):
     if extension == '':
         extension = default
     return ''.join([name, extension])
+
+def python2_dictionary_comprehension(default_dictionary, dictionary):
+    for key, value in default_dictionary.items():
+        if key not in dictionary:
+            dictionary[key] = value
 
 
 # Utils
@@ -143,7 +148,8 @@ def label_axes(ax, xlabel=None, ylabel=None, title=None, xlabel_kw=None, ylabel_
     if xlabel_kw is None: xlabel_kw = dict()
     if ylabel_kw is None: ylabel_kw = dict()
     if letter_kw is None: letter_kw = dict()
-    letter_kw = {**dict(weight='bold', fontsize=9, ha='right', va='bottom', transform=ax.transAxes), **letter_kw}
+    # letter_kw = {**dict(weight='bold', fontsize=9, ha='right', va='bottom', transform=ax.transAxes), **letter_kw}
+    python2_dictionary_comprehension(dict(weight='bold', fontsize=9, ha='right', va='bottom', transform=ax.transAxes), letter_kw)
 
     if xlabel is not None:
         ax.set_xlabel(xlabel, **xlabel_kw)
@@ -282,7 +288,7 @@ def make_gif(figures, gif_path, **kwargs):
     filenames = []
     for i, fig in enumerate(figures):
         # create file name and append it to a list
-        filename = get_data_path(f'gif{i}.png')
+        filename = get_data_path('gif{%d}.png' % i)
         filenames.append(filename)
         # save frame
         default_save(fig, filename, os.path.dirname(gif_path))
@@ -366,10 +372,13 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
     # Handling defaults
     if label_kwargs is None: label_kwargs = dict()
     default_label_kwargs = dict(ha='right', va='bottom')
-    label_kwargs = {**default_label_kwargs, **label_kwargs}
+    # label_kwargs = {**default_label_kwargs, **label_kwargs}
+    python2_dictionary_comprehension(default_label_kwargs, label_kwargs)
+
     if peak_kwargs is None: peak_kwargs = dict()
     default_peak_kwargs = dict(ls='-', marker='.', color='k')
-    peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
+    # peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
+    python2_dictionary_comprehension(default_peak_kwargs, peak_kwargs)
 
     # Handling the shape of lines. If it is 2D, add an additional axis that will be handled by plot_fill
     lines = np.asarray(lines)
@@ -414,13 +423,21 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
 
     for idx, line in enumerate(lines):
         offset_line = line + np.sum(offsets[:idx])
-        _kwargs = {**dict(color=colours[idx]), **kwargs}
+        # _kwargs = {**dict(color=colours[idx]), **kwargs}
+        _kwargs = dict(kwargs)
+        python2_dictionary_comprehension(dict(color=colours[idx]), _kwargs)
+
+        for key, value in default_peak_kwargs.items():
+            if key not in peak_kwargs:
+                peak_kwargs[key] = value
         plot_fill(offset_line, ax, xaxis, **_kwargs)
         # ax.plot(xaxis, offset_line, **_kwargs)
 
         # Labelling the lines
         if labels is not None:
-            _label_kwargs = {**dict(color=colours[idx]), **label_kwargs}
+            # _label_kwargs = {**dict(color=colours[idx]), **label_kwargs}
+            _label_kwargs = dict(label_kwargs)
+            python2_dictionary_comprehension(dict(color=colours[idx]), _label_kwargs)
             ax.text(xaxis.max(), np.nanmean(offset_line[:, -1]), labels[idx], **_label_kwargs)
 
         # Making the peak lines:
@@ -807,11 +824,11 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
             points = line.intersection(prev_line)
             try:
                 for pnt in points.geoms:
-                    ax.plot(*pnt.xy, 'ko')
+                    ax.plot(*pnt.xy, fmt='ko')
                 intersections += [pnt.xy for pnt in points]
             except:
                 try:
-                    ax.plot(*points.xy, 'ko')
+                    ax.plot(*points.xy, fmt='ko')
                     intersections += [points.xy]
                 except:
                     pass
