@@ -6,7 +6,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter
 from scipy.stats import zscore
-from microcavities.utils.functools import lorentzianNd, gaussianNd
+from microcavities.utils.functions import lorentzianNd, gaussianNd
 import collections
 
 
@@ -307,7 +307,8 @@ def test_stitch_datasets():
     fig, axs = plt.subplots(1, 2)
     for ax, interpolation in zip(axs, ['even', 'same']):
         [ax.plot(_x, _y) for _x, _y in zip(x, y)]
-        ax.plot(*stitch_datasets(x, y, interpolation), '--')
+        _x, _y = stitch_datasets(x, y, interpolation)
+        ax.plot(_x, _y, '--')
 
 
 if __name__ == '__main__':

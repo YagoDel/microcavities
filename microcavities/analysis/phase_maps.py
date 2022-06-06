@@ -244,7 +244,7 @@ def test_analyse_fringes(interference_type='flat', options=None):
     :return:
     """
     if options is None: options = []
-    from microcavities.utils.functools import lg_mode
+    from microcavities.utils.functions import lg_mode
 
     axes = [np.linspace(-5, 5, 1001), np.linspace(-5, 5, 501)]
     grid = np.array(np.meshgrid(*axes))
