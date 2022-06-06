@@ -10,7 +10,7 @@ import os
 from functools import partial
 
 
-class Experiment(ShowGUIMixin):
+class Experiment(object, ShowGUIMixin):
 
     def __init__(self, settings_file="settings.yaml"):
         super(Experiment, self).__init__()
@@ -89,7 +89,7 @@ class ExperimentGUI(gui_generator.GuiGenerator):
     def __init__(self, experiment, *args, **kwargs):
         # self._instr_dict = self._open_instruments()
         # super(ExperimentGUI, self).__init__(weakref.WeakValueDictionary(self._instr_dict), *args, **kwargs)
-        kwargs['terminal'] = True
+        # kwargs['terminal'] = True
         super(ExperimentGUI, self).__init__(experiment.instr_dict, *args, **kwargs)
 
         self.instrument_settings = experiment.instrument_settings
@@ -267,5 +267,6 @@ class ExperimentGUI(gui_generator.GuiGenerator):
         self.actionScanPause.setChecked(self._pause_scan)
 
 
-exper = Experiment()
+# exper = Experiment()
+exper = Experiment("thirdsettings.yaml")
 exper.show_gui()

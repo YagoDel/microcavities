@@ -2,7 +2,7 @@
 from nplab.instrument.message_bus_instrument import queried_property
 from nplab.instrument.stage.SigmaKoki import SHOT
 from nplab.instrument.electronics.Meadowlark import VariableRetarder
-from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
+# from nplab.instrument.Flipper.thorlabs_MFF002 import ThorlabsMFF
 from nplab.instrument.electronics.NewportPowermeter import NewportPowermeter
 from nplab.instrument.stage.wheel_of_power import PowerWheelMixin
 from nplab.instrument.electronics.rigol import RigolDG1022Lite, rigol_property

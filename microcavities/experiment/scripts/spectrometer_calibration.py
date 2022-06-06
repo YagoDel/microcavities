@@ -18,10 +18,15 @@ import os
 from nplab.utils.gui import get_qt_app
 
 app = get_qt_app()
-KEY = 'ANALYSIS'  #'DATA_TAKING'  #
-grating = (2, 1200)  # 1714  # (1, 1800)  #
+KEY = 'DATA_TAKING'  #'ANALYSIS'  #
+grating = (2, 600)  # (2, 1200)  #(1, 1714)  # (1, 1800)  #
 calibration_path = get_data_path('calibrations')
-file_name = 'table1_andor_02_2022.h5'  # 'andor2_table2.h5'  # 'spectrometer_07_2020.h5'
+file_name = 'tmd_table_05_2022.h5'  #'table1_andor_02_2022.h5'  # 'andor2_table2.h5'  # 'spectrometer_07_2020.h5'
+parameters = dict(
+    start_wavelength=790, start_exposure=1,
+    get_central_wavelengths_kwargs=dict(margin=10, max_peaks=7)
+)
+
 
 # From http://www.astrosurf.com/buil/us/spe2/hresol4.htm
 all_peaks = np.asarray(
@@ -40,10 +45,11 @@ width = np.min(distances)/5
 
 
 if KEY == 'DATA_TAKING':
-    camera_pointer = andor_acton
-    spectrometer_pointer = andor_acton
-    camera_pointer.Exposure = 3
-    spectrometer_pointer.wavelength = 813
+    # The next four lines need to be modified every time the setup or the grating are changed
+    camera_pointer = camera  # andor_acton
+    spectrometer_pointer = camera  # andor_acton
+    camera_pointer.exposure = parameters['start_exposure']
+    spectrometer_pointer.wavelength = parameters['start_wavelength']
 
     with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
         if 'full_spectrum' not in df:
@@ -67,7 +73,9 @@ if KEY == 'DATA_TAKING':
         :return:
         """
         default_kwargs = dict(distance=5, height=0.5)
-        kwargs = {**default_kwargs, **kwargs}
+        for kw in default_kwargs.keys():
+            if kw not in kwargs:
+                kwargs[kw] = default_kwargs[kw]
         img0 = camera_pointer.raw_image(False, True)
         spec0 = normalize(np.mean(img0, 0))
         wvl0 = spectrometer_pointer.wavelength
@@ -156,7 +164,10 @@ if KEY == 'DATA_TAKING':
     #     thresholds = [0.1, 0.02, 0.018, 0.02, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
     # else:
     wvl_range = measured_range
-    cntr_wlvs = get_central_wavelengths(measured_range)
+    cntr_wlvs = get_central_wavelengths(measured_range, **parameters['get_central_wavelengths_kwargs'])  # get_central_wavelengths(measured_range)
+
+    # Ignore very short peaks because the gratings don't tend to be reflective that far
+    # Ignore the long peaks because the white light is too weak to measure
     cntr_wlvs = cntr_wlvs[600 < cntr_wlvs]
     cntr_wlvs = cntr_wlvs[cntr_wlvs < 875]
     # center_wavelengths = center_wavelengths[::3]
@@ -176,7 +187,8 @@ if KEY == 'DATA_TAKING':
         fig, axs = plt.subplots(a, b)
         axs = np.array([axs])
 
-        for idx, ax in enumerate(axs.flatten()):
+        for idx in range(len(center_wavelengths)):
+            ax = axs.flatten()[idx]
             wvl = center_wavelengths[idx]
             spectra = np.mean(imgs[idx], 0)
             spectra -= np.min(spectra)
@@ -223,6 +235,7 @@ if KEY == 'DATA_TAKING':
     selected_wavelengths = cntr_wlvs
 
     with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
+        # del df['grating=%s' % (grating, )]
         group = df.create_group('grating=%s' % (grating, ))
         group.attrs.create('wavelength_range', wvl_range)
         for indx, wvl in enumerate(selected_wavelengths):
@@ -313,7 +326,8 @@ elif KEY == 'ANALYSIS':
     # PLOT TO CHECK THAT THE FOUND PEAKS ARE WHERE YOU THINK THEY ARE
     a, b = square(len(selected_wavelengths))
     fig, axs = plt.subplots(a, b)
-    for idx, ax in enumerate(axs.flatten()):
+    for idx in range(len(selected_wavelengths)):
+        ax = axs.flatten()[idx]
         idx2 = idx #np.argwhere(center_wavelengths == selected_wavelengths[idx])[0][0]
         wvl = selected_wavelengths[idx]
         spectra = np.mean(imgs[idx2], 0)
@@ -331,7 +345,8 @@ elif KEY == 'ANALYSIS':
     # CHECKING THAT THE GRATING IS LINEAR (if nothing is wrong, each plot should be perfectly linear)
     a, b = square(len(selected_wavelengths))
     fig, axs = plt.subplots(a, b)
-    for idx, ax in enumerate(axs.flatten()):
+    for idx in range(len(selected_wavelengths)):
+        ax = axs.flatten()[idx]
         ax.set_title('%.2f %g' % (selected_wavelengths[idx], residuals[idx]))
         indx_peaks = found_peaks[idx]
         wvl = selected_wavelengths[idx]
@@ -345,24 +360,9 @@ elif KEY == 'ANALYSIS':
 
     fig, axs = plt.subplots(1, 2)
     indx = np.argsort(selected_wavelengths)
-    # if grating == 1800:
-    #     indices = slice(-6, -1)
-    #     # fit_fit = np.polyfit(selected_wavelengths[indx][-6:], fits[:, 0][indx][-6:], 1)
-    #     # newx = selected_wavelengths[indx][-6:]
-    # elif grating == 1200:
-    #     indices = slice(-16, -1)
-    #     # fit_fit = np.polyfit(selected_wavelengths[indx][-16:], fits[:, 0][indx][-16:], 1)
-    #     # newx = selected_wavelengths[indx][-16:]
-    # elif grating == 1714:
-    #     indices = slice(len(selected_wavelengths))
-    #     # fit_fit = np.polyfit(selected_wavelengths[indx], fits[:, 0][indx], 1)
-    #     # newx = selected_wavelengths[indx]
-    # else:
-    indices = slice(len(selected_wavelengths))
-        # fit_fit = np.polyfit(selected_wavelengths[indx], fits[:, 0][indx], 1)
-        # newx = selected_wavelengths[indx]
+    # indices = slice(len(selected_wavelengths))
+    indices = slice(3)
 
-    # indices = np.logical_and(selected_wavelengths[indx] > 650, selected_wavelengths[indx] < 850)
     _wvls = selected_wavelengths[indx][indices]
     newx = np.linspace(_wvls.min(), _wvls.max(), 101)
 
@@ -392,6 +392,7 @@ elif KEY == 'ANALYSIS':
     # fig.savefig(os.path.join(calibration_path, file_name.rstrip('.h5') + '%d.png' % grating), dpi=1200, bbox_inches='tight')
 
     with h5py.File(os.path.join(calibration_path, file_name), 'a') as df:
+        del df['grating=%s_analysis' % (grating, )]
         group = df.create_group('grating=%s_analysis' % (grating, ))
         group.create_dataset('dispersion', data=fit_slope)
         group.create_dataset('offset', data=fit_offset)
@@ -403,8 +404,8 @@ elif KEY == 'ANALYSIS':
                 if key.startswith('grating='):
                     if key.endswith('_analysis'):
                         gratings += [eval(key.strip('grating=').strip('_analysis'))]
-            _keys = list(df['grating=%s' % gratings[0][1]].keys())
-            data = df['grating=%s/%s' % (gratings[0][1], _keys[0])][...]
+            _keys = list(df['grating=%s' % (gratings[0], )].keys())
+            data = df['grating=%s/%s' % (gratings[0], _keys[0])][...]
             json_dict = dict(detector_size=data.shape[-1], dispersion=dict(), offset=dict())
             for key in gratings:
                 group = df['grating=%s_analysis' % (key, )]
