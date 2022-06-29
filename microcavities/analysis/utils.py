@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import re
+from microcavities.utils.plotting import *
 import ast
-import numpy as np
-from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter
 from scipy.stats import zscore
 from microcavities.utils.functools import lorentzianNd, gaussianNd
@@ -39,16 +37,6 @@ def fit_function(name):
     :param name:
     :return:
     """
-
-
-def normalize(array, percentiles=(0, 100), axis=None, cut=False):
-    mn = np.percentile(array, percentiles[0], axis=axis, keepdims=True)
-    mx = np.percentile(array, percentiles[1], axis=axis, keepdims=True)
-    normed = (array - mn) / (mx - mn)
-    if cut:
-        normed[normed > 1] = 1
-        normed[normed < 0] = 0
-    return normed
 
 
 def centroids(array, axis=-1):
@@ -227,12 +215,7 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
     return x_new, y_new
 
 
-# def reduce_chunks(reduction_function, array, chunk_size, axis=-1):
-#     indexes = np.arange(array.shape[axis])
-#     reshaped_array = np.reshape(array, old_shape + (a, b))
-#     reduced = reduction_function(reshaped_array, axis)
-#     return np.
-
+# Tests
 def test_remove_spikes():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]
     x, y = np.meshgrid(_x, _y)

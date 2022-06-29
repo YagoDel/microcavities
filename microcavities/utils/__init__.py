@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import numpy as np
 import yaml
 from io import IOBase
@@ -6,7 +7,6 @@ import os
 import subprocess
 import datetime
 import warnings
-from functools import partial
 
 
 def depth(lst):
@@ -193,6 +193,16 @@ def random_choice(array, axes=(0,), return_indices=False):
         return array[indices], indices
     else:
         return array[indices]
+
+
+def normalize(array, percentiles=(0, 100), axis=None, cut=False):
+    mn = np.percentile(array, percentiles[0], axis=axis, keepdims=True)
+    mx = np.percentile(array, percentiles[1], axis=axis, keepdims=True)
+    normed = (array - mn) / (mx - mn)
+    if cut:
+        normed[normed > 1] = 1
+        normed[normed < 0] = 0
+    return normed
 
 
 def apply_along_axes(func, axes, array, n_outputs=None):
