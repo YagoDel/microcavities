@@ -3,18 +3,18 @@
 import warnings
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
-from matplotlib import colors, cm, collections, colorbar
-import numpy as np
-from microcavities.utils import square, get_data_path
-from microcavities.analysis.utils import normalize
-import os
-from collections import OrderedDict
-from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
-from shapely.geometry import MultiLineString
-from scipy.interpolate import interp1d
+from matplotlib import colors, cm, collections
 from matplotlib.colors import LogNorm
+from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from matplotlib import transforms
 import matplotlib.patches as mpatches
+import numpy as np
+from microcavities.utils import square, get_data_path, normalize
+import os
+from collections import OrderedDict
+from shapely.geometry import MultiLineString
+from scipy.interpolate import interp1d
+
 import re
 import imageio
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
@@ -184,6 +184,8 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90, **kwargs)
     elif position == 'right':
         figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
+    else:
+        raise ValueError()
 
 
 def unique_legend(ax, sort=False, *args, **kwargs):
@@ -338,6 +340,34 @@ def rainbow_text(x, y, strings, colors, orientation='horizontal',
             t = text.get_transform() + transforms.Affine2D().translate(0, ex.height)
 
 
+def colorbar_wrapper(ax, mappable, cbar_kwargs=None, cax_kwargs=None):
+    """Creates an axes_divider and places a colorbar in it
+
+    :param ax:
+    :param mappable:
+    :param cbar_kwargs:
+    :param cax_kwargs:
+    :return:
+    """
+    fig, ax = _make_axes(ax)
+    if cbar_kwargs is None: cbar_kwargs = dict()
+    cbar_kwargs = {**dict(orientation='vertical'), **cbar_kwargs}
+
+    if cax_kwargs is None: cax_kwargs = dict()
+    cax_kwargs = {**dict(size="7%", pad="2%"), **cax_kwargs}
+
+    ax_divider = make_axes_locatable(ax)
+    if cbar_kwargs['orientation'] == 'horizontal':
+        cax = ax_divider.append_axes("top", **cax_kwargs)
+    else:
+        cax = ax_divider.append_axes("right", **cax_kwargs)
+
+    fig.colorbar(mappable, cax=cax, **cbar_kwargs)
+    cax.xaxis.tick_top()
+    cax.xaxis.set_label_position('top')
+    return cax
+
+
 # 1D plots
 def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
               labels=None, label_kwargs=None,
@@ -436,8 +466,7 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
     if peak_positions is not None and join_peaks:
         [ax.plot(*pkline, **peak_kwargs) for pkline in np.transpose(peak_lines, (1, 2, 0))]
 
-    if xlabel is not None: ax.set_xlabel(xlabel)
-    if ylabel is not None: ax.set_ylabel(ylabel)
+    label_axes(ax, xlabel, ylabel)
 
     return fig, ax
 
@@ -451,6 +480,16 @@ def colorline(y, ax=None, z=None, xaxis=None, cmap='copper', vmin=None, vmax=Non
     Optionally specify colors in the array z
     Optionally specify a colormap, a norm function and a line width
     """
+    def _make_segments(x, y):
+        """
+        Create list of line segments from x and y coordinates, in the correct format
+        for LineCollection: an array of the form numlines x (points per line) x 2 (x
+        and y) array
+        """
+
+        points = np.array([x, y]).T.reshape(-1, 1, 2)
+        return np.concatenate([points[:-1], points[1:]], axis=1)
+
     fig, ax = _make_axes(ax)
 
     if xaxis is None:
@@ -479,74 +518,54 @@ def colorline(y, ax=None, z=None, xaxis=None, cmap='copper', vmin=None, vmax=Non
     ax.set_xlim(xaxis.min(), xaxis.max())
     ax.set_ylim(y.min(), y.max())
 
-    if xlabel is not None: ax.set_xlabel(xlabel)
-    if ylabel is not None: ax.set_ylabel(ylabel)
+    label_axes(ax, xlabel, ylabel)
+
     if cbar:
-        if cbar_kwargs is None:
-            cbar_kwargs = dict()
-
-        ax_divider = make_axes_locatable(ax)
-        if 'orientation' in cbar_kwargs:
-            if cbar_kwargs['orientation'] == 'horizontal':
-                cax = ax_divider.append_axes("top", size="7%", pad="2%")
-            else:
-                cax = ax_divider.append_axes("right", size="7%", pad="2%")
-        else:
-            cax = ax_divider.append_axes("right", size="7%", pad="2%")
-
-        fig.colorbar(cm.ScalarMappable(norm=norm_colour, cmap=cmap), cax=cax, **cbar_kwargs)
-        cax.xaxis.tick_top()
-        cax.xaxis.set_label_position('top')
+        if cbar_kwargs is None: cbar_kwargs = dict()
+        colorbar_wrapper(ax, cm.ScalarMappable(norm=norm_colour, cmap=cmap), cbar_kwargs=cbar_kwargs)
 
     return fig, ax
 
 
-def _make_segments(x, y):
-    """
-    Create list of line segments from x and y coordinates, in the correct format
-    for LineCollection: an array of the form numlines x (points per line) x 2 (x
-    and y) array
-    """
-
-    points = np.array([x, y]).T.reshape(-1, 1, 2)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
-    return segments
-
-
-def plot_fill(y_array, ax=None, x=None, *args, **kwargs):
+def plot_fill(y_array, ax=None, xaxis=None, *args, **kwargs):
     """Plotting following seaborn.lineplot
     Given an array of lines, plots a single central average line and a shadowed region to show the standard deviation
-    :param x:
     :param y_array:
     :param ax:
+    :param xaxis:
+    :param args:
+    :param kwargs:
     :return:
     """
-    if x is None: x = np.arange(y_array.shape[1])
+    if xaxis is None: xaxis = np.arange(y_array.shape[1])
     fig, ax = _make_axes(ax)
     y_mean = np.nanmean(y_array, 0)
     y_err = np.nanstd(y_array, 0)
-    ax.plot(x, y_mean, *args, **kwargs)
-    kwargs['label'] = None
+    ax.plot(xaxis, y_mean, *args, **kwargs)
+    kwargs['label'] = None  # ensures that if a legend is made, only the mean line is used
     if 'alpha' in kwargs:
         warnings.warn('You have given an alpha for both the line and the fill')
         kwargs.pop('alpha')
-    ax.fill_between(x, y_mean-y_err, y_mean+y_err, alpha=0.3, **kwargs)
+    ax.fill_between(xaxis, y_mean-y_err, y_mean+y_err, alpha=0.3, **kwargs)
+    # todo: add a legend option that creates a square patch and a line
     return fig, ax
 
 
 # 2D plots
-def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, cbar=True, cbar_kwargs=None,
+def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None,
+           cbar=True, cbar_kwargs=None, cax_kwargs=None,
            xlabel=None, ylabel=None, **kwargs):
     """Utility imshow, wraps commonly used plotting tools
 
     :param img: 2D array
-    :param ax: pyplot.axes
+    :param ax: pyplot.Axes object
     :param diverging: bool. Whether to use a diverging colormap, centered around 0
     :param scaling: 2-tuple or a float. The pixel to unit conversion value
-    :param xaxis: 1D array
-    :param yaxis: 1D array
+    :param xaxis: 1D array. Corresponds to the second axis in img
+    :param yaxis: 1D array. Corresponds to the first axis in img
     :param cbar: bool. Whether to add a colorbar
-    :param cbar_kwargs: dict or None
+    :param cbar_kwargs: dict or None. To be passed to plt.colorbar
+    :param cax_kwargs: dict or None. To be passed to ax_divider
     :param xlabel: str
     :param ylabel: str
     :param kwargs: dict. any other named arguments are passed to plt.imshow
@@ -555,232 +574,281 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None, c
 
     fig, ax = _make_axes(ax)
 
-    if xaxis is None:
-        # xaxis = np.linspace(-0.5, img.shape[1]-0.5, img.shape[1])
-        xaxis = np.linspace(0, img.shape[1]-1, img.shape[1])
-    # else:
-    #     xdiff = np.mean(np.diff(xaxis))
-    #     xaxis = np.linspace(xaxis.min() - xdiff/2, xaxis.max() + xdiff/2, len(xaxis))
-    if yaxis is None:
-        # yaxis = np.linspace(-0.5, img.shape[0]-0.5, img.shape[0])
-        yaxis = np.linspace(0, img.shape[0]-1, img.shape[0])
-    # else:
-    #     ydiff = np.mean(np.diff(yaxis))
-    #     yaxis = np.linspace(yaxis.min() - ydiff/2, yaxis.max() + yaxis/2, len(yaxis))
+    # Extent handling
+    if 'extent' not in kwargs:
+        # Define image axes if not provided
+        if xaxis is None:
+            xaxis = np.linspace(0, img.shape[1]-1, img.shape[1])
+        if yaxis is None:
+            yaxis = np.linspace(0, img.shape[0]-1, img.shape[0])
+        assert len(xaxis) == img.shape[1]
+        assert len(yaxis) == img.shape[0]
 
-    assert len(xaxis) == img.shape[1]
-    assert len(yaxis) == img.shape[0]
-    if scaling is not None:
-        try:
-            xaxis *= scaling[0]
-            yaxis *= scaling[1]
-        except:
-            xaxis *= scaling
-            yaxis *= scaling
-        xaxis -= np.mean(xaxis)
-        yaxis -= np.mean(yaxis)
+        # Scale and center image axes. Useful when we want to quickly quantify distances on the imshow
+        if scaling is not None:
+            try:
+                xaxis *= scaling[0]
+                yaxis *= scaling[1]
+            except:
+                xaxis *= scaling
+                yaxis *= scaling
+            xaxis -= np.mean(xaxis)
+            yaxis -= np.mean(yaxis)
 
-    xdiff = np.mean(np.diff(xaxis))
-    ydiff = np.mean(np.diff(yaxis))
-    kwargs['extent'] = [xaxis[0] - xdiff/2, xaxis[-1] + xdiff/2,
-                        yaxis[-1] + ydiff/2, yaxis[0] - ydiff/2]
+        # Create an "extent" to be passed to plt.imshow so that each value in xaxis/yaxis is at the center of each pixel
+        xdiff = np.mean(np.diff(xaxis))
+        ydiff = np.mean(np.diff(yaxis))
+        kwargs['extent'] = [xaxis[0] - xdiff/2, xaxis[-1] + xdiff/2,
+                            yaxis[-1] + ydiff/2, yaxis[0] - ydiff/2]
 
+    # Colormap handling
     if diverging:
-        if 'cmap' not in kwargs:
-            kwargs['cmap'] = 'RdBu'
-        val = np.nanmax(np.abs([np.nanmax(img), np.nanmin(img)]))
-        if 'vmin' in kwargs and 'vmax' not in kwargs:
-                kwargs['vmax'] = -kwargs['vmin']
-        elif 'vmin' not in kwargs and 'vmax' in kwargs:
-                kwargs['vmin'] = -kwargs['vmax']
+        kwargs = {**dict(cmap='RdBu'), **kwargs}  # Using a diverging colormap if not provided
+        if 'vmin' not in kwargs and 'vmax' not in kwargs:
+            val = np.nanmax(np.abs([np.nanmax(img), np.nanmin(img)]))
+            kwargs = {**dict(vmin=-val, vmax=val), **kwargs}
+        elif 'vmax' not in kwargs:
+            kwargs['vmax'] = -kwargs['vmin']
+        elif 'vmin' not in kwargs:
+            kwargs['vmin'] = -kwargs['vmax']
         else:
-            kwargs['vmin'] = -val
-            kwargs['vmax'] = val
-    if 'aspect' not in kwargs:
-        kwargs['aspect'] = 'auto'
+            warnings.warn('Provided both vmin and vmax. You sure you want diverging=True?')
 
+    # plt.imshow call
+    kwargs = {**dict(aspect='auto'), **kwargs}
     im = ax.imshow(img, **kwargs)
+
     cax = None
     if cbar:
-        if cbar_kwargs is None:
-            cbar_kwargs = dict()
-
-        ax_divider = make_axes_locatable(ax)
-        if 'orientation' in cbar_kwargs:
-            if cbar_kwargs['orientation'] == 'horizontal':
-                cax = ax_divider.append_axes("top", size="7%", pad="2%")
-            else:
-                cax = ax_divider.append_axes("right", size="7%", pad="2%")
-        else:
-            cax = ax_divider.append_axes("right", size="7%", pad="2%")
-
-        fig.colorbar(im, cax=cax, **cbar_kwargs)
-        cax.xaxis.tick_top()
-        cax.xaxis.set_label_position('top')
+        cax = colorbar_wrapper(ax, im, cbar_kwargs=cbar_kwargs, cax_kwargs=cax_kwargs)
 
     label_axes(ax, xlabel, ylabel)
 
     return fig, ax, cax
 
 
-def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=True, cmap='hsv', labels=None,
-                    legend_kwargs=None, *args, **kwargs):
-    """Displays a list of images, each with a different colormap going from white/black to a saturated color
+def colorful_imshow(images, ax=None, norm_args=(0, 100), from_black=False, cmap='rainbow', labels=None,
+                    legend_kwargs=None, **kwargs):
+    """Qualitative 2D plot to show multiple spatially-separated features simultaneously
+
+    Displays a list of images, each with a different colormap going from white/black to a saturated color
 
     :param images: list of 2D arrays
-    :param ax:
-    :param norm_args:
-    :param from_black:
-    :param cmap:
-    :param labels:
-    :param legend_kwargs:
-    :param args:
-    :param kwargs:
+    :param ax: plt.Axes object
+    :param norm_args: 2-tuple. Percentile values to normalise each image
+    :param from_black: bool
+    :param cmap: str
+    :param labels: iterable of strings. If not None, creates a legend with these labels
+    :param legend_kwargs: dict. to be passed to pyplot.Axes.legend
+    :param kwargs: to be passed to microcavities.utils.plotting.imshow
     :return:
     """
     images = np.asarray(images)
+
+    # Normalise each image, so the color saturation in the imshow is the same for each
     normed = np.array([normalize(x, norm_args) for x in images])
 
-    _cmap = cm.get_cmap(cmap, normed.shape[0] + 0.01)
-    full = np.zeros(images.shape[1:] + (4,))
+    # Creating the RGBA array
+    _cmap = cm.get_cmap(cmap, images.shape[0])
+    colour_list = _cmap(range(normed.shape[0]))
+    rgb_array = np.zeros(images.shape[1:] + (4,))  # start with a black array
     for idx in range(normed.shape[0]):
-        tst = np.tile(normed[idx], (4, 1, 1))
-        plain_color = np.tile(_cmap(idx), images.shape[1:] + (1, ))
-        full += plain_color * np.moveaxis(tst, 0, -1)
-
+        # Create an (N, M, 4) array that repeats the image 4 times. Acts like an intensity mask on the colour
+        _image = np.moveaxis(np.tile(normed[idx], (4, 1, 1)), 0, -1)
+        # Create an (N, M, 4) array that repeats the colormap RGBA value
+        plain_color = np.tile(colour_list[idx], images.shape[1:] + (1, ))
+        rgb_array += plain_color * _image
     if from_black:
-        r = full[..., 0]
-        g = full[..., 1]
-        b = full[..., 2]
-        full = np.moveaxis(np.array([r, g, b]), 0, -1)
+        rgb_array = rgb_array[..., :3]  # removing the alpha channel
 
-    kwargs['diverging'] = False
-    kwargs['cbar'] = False
-    fig, ax = imshow(full, ax, *args, **kwargs)
+    # Imshow call
+    kwargs['cbar'] = False  # colorbar doesn't make sens for this plot
+    fig, ax, cax = imshow(rgb_array, ax, **kwargs)
 
-    clrs = _cmap(range(normed.shape[0]))
+    # Legend handling
     if labels is not None:
         patches = []
-        for lbl, clr in zip(labels, clrs):
+        for lbl, clr in zip(labels, colour_list):
             patches += [mpatches.Patch(color=clr, label=lbl)]
         if legend_kwargs is None: legend_kwargs = dict()
         ax.legend(handles=patches, **legend_kwargs)
-    return (fig, ax), clrs
+    return (fig, ax, cax), colour_list
 
 
-def imshow_transparency(img, ax=None, alpha=None, percentiles=(0, 100), vmin=None, vmax=None,
-                        diverging=True, cbar=False, cmap='coolwarm_r',
-                        *args, **kwargs):
-    if diverging:
-        if vmin is not None or vmax is not None:
-            warnings.warn('Both diverging and vmin/vmax given. Defaulting to diverging.')
-        val = np.max(np.abs([img.min(), img.max()]))
-        norm_colour = colors.Normalize(-val, +val)
-    else:
-        norm_colour = colors.Normalize(vmin, vmax)
+def imshow_transparency(img, ax=None, alpha=None, alpha_percentiles=(0, 100),
+                        color_vmin=None, color_vmax=None, colour_diverging=True, cbar=False, cmap='hsv',
+                        cbar_kwargs=None, cax_kwargs=None, **kwargs):
+    """Qualitative 2D plot that masks an image with an alpha channel
 
-    img_array = plt.get_cmap(cmap)(norm_colour(img))
-
-    if alpha is not None:
-        norm_alpha = colors.Normalize(np.percentile(alpha, percentiles[0]), np.percentile(alpha, percentiles[1]))
-        img_array[..., 3] = norm_alpha(alpha)
-
-    kwargs['diverging'] = False
-    kwargs['cbar'] = False
-    kwargs['vmin'] = None
-    kwargs['vmax'] = None
-    fig, ax = imshow(img_array, ax, *args, **kwargs)
-
-    cbar_ax = None
-    if cbar:
-        _cbar = fig.colorbar(cm.ScalarMappable(norm=norm_colour, cmap=cmap), ax=ax)
-        cbar_ax = _cbar.ax
-    return fig, ax, cbar_ax
-
-
-def combined_imshow(images, ax=None, axes=(0, ), normalise=False, normalise_kwargs=None, *args, **kwargs):
-    """    For making arrays of images, faster than making tons of subplots.
-    Makes a large array with NaNs to separate different images, which can then be plotted in a single Matplotlib artist
-
-    :param images:
-    :param ax:
-    :param axes:
-    :param normalise:
-    :param normalise_kwargs:
-    :param args:
-    :param kwargs:
+    :param img: NxM array
+    :param ax: plt.Axes object
+    :param alpha: NxM array
+    :param alpha_percentiles: 2-tuple
+    :param color_vmin: float
+    :param color_vmax: float
+    :param colour_diverging: bool. If True, the colormap normalization will be centered at 0
+    :param cbar: bool. Whether to add a colorbar
+    :param cmap: str
+    :param kwargs: to be passed to microcavities.utils.plotting.imshow
     :return:
     """
+    # Creating a linear normalization of the colormap
+    if colour_diverging:
+        if color_vmin is not None and color_vmax is not None:
+            warnings.warn('Both vmin/vmax given and diverging=True. Overriding and using diverging=False')
+            norm_colour = colors.Normalize(-color_vmin, color_vmax)
+        else:
+            if color_vmin is not None:
+                val = np.abs(color_vmin)
+            elif color_vmax is not None:
+                val = np.abs(color_vmax)
+            else:
+                val = np.max(np.abs([img.min(), img.max()]))
+            norm_colour = colors.Normalize(-val, +val)
+    else:
+        norm_colour = colors.Normalize(color_vmin, color_vmax)
+
+    # Create RGBA array
+    img_array = plt.get_cmap(cmap)(norm_colour(img))
+
+    # Mask the RGBA array with a normalized alpha channel
+    if alpha is not None:
+        img_array[..., 3] = normalize(alpha, alpha_percentiles, cut=True)
+
+    # plt.imshow call
+    kwargs['cbar'] = False  # colorbar doesn't make sens for this plot
+    fig, ax, _ = imshow(img_array, ax, **kwargs)
+
+    # Colorbar handling
+    cax = None
+    if cbar:
+        cax = colorbar_wrapper(ax, cm.ScalarMappable(norm=norm_colour, cmap=cmap),
+                               cbar_kwargs=cbar_kwargs, cax_kwargs=cax_kwargs)
+    return fig, ax, cax
+
+
+def combined_imshow(images, ax=None, axes=(0, ), normalise=False, normalise_kwargs=None, spacing=3, *args, **kwargs):
+    """    For making arrays of images, faster than making tons of subplots.
+    Stacks images into a larger array to be plotted by a single Matplotlib artist. Spaces in between images are
+
+    :param images: 3 or 4 dimensional array
+    :param ax: pyplot.Axes object
+    :param axes: 1- or 2-tuple. Axes over which to iterate in stacking the images
+    :param normalise: bool. Whether to normalise each image when stacking
+    :param normalise_kwargs: dict or None
+    :param spacing: int
+    :param args: to be passed to microcavities.utils.plotting.imshow
+    :param kwargs: to be passed to microcavities.utils.plotting.imshow
+    :return:
+    """
+    images = np.array(images)
     shape = images.shape
-    assert len(shape) - len(axes) == 2
-    other_axis = set(range(len(shape))) - set(axes)
+    other_axes = set(range(len(shape))) - set(axes)  # axes that are not stacked
+    assert len(other_axes) == 2, 'non-stacked axes need to be 2-dimensional'
+
+    # Finding the square shape on which to stack images
     if len(axes) == 1:
         a, b = square(shape[axes[0]])
+        images = np.moveaxis(images, axes[0], 0)
+        images = np.reshape(images, (a, b) + images.shape[1:])
     elif len(axes) == 2:
         a, b = [shape[idx] for idx in axes]
+        images = np.moveaxis(images, axes, (0, 1))
     else:
-        raise NotImplementedError("Images shape %s and axes %s don't combine" % (shape, axes))
+        raise ValueError("Can't stack over more than 2 axes")
 
-    stepx, stepy = [images.shape[x] for x in other_axis]
-    combined_image = np.zeros((a * (stepx + 1), b * (stepy + 1))) + np.nan
+    # Creating the stacked array
+    stepx, stepy = [shape[x]+spacing for x in other_axes]  # the size of the images to be stacked
+    combined_image = np.full((a * stepx - spacing, b * stepy - spacing), np.nan)  # create the full array of np.nan
     for idx in range(a):
         for idx2 in range(b):
-            if len(axes) == 1:
-                indx = idx * a + idx2
-                img = images[indx]
-            elif len(axes) == 2:
-                img = images[idx, idx2]
-            else:
-                raise ValueError
+            img = images[idx, idx2]
             img = np.array(img, dtype=np.float)
             if normalise:
-                if normalise_kwargs is None:
-                    normalise_kwargs = dict()
+                if normalise_kwargs is None: normalise_kwargs = dict()
                 img = normalize(img, **normalise_kwargs)
-            combined_image[idx * stepx + idx:(idx + 1) * stepx + idx, idx2 * stepy + idx2:(idx2 + 1) * stepy + idx2] = img
+
+            x_index = idx * stepx
+            y_index = idx2 * stepy
+            combined_image[x_index: x_index + (stepx-spacing), y_index: y_index + (stepy-spacing)] = img
+
     return imshow(combined_image, ax, *args, **kwargs)
 
 
-def pcolormesh(img, ax=None, x=None, y=None, cbar=True, cbar_label=None, diverging=True, xlabel=None, ylabel=None, *args, **kwargs):
+def pcolormesh(img, ax=None, xaxis=None, yaxis=None, cbar=True, cbar_kwargs=None, cax_kwargs=None, diverging=True, xlabel=None, ylabel=None, **kwargs):
+    """Alternative to imshow when the axes are not linear
+
+    :param img: 2d array
+    :param ax: pyplot.Axes object
+    :param xaxis: 1D array. Corresponds to the second axis in img
+    :param yaxis: 1D array. Corresponds to the first axis in img
+    :param cbar: bool. Whether to add a colorbar
+    :param cbar_kwargs: dict or None. To be passed to plt.colorbar
+    :param cax_kwargs: dict or None. To be passed to ax_divider
+    :param diverging: bool. Whether to use a diverging colormap, centered around 0
+    :param xlabel: str
+    :param ylabel: str
+    :param kwargs: to be passed to pyplot.pcolormesh
+    :return:
+    """
+
     fig, ax = _make_axes(ax)
-    if x is None:  x = np.arange(img.shape[0])
-    if y is None:  y = np.arange(img.shape[1])
 
+    # Define image axes if not provided
+    if xaxis is None:
+        xaxis = np.linspace(0, img.shape[1] - 1, img.shape[1])
+    if yaxis is None:
+        yaxis = np.linspace(0, img.shape[0] - 1, img.shape[0])
+    assert len(xaxis) == img.shape[1]
+    assert len(yaxis) == img.shape[0]
+
+    # Colormap handling
     if diverging:
-        val = np.max(np.abs([np.max(img), np.min(img)]))
-        vmin = -val
-        vmax = val
-        if 'vmin' not in kwargs:
-            kwargs['vmin'] = vmin
-        if 'vmax' not in kwargs:
-            kwargs['vmax'] = vmax
-        if 'cmap' not in kwargs:
-            kwargs['cmap'] = 'RdBu'
-    sort_indxs_x = np.argsort(x)
-    sort_indxs_y = np.argsort(y)
-    _sorted_img = img[sort_indxs_x]
-    sorted_img = _sorted_img[:, sort_indxs_y]
-    x = x[sort_indxs_x]
-    y = y[sort_indxs_y]
+        kwargs = {**dict(cmap='RdBu'), **kwargs}  # Using a diverging colormap if not provided
+        if 'vmin' not in kwargs and 'vmax' not in kwargs:
+            val = np.nanmax(np.abs([np.nanmax(img), np.nanmin(img)]))
+            kwargs = {**dict(vmin=-val, vmax=val), **kwargs}
+        elif 'vmax' not in kwargs:
+            kwargs['vmax'] = -kwargs['vmin']
+        elif 'vmin' not in kwargs:
+            kwargs['vmin'] = -kwargs['vmax']
+        else:
+            warnings.warn('Provided both vmin and vmax. You sure you want diverging=True?')
 
-    middle_edges_x = np.mean([x[:-1], x[1:]], 0)
-    middle_edges_y = np.mean([y[:-1], y[1:]], 0)
+    # Creating the edge of each pixel on the pcolormesh
+    middle_edges_x = np.mean([xaxis[:-1], xaxis[1:]], 0)
+    middle_edges_y = np.mean([yaxis[:-1], yaxis[1:]], 0)
+    edges_x = [xaxis[0] - (middle_edges_x[0] - xaxis[0])] + list(middle_edges_x) + [xaxis[-1] + (xaxis[-1] - middle_edges_x[-1])]
+    edges_y = [yaxis[0] - (middle_edges_y[0] - yaxis[0])] + list(middle_edges_y) + [yaxis[-1] + (yaxis[-1] - middle_edges_y[-1])]
 
-    edges_x = [x[0] - (middle_edges_x[0] - x[0])] + list(middle_edges_x) + [x[-1] + (x[-1] - middle_edges_x[-1])]
-    edges_y = [y[0] - (middle_edges_y[0] - y[0])] + list(middle_edges_y) + [y[-1] + (y[-1] - middle_edges_y[-1])]
+    im = ax.pcolormesh(edges_x, edges_y, img, **kwargs)
 
-    im = ax.pcolormesh(edges_x, edges_y, sorted_img.transpose(), *args, **kwargs)
-
+    # Colorbar handling
+    cax = None
     if cbar:
-        cb = fig.colorbar(im, ax=ax, label=cbar_label)
-        ax = (ax, cb.ax)
-    if xlabel is not None: ax.set_xlabel(xlabel)
-    if ylabel is not None: ax.set_ylabel(ylabel)
-    return fig, ax
+        cax = colorbar_wrapper(ax, im, cbar_kwargs=cbar_kwargs, cax_kwargs=cax_kwargs)
+
+    label_axes(ax, xlabel, ylabel)
+
+    return fig, ax, cax
 
 
 def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, colours=None,
                           extrapolate=False, max_extrapolation_percent=0.1):
+    """Plots image countours and uses them to calculate and marks the intersection between the contours
+
+    # TODO: modify this function into an microcavities.analysis function to simply get the contour intersections
+
+    :param images:
+    :param contour_levels:
+    :param ax:
+    :param xs:
+    :param ys:
+    :param colours:
+    :param extrapolate:
+    :param max_extrapolation_percent:
+    :return:
+    """
     if colours is None:
         colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(images))]
 
@@ -841,14 +909,26 @@ def test_1D():
     fig.tight_layout()
 
 def test_2D():
-    _x = np.linspace(-np.pi, np.pi, 201)
-    _y = np.linspace(-4*np.pi, 4*np.pi, 101)
+    _x = np.linspace(-np.pi, np.pi, 21)
+    _y = np.linspace(-4*np.pi, 4*np.pi, 11)
     x, y = np.meshgrid(_x, _y)
     imshow(np.cos(x) * np.cos(y), xaxis=_x, yaxis=_y, xlabel='$x$', ylabel='$y$', cbar_kwargs=dict(label=r'$cos(x) \cdot cos(y)$'))
 
     contour_intersections([x**2 - y**2, x**2+y**2], [[2, 4, 6], [3, 5]])
 
     colorful_imshow([np.exp(-(x+1)**2 - (y+1)**2), np.exp(-(x-1)**2 - (y-1)**2)], xaxis=_x, yaxis=_y, labels=['++', '--'])
+
+    imshow_transparency(np.arctan2(y, x), None, np.exp(-(x/3)**2 - (y/3)**2), xaxis=_x, yaxis=_y, cbar=True)
+
+    combined_imshow(np.moveaxis([np.random.rand()*np.exp(-(x+np.cos(theta))**2 - (y+np.sin(theta))**2) for theta in 2*np.pi*np.random.rand(9)], 0, 1), axes=(1, ), normalise=True)
+    combined_imshow([[r*np.exp(-(x+np.cos(theta))**2 - (y+np.sin(theta))**2) for theta in 2*np.pi*np.random.rand(3)] for r in np.random.rand(3)], axes=(0, 1), normalise=True)
+
+    fig, axs = plt.subplots(1, 2)
+    img = np.random.random(x.shape)
+    pcolormesh(img, axs[0], xaxis=_x, yaxis=_y)
+    imshow(img, axs[1], xaxis=_x, yaxis=_y)
+
+    pcolormesh(img, xaxis=np.exp(_x), yaxis=_y)
 
 
 if __name__ == '__main__':
