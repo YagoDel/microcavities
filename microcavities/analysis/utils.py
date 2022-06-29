@@ -186,6 +186,39 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
     return x_new, y_new
 
 
+def find_smooth_region(data, threshold=0.1):
+    """Returns the boundary indices of the smooth region in data
+
+    Smoothness is defined as a fraction of the min to max variation, given by
+    the threshold parameter
+
+    :param 1d array data:
+    :param float threshold: percentage of the min to max variation below which
+                            a signal is considered to be smooth
+    :return:
+    """
+    # First normalise the data to go from 0 to 1
+    data = np.array(data, np.float)
+    data -= np.min(data)
+    data /= np.max(data)
+
+    # Then find the indices where the variation between adjacent points is
+    # larger than the desired threshold
+    diff = np.diff(data)
+    noise_indices = [0]
+    noise_indices += list(np.argwhere(np.abs(diff) > threshold).flatten())
+    noise_indices += [len(data)]
+
+    # If there is a flat region in the line, there will be a large gap in the
+    # noise_indices. To find the gap, we find the location of the maximum
+    # variation between noise_indices
+    idx = np.argmax(np.abs(np.diff(noise_indices)))
+
+    # The boundary of the smooth region is given by noise_indices at idx
+    boundaries = noise_indices[idx] + 1, noise_indices[idx + 1] + 1
+    return boundaries, data[boundaries[0]:boundaries[1]]
+
+
 # Tests
 def test_remove_spikes():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]
