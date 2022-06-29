@@ -28,6 +28,31 @@ def default_extension(path, default):
 
 
 # Utils
+def figure(aspect_ratio=1.5, columns='double', margins=5, column_separation=5, *args, **kwargs):
+    """Wrapper for plt.figure to make paper-ready figures
+
+    :param aspect_ratio:
+    :param columns:
+    :param margins:
+    :param column_separation:
+    :param args:
+    :param kwargs:
+    :return:
+    """
+
+    if 'figsize' not in kwargs:
+        a4_width = 210
+        if columns == 'double':
+            width = (a4_width - 2 * margins) * (1 / 25.4)  # in inches
+        elif columns == 'single':
+            width = ((a4_width - 2 * margins - column_separation) / 2) * (1 / 25.4)  # in inches
+        else:
+            raise ValueError('Unrecognised columns: %s' % columns)
+        kwargs['figsize'] = (width, width/aspect_ratio)
+
+    return plt.figure(*args, **kwargs)
+
+
 def default_save(figure, name, base_path=None, dpi=1200):
     if base_path is None:
         base_path = os.path.dirname(get_data_path(None, False))
@@ -40,7 +65,8 @@ def default_save(figure, name, base_path=None, dpi=1200):
 
 def _make_axes(ax=None):
     if ax is None:
-        fig, ax = plt.subplots(1, 1)
+        fig = figure()
+        ax = fig.subplots(1, 1)
     else:
         fig = ax.figure
     return fig, ax
@@ -891,7 +917,8 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
 def test_1D():
     x = np.linspace(-2*np.pi, 2*np.pi, 201)
 
-    fig, axs = plt.subplots(1, 5, figsize=(8, 4))
+    fig = figure()
+    axs = fig.subplots(1, 5)
     lines = np.array([np.sin(x + ph) for ph in np.linspace(-np.pi, np.pi, 10)])
     waterfall(lines, axs[0], xaxis=x, xlabel='Phase', ylabel='amplitude')
     waterfall(lines, axs[1], color='k', alpha=0.1, offsets=0.1)
