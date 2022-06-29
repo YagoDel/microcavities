@@ -202,13 +202,10 @@ def run_once(f):
     :return:
     """
     def wrapper(*args, **kwargs):
-        if args[1] not in list(wrapper.dicc.keys()):
-            wrapper.dicc[args[1]] = False
-        if not wrapper.dicc[args[1]]:
-            wrapper.dicc[args[1]] = True
+        if not wrapper.ran:
+            wrapper.ran = True
             return f(*args, **kwargs)
-
-    wrapper.dicc = {}
+    wrapper.ran = False
     return wrapper
 
 
