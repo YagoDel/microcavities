@@ -7,18 +7,32 @@
 backports.functools-lru-cache==1.5  # via matplotlib
 cycler==0.10.0            # via matplotlib
 enum34==1.1.6             # via nidaqmx
-h5py==2.9.0
+h5py~=2.10.0
 kiwisolver==1.1.0         # via matplotlib
-matplotlib==2.2.4
+matplotlib~=3.4.2
 nidaqmx==0.5.7
-numpy==1.22.0
+numpy~=1.20.3
 pymsgbox==1.0.7
 pyparsing==2.4.2          # via matplotlib
 python-dateutil==2.8.0    # via matplotlib
 pytz==2019.2              # via matplotlib
-pyyaml==5.4
+pyyaml~=5.4.1
 six==1.12.0               # via cycler, h5py, matplotlib, nidaqmx, python-dateutil
 tmm==0.1.7
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools==41.2.0        # via kiwisolver
+
+setuptools~=52.0.0
+scipy~=1.7.1
+yaml~=0.2.5
+imageio~=2.9.0
+microcavities~=1.0
+shapely~=1.7.1
+nplab~=1.0
+pyqtgraph~=0.11.1
+pillow~=8.3.1
+lmfit~=1.0.2
+scikit-learn~=0.24.2
+tqdm~=4.62.1
+scikit-image~=0.18.1

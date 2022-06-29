@@ -11,13 +11,5 @@ setup(name='microcavities',
       url='https://github.com/YagoDel/microcavities',
       license='MIT',
       packages=find_packages(),
-      install_requires=[
-          'numpy<2.0dev',
-          'matplotlib<=3.0dev',
-          'h5py<3.0',
-          'pyyaml<6.0',
-          'pymsgbox<2.0',
-          'nidaqmx<1.0',
-          'tmm<1.0'
-      ],
+      install_requires=['numpy', 'matplotlib', 'h5py', 'pyyaml', 'pymsgbox', 'nidaqmx', 'tmm', 'shapely', 'scipy', 'imageio'],
       zip_safe=False)
