@@ -981,3 +981,28 @@ class ExperimentYamlSetup(QtWidgets.QDialog):
         self.yaml_path = yaml_path
 
         self.done(1)
+
+
+def get_data_from_yamls(yaml_paths, series_names=None, average_datasets=False):
+    if type(yaml_paths) == str:
+        yaml_paths = [yaml_paths] * len(series_names)
+    elif series_names is None:
+        series_names = [None] * len(yaml_paths)
+
+    data = []
+    variables = []
+    for idx, series_name, yaml_path in zip(range(len(series_names)), series_names, yaml_paths):
+        scan = AnalysisScan(yaml_path)
+        if series_name is not None:
+            scan.series_name = series_name
+        scan.extract_hierarchy()
+        scan.run()
+        keys = list(scan.analysed_data.keys())
+        keys.sort(key=SortingKey)
+        if average_datasets:
+            scan_data = np.mean(np.array([scan.analysed_data[key] for key in keys], np.float), 0)
+        else:
+            scan_data = np.squeeze(np.array([scan.analysed_data[key] for key in keys], np.float))
+        data += [scan_data]
+        variables += [scan.variables]
+    return data, variables
