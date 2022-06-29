@@ -7,84 +7,10 @@ import os
 import subprocess
 import datetime
 import warnings
+from scipy.interpolate import LinearNDInterpolator, interp1d
 
 
-def depth(lst):
-    """
-    Returns the depth of a list by recursively checking whether the sub-elements are lists:
-        depth([0,1,2,3,4]) is 1
-        depth([[0,1],[2,3]]) is 2
-
-    :param lst: list or list of lists
-    :return: int. Depth of the list of lists provided
-    """
-    return isinstance(lst, list) and max(list(map(depth, lst))) + 1
-
-
-def run_once(f):
-    """
-    Given a function that can run many times, returns a function that can run only once
-
-    :param f: function
-    :return:
-    """
-    def wrapper(*args, **kwargs):
-        if args[1] not in list(wrapper.dicc.keys()):
-            wrapper.dicc[args[1]] = False
-        if not wrapper.dicc[args[1]]:
-            wrapper.dicc[args[1]] = True
-            return f(*args, **kwargs)
-
-    wrapper.dicc = {}
-    return wrapper
-
-
-def string_to_number(s):
-    """Given a string, tries to convert it to an integer, and if it fails tries to convert it to a float
-
-    :param string s: Input string.
-    :return: number.
-    :rtype: type
-
-    """
-    try:
-        return int(s)
-    except ValueError:
-        return float(s)
-
-
-def is_prime(integer):
-    """
-    Checks whether integer is divisible by any other integer smaller than itself.
-
-    :param integer: int
-    :return: bool. True if a is prime, False otherwise
-    """
-    return all(integer % i for i in range(2, integer))
-
-
-def square(integer, _iter=0):
-    """
-    Finds the two integers that most closely make a square of the input integer.
-    E.g. square(9) = (3, 3); square(10) = (5, 2); square(3) = (3, 1); square(11) = (4, 3)
-
-    :param integer: int
-    :param _iter: int. Keeps track of what level of recursion we are at to avoid diverging.
-    :return: two-tuple
-    """
-    square_root = np.sqrt(integer)
-    a = np.round(square_root) + _iter
-    if is_prime(integer) and integer > 10:
-        return square(integer + 1, _iter)
-
-    if np.mod(square_root, 1) == 0:
-        return int(square_root), int(square_root)
-    elif np.mod(integer, a) != 0 and _iter < integer:
-        return square(integer, _iter + 1)
-    else:
-        return np.max([int(a), int(integer / a)]), np.min([int(a), int(integer / a)])
-
-
+# File directory utils
 def yaml_loader(input_yaml):
     """Parsing for creating dictionaries from yaml file paths, files, or dictionaries
 
@@ -156,7 +82,7 @@ def get_data_path(filename=None, create_folder=True):
         filename = os.path.join(datetime.date.today().strftime('%Y_%m_%d'), 'raw_data.h5')
 
     full_path = os.path.normpath(os.path.join(directory, filename))
-    
+
     if create_folder:
         folder_name = os.path.dirname(full_path)
         if not os.path.exists(folder_name):
@@ -165,14 +91,27 @@ def get_data_path(filename=None, create_folder=True):
     return full_path
 
 
+# Array utils
 def interpolated_array(array, axes=None, **kwargs):
-    from scipy.interpolate import LinearNDInterpolator
-    # from scipy.interpolate import interpn
-    # if axes is None: axes = [np.arange(x) for x in array.shape]
-    # return partial(interpn, axes, array, **kwargs)
+    """Creates a LinearNDInterpolator object from array. Useful for sparse data
+
+    Usage:
+    >>>> x = np.linspace(-np.pi, np.pi, 10)
+    >>>> y = np.cos(x)
+    >>>> y2 = interpolated_array(y, [x])
+    >>>> y2(0)
+
+    :param array: ND array
+    :param axes: None or list. List of values for each axes of array
+    :param kwargs:
+    :return:
+    """
     if axes is None: axes = [np.arange(x) for x in array.shape]
     axes_arrays = [x.flatten() for x in np.meshgrid(*axes, indexing='ij')]
-    return LinearNDInterpolator(list(zip(*axes_arrays)), array.flatten(), **kwargs)
+    if len(axes_arrays) > 1:
+        return LinearNDInterpolator(list(zip(*axes_arrays)), array.flatten(), **kwargs)
+    else:
+        return interp1d(axes_arrays[0], array)
 
 
 def random_choice(array, axes=(0,), return_indices=False):
@@ -196,6 +135,14 @@ def random_choice(array, axes=(0,), return_indices=False):
 
 
 def normalize(array, percentiles=(0, 100), axis=None, cut=False):
+    """Normalizes array to set specified percentiles to fixed values (0 and 1)
+
+    :param array: ND-array
+    :param percentiles: 2-tuple of floats
+    :param axis: int. Axis along which to normalize the array. If None, normalizes along all simultaneously
+    :param cut: bool. If True, the array is modified to only go from 0 to 1 (e.g. values above percentiles[1] are set to 1)
+    :return:
+    """
     mn = np.percentile(array, percentiles[0], axis=axis, keepdims=True)
     mx = np.percentile(array, percentiles[1], axis=axis, keepdims=True)
     normed = (array - mn) / (mx - mn)
@@ -206,6 +153,14 @@ def normalize(array, percentiles=(0, 100), axis=None, cut=False):
 
 
 def apply_along_axes(func, axes, array, n_outputs=None):
+    """Applies a function to ND-array along specified outputs
+
+    :param func:
+    :param axes: tuple of int.
+    :param array: ND array
+    :param n_outputs: int. Number of outputs from func
+    :return:
+    """
     shape = np.array(array.shape)
     mask = np.full(len(shape), True)
     mask[(axes, )] = False
@@ -225,6 +180,83 @@ def apply_along_axes(func, axes, array, n_outputs=None):
     outputs = [np.array(output) for output in outputs]
     reshaped_outputs = [np.reshape(output, tuple(shape[mask]) + output.shape[1:]) for output in outputs]
     return reshaped_outputs
+
+
+# Miscellaneous utils
+def depth(lst):
+    """
+    Returns the depth of a list by recursively checking whether the sub-elements are lists:
+        depth([0,1,2,3,4]) is 1
+        depth([[0,1],[2,3]]) is 2
+
+    :param lst: list or list of lists
+    :return: int. Depth of the list of lists provided
+    """
+    return isinstance(lst, list) and max(list(map(depth, lst))) + 1
+
+
+def run_once(f):
+    """Given a function that can run many times, returns a function that can run only once
+
+    :param f: function
+    :return:
+    """
+    def wrapper(*args, **kwargs):
+        if args[1] not in list(wrapper.dicc.keys()):
+            wrapper.dicc[args[1]] = False
+        if not wrapper.dicc[args[1]]:
+            wrapper.dicc[args[1]] = True
+            return f(*args, **kwargs)
+
+    wrapper.dicc = {}
+    return wrapper
+
+
+def string_to_number(s):
+    """Given a string, tries to convert it to an integer, and if it fails tries to convert it to a float
+
+    :param string s: Input string.
+    :return: number.
+    :rtype: type
+
+    """
+    try:
+        return int(s)
+    except ValueError:
+        return float(s)
+
+
+def is_prime(integer):
+    """
+    Checks whether integer is divisible by any other integer smaller than itself.
+
+    :param integer: int
+    :return: bool. True if a is prime, False otherwise
+    """
+    return all(integer % i for i in range(2, integer))
+
+
+def square(integer, _iter=0, threshold=10):
+    """
+    Finds the two integers that most closely make a square of the input integer.
+    E.g. square(9) = (3, 3); square(10) = (5, 2); square(3) = (3, 1); square(11) = (4, 3)
+
+    :param integer: int
+    :param _iter: int. Keeps track of what level of recursion we are at to avoid diverging.
+    :param threshold: int. If prime integer > threshold, get a square for integer + 1
+    :return: two-tuple
+    """
+    square_root = np.sqrt(integer)
+    a = np.round(square_root) + _iter
+    if is_prime(integer) and integer > threshold:
+        return square(integer + 1, _iter)
+
+    if np.mod(square_root, 1) == 0:
+        return int(square_root), int(square_root)
+    elif np.mod(integer, a) != 0 and _iter < integer:
+        return square(integer, _iter + 1)
+    else:
+        return np.max([int(a), int(integer / a)]), np.min([int(a), int(integer / a)])
 
 
 def around_step(value, step):
