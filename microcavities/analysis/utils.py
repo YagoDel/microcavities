@@ -3,16 +3,9 @@
 from microcavities.utils.plotting import *
 from scipy.ndimage import gaussian_filter
 from scipy.stats import zscore
+from microcavities.utils import around_step
 from microcavities.utils.functools import lorentzianNd, gaussianNd
 import collections
-
-
-def fit_function(name):
-    """
-    Given a name, return a lmfit Model with a guess method implemented
-    :param name:
-    :return:
-    """
 
 
 def centroids(array, axis=-1):
@@ -23,18 +16,26 @@ def centroids(array, axis=-1):
     return np.ma.average(img, axis, array)
 
 
-def remove_spikes(array, thresh=5, smooth=30, max_iterations=10):
-    # Modification of the nplab version, to use on
-    cleaned = np.copy(array)  # prevent modification in place
+def remove_cosmicrays(image, standard_deviations=5, sigma=30, max_iterations=10):
+    """Removes cosmic rays spikes in an image
+
+    Iteratively replaces the regions in an image that are more than standard_deviations away from the mean noise by the
+    gaussian_filter'ed image
+
+    :param image: 2D array
+    :param standard_deviations: float
+    :param sigma: float. Standard deviation for Gaussian filter. To be passed to scipy.ndimage.filters.gaussian_filter
+    :param max_iterations:
+    :return:
+    """
+    cleaned = np.copy(image)  # prevent modification in place
 
     for i in range(max_iterations):
-        noise_spectrum = cleaned / gaussian_filter(cleaned, smooth)
-        # ^ should be a flat, noisy array, with a large spike where there's a cosmic ray.
-        noise_level = np.sqrt(np.var(noise_spectrum))
-        # average deviation of a datapoint from the mean
-        mean_noise = noise_spectrum.mean()  # should be == 1
-        spikes = np.nonzero(noise_spectrum > mean_noise + (thresh * noise_level))
-        cleaned[spikes] = gaussian_filter(cleaned, smooth)[spikes]
+        noise_spectrum = cleaned / gaussian_filter(cleaned, sigma)  # normalised array
+        mean_noise = noise_spectrum.mean()  # tends to -> 1 as iterations go on
+        noise_level = np.std(noise_spectrum)
+        spikes = np.nonzero(noise_spectrum > mean_noise + (standard_deviations * noise_level))  # mask of the spikes
+        cleaned[spikes] = gaussian_filter(cleaned, sigma)[spikes]  # replace the spikes with the filtered image
         if len(spikes[0]) == 0:
             break
     return cleaned
@@ -46,9 +47,11 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR', return_mas
 
     :param x: array
     :param axis: axis to remove along
-    :param bar:
-    :param side:
-    :param method:
+    :param bar: float
+    :param side: str
+        Whether to remove outliers lower than the threshold ('lt'), greater than the threshold ('gt') or 'both'
+    :param method: str. Either IQR or zscore
+    :param return_mask: bool
     :return:
     """
     assert side in ['gt', 'lt', 'both'], 'Side should be `gt`, `lt` or `both`.'
@@ -65,6 +68,8 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR', return_mas
         xcopy = zscore(xcopy, axis=axis)
         upper_range = bar
         lower_range = -bar
+    else:
+        raise NotImplemented('method = %s' % method)
     stat_shape = list(xcopy.shape)
     if axis is None:
         axis = list(range(len(stat_shape)))
@@ -92,22 +97,10 @@ def remove_outliers(x, axis=None, bar=1.5, side='both', method='IQR', return_mas
         return x
 
 
-def around_step(value, step):
-    """Round a float to the nearest step
-    :param value:
-    :param step:
-    :return:
-    """
-    up_down = (value % step // (step/2))
-    if up_down:
-        offset = -value % step
-    else:
-        offset = -(value % step)
-    return value + offset
-
-
 def stitch_datasets(x_sets, y_sets, interpolation='even'):
-    """Stitching
+    """Stitching datasets
+
+    Useful for creating a spectra for a large wavelength range from individual small range images
 
     TODO: allow for more complicated stitching than just averaging: previous, next, or a smooth transition from one to the next
 
@@ -120,12 +113,12 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
     """
 
     # Choosing an array of x-values
-    if interpolation == 'even':
+    if interpolation == 'even':  # creates an x axis of uniformly distributed values
         x_step = [np.diff(x)[0] for x in x_sets]
         x_new = np.arange(np.min(np.concatenate(x_sets)),
                           np.max(np.concatenate(x_sets))+np.min(x_step)/2,
                           np.min(x_step))
-    elif interpolation == 'same':
+    elif interpolation == 'same':  # creates an x axis stitched from the given axes
         x_new = []
         for idx, x in enumerate(x_sets):
             if idx == 0:
@@ -185,8 +178,10 @@ def stitch_datasets(x_sets, y_sets, interpolation='even'):
     else:
         raise ValueError("Unrecognised interpolation %s. Needs to be one of: 'even', 'same'" % interpolation)
 
-
+    # Create interpolated functions for each set of x and y axes. Out of bounds are set to np.nan
     interpolated_datasets = [interp1d(x, y, bounds_error=False) for x, y in zip(x_sets, y_sets)]
+
+    # Create the stitched dataset by averaging the interpolated values between different datasets
     y_new = np.nanmean([f(x_new) for f in interpolated_datasets], 0)
     return x_new, y_new
 
@@ -217,16 +212,16 @@ def test_remove_spikes():
     fig, axs = plt.subplots(2, 6)
     axs[0, 0].imshow(base_img)
     axs[0, 1].imshow(nois_img)
-    axs[0, 2].imshow(remove_spikes(nois_img))
-    axs[0, 3].imshow(remove_spikes(nois_img, 2))
-    axs[0, 4].imshow(remove_spikes(nois_img, smooth=5))
-    axs[0, 5].imshow(remove_spikes(nois_img, 1, 5, 100))
+    axs[0, 2].imshow(remove_cosmicrays(nois_img))
+    axs[0, 3].imshow(remove_cosmicrays(nois_img, 2))
+    axs[0, 4].imshow(remove_cosmicrays(nois_img, sigma=5))
+    axs[0, 5].imshow(remove_cosmicrays(nois_img, 1, 5, 100))
     axs[1, 0].plot(base_spectra)
     axs[1, 1].plot(noisy_spectra)
-    axs[1, 2].plot(remove_spikes(noisy_spectra))
-    axs[1, 3].plot(remove_spikes(noisy_spectra, 2))
-    axs[1, 4].plot(remove_spikes(noisy_spectra, smooth=5))
-    axs[1, 5].plot(remove_spikes(noisy_spectra, 1, 5, 100))
+    axs[1, 2].plot(remove_cosmicrays(noisy_spectra))
+    axs[1, 3].plot(remove_cosmicrays(noisy_spectra, 2))
+    axs[1, 4].plot(remove_cosmicrays(noisy_spectra, sigma=5))
+    axs[1, 5].plot(remove_cosmicrays(noisy_spectra, 1, 5, 100))
 
 def test_remove_outliers():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]

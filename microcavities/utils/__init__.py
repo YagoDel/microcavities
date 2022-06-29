@@ -225,3 +225,17 @@ def apply_along_axes(func, axes, array, n_outputs=None):
     outputs = [np.array(output) for output in outputs]
     reshaped_outputs = [np.reshape(output, tuple(shape[mask]) + output.shape[1:]) for output in outputs]
     return reshaped_outputs
+
+
+def around_step(value, step):
+    """Round a float to the nearest step
+    :param value:
+    :param step:
+    :return:
+    """
+    up_down = (value % step // (step/2))
+    if up_down:
+        offset = -value % step
+    else:
+        offset = -(value % step)
+    return value + offset
