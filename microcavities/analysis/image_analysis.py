@@ -1,41 +1,14 @@
 # -*- coding: utf-8 -*-
 from microcavities.utils.plotting import *
-from microcavities.utils.plotting import _make_axes
-from microcavities.utils import depth
-from microcavities.experiment.utils import spectrometer_calibration, magnification
 from nplab.utils.gui import QtWidgets, uic
 from nplab.utils.log import create_logger
 from nplab.utils.show_gui_mixin import ShowGUIMixin
-from scipy.ndimage import gaussian_filter
-from scipy.interpolate import interp1d
-from scipy.signal import find_peaks, savgol_filter
-from scipy.optimize import least_squares
 import pyqtgraph as pg
 import pymsgbox
-from matplotlib.colors import LinearSegmentedColormap
-from functools import partial
-from sklearn.cluster import AgglomerativeClustering
-from copy import deepcopy
 
-LOGGER = create_logger("analysis_functions")
+"""UNFINISHED"""
 
-cdict = {'red': [(0.0, 0.0, 1.0),
-                 (0.25, 0.0, 0.0),
-                 (0.5, 1.0, 1.0),
-                 (0.75, 1.0, 1.0),
-                 (1.0, 0.0, 0.0)],
-         'green': [(0.0, 0.0, 1.0),
-                   (0.25, 0.4, 0.4),
-                   (0.5, 1.0, 1.0),
-                   (0.75, 0.0, 0.0),
-                   (1.0, 0.0, 0.0)],
-         'blue': [(0.0, 1.0, 1.0),
-                  (0.25, 0.0, 0.0),
-                  (0.5, 0.0, 0.0),
-                  (0.75, 0.0, 0.0),
-                  (1.0, 0.0, 0.0)]}
-mycmap = LinearSegmentedColormap('Michael', cdict, 256)
-plt.register_cmap(cmap=mycmap)
+LOGGER = create_logger("Image analysis")
 
 
 def gui_checkplot():
