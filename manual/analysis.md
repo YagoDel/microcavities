@@ -16,13 +16,13 @@ $$\partial_t\begin{pmatrix}
 \Phi \\\ \chi
 \end{pmatrix}
 =\begin{pmatrix}  
-E_p & \Omega \\ \Omega & E_{\chi}
+E_p & \Omega \\\ \Omega & E_{\chi}
 \end{pmatrix}
 \begin{pmatrix}  
 \Phi \\\ \chi
 \end{pmatrix}$$
 
-where $\chi$ is the exciton wavefunction, $\Phi$ is the photon wavefunction, and $\Omega$ the Rabi splitting.
+where $\chi $ is the exciton wavefunction, $\Phi $ is the photon wavefunction, and $\Omega $ the Rabi splitting.
 
 To perform the fit:
 
