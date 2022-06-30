@@ -5,11 +5,12 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib import colors, cm, collections
 from matplotlib.colors import LogNorm
+from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from matplotlib import transforms
 import matplotlib.patches as mpatches
 import numpy as np
-from microcavities.utils import square, get_data_path, normalize
+from microcavities.utils import square, get_data_path, normalize, run_once
 import os
 from collections import OrderedDict
 from shapely.geometry import MultiLineString
@@ -18,6 +19,25 @@ from scipy.interpolate import interp1d
 import re
 import imageio
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
+
+
+cdict = {'red': [(0.0, 0.0, 1.0),
+                 (0.25, 0.0, 0.0),
+                 (0.5, 1.0, 1.0),
+                 (0.75, 1.0, 1.0),
+                 (1.0, 0.0, 0.0)],
+         'green': [(0.0, 0.0, 1.0),
+                   (0.25, 0.4, 0.4),
+                   (0.5, 1.0, 1.0),
+                   (0.75, 0.0, 0.0),
+                   (1.0, 0.0, 0.0)],
+         'blue': [(0.0, 1.0, 1.0),
+                  (0.25, 0.0, 0.0),
+                  (0.5, 0.0, 0.0),
+                  (0.75, 0.0, 0.0),
+                  (1.0, 0.0, 0.0)]}
+mycmap = LinearSegmentedColormap('Michael', cdict, 256)
+run_once(lambda: plt.register_cmap(cmap=mycmap))()  # only register the colormap once
 
 
 def default_extension(path, default):

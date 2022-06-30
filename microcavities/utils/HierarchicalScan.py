@@ -5,7 +5,7 @@ from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
 from nplab.experiment.gui import ExperimentWithProgressBar
-from microcavities.analysis.utils import SortingKey
+from microcavities.utils.HierarchicalDatastructure import SortingKey
 from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number, yaml_loader, get_data_path, get_data_directory
 import h5py
