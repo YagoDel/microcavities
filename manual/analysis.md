@@ -22,7 +22,7 @@ E_p & \Omega \\\ \Omega & E_{\chi}
 \Phi \\\ \chi
 \end{pmatrix}$$
 
-where $\chi $ is the exciton wavefunction, $\Phi $ is the photon wavefunction, and $\Omega $ the Rabi splitting.
+where $ \chi $ is the exciton wavefunction, $ \Phi $ is the photon wavefunction, and $ \Omega $ the Rabi splitting.
 
 To perform the fit:
 
