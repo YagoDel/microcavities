@@ -1,14 +1,68 @@
 # -*- coding: utf-8 -*-
+"""
+Utility functions to analyse low power dispersion images
+"""
+
 from microcavities.utils.plotting import *
+from microcavities.utils.plotting import _make_axes
+from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 from scipy.ndimage import gaussian_filter
 from nplab.utils.log import create_logger
 from microcavities.analysis.utils import find_smooth_region
 from lmfit.models import LorentzianModel, ConstantModel
+from functools import partial
+from scipy.signal import savgol_filter, find_peaks
+from scipy.optimize import least_squares
+from sklearn.cluster import AgglomerativeClustering
+from copy import deepcopy
 
 LOGGER = create_logger("dispersion")
 
 
+def _up_low_polariton(exciton, photon, rabi_splitting):
+    average_energy = (exciton + photon) / 2
+    detuning = exciton - photon
+    offset = np.sqrt(detuning**2 + rabi_splitting**2) / 2
+
+    up = average_energy + offset
+    low = average_energy - offset
+    return low, up
+
+
+def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=None, photon_energy=None,
+                          exciton_mass=None, photon_mass=None, polariton_mass=None):
+    if rabi_splitting is not None:
+        if detuning is None:
+            detuning = exciton_energy - photon_energy
+        exciton_fraction = 0.5 * (1 + detuning / np.sqrt(detuning**2 + rabi_splitting**2))
+    elif exciton_mass is not None:
+        exciton_fraction = (exciton_mass * (photon_mass - polariton_mass)) / (polariton_mass * (photon_mass - exciton_mass))
+    else:
+        raise ValueError('Need to give either energies or masses')
+    photon_fraction = 1 - exciton_fraction
+    return exciton_fraction, photon_fraction
+
+
+def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass,
+                               k_offset=0, for_fit=True):
+    hbar = 0.658  # in meV*ps
+    c = 300  # in um/ps
+
+    exciton_mass *= (0.511 * 1e9) / c**2
+    photon_mass *= (0.511 * 1e9) / c**2
+
+    exciton_dispersion = exciton_energy + (hbar * (k_axis+k_offset))**2 / (2*exciton_mass)
+    photon_dispersion = photon_energy + (hbar * (k_axis+k_offset))**2 / (2*photon_mass)
+
+    lower_p, upper_p = _up_low_polariton(exciton_dispersion, photon_dispersion, rabi_splitting)
+    if for_fit:
+        return lower_p, upper_p
+    else:
+        return lower_p, upper_p, exciton_dispersion, photon_dispersion
+
+
+# Low-energy k~0 dispersion fitting
 def guess_peak(data, xaxis=None, width_lims=(5, 0.001)):
     """Peak property guessing
 
@@ -250,43 +304,230 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     return results, args, kwargs
 
 
-def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=None, photon_energy=None,
-                          exciton_mass=None, photon_mass=None, polariton_mass=None):
-    if rabi_splitting is not None:
-        if detuning is None:
-            detuning = exciton_energy - photon_energy
-        exciton_fraction = 0.5 * (1 + detuning / np.sqrt(detuning**2 + rabi_splitting**2))
-    elif exciton_mass is not None:
-        exciton_fraction = (exciton_mass * (photon_mass - polariton_mass)) / (polariton_mass * (photon_mass - exciton_mass))
-    else:
-        raise ValueError('Need to give either energies or masses')
-    photon_fraction = 1 - exciton_fraction
-    return exciton_fraction, photon_fraction
+# Full dispersion fitting
+def fit_dispersion(image, k_axis, energy_axis, plotting, known_sample_parameters=None, mode='both',
+                   find_bands_kwargs=None, starting_fit_parameters=(1550., 4, 2e-5, 1555., 0.35, 0)):
+    """
+    # todo: parse known sample parameters
+
+    :param image: 2D array. 1st axis is momentum, 2nd axis is energy
+    :param k_axis: 1D array
+    :param energy_axis: 1D array
+    :param plotting: bool
+    :param known_sample_parameters:
+    :param mode: str
+        One of 'both' or 'lp', whether to perform the fit on just the lower polariton or both polariton branches
+    :param find_bands_kwargs: dict. To be passed to find_bands
+    :param starting_fit_parameters: list. In order:
+        - photon_energy in meV
+        - rabi_splitting in meV
+        - photon_mass in m_e (free electron mass)
+        - exciton_energy in meV
+        - exciton_mass in m_e (free electron mass)
+        - k_offset in um-1
+    :return:
+    """
+    ax = False
+    if plotting:
+        fig, ax = plt.subplots(1, 1)
+    if find_bands_kwargs is None: find_bands_kwargs = dict()
+
+    # By default try to fit both upper and lower polariton
+    n_clusters = 2
+    if mode == 'lp': n_clusters = 1
+
+    # Default find_band parameters that work for most dispersion images. Might need optimizing
+    defaults = dict(direction='y',
+                    find_peak_kwargs=dict(height=np.percentile(image, 90), distance=500),
+                    clustering_kwargs=dict(min_cluster_size=40, min_cluster_distance=10,
+                                           agglom_kwargs=dict(n_clusters=n_clusters, linkage='single')),
+                    xaxis=k_axis, yaxis=energy_axis)
+    find_bands_kwargs = {**defaults, **find_bands_kwargs}
+    bands = find_bands(image, ax, **find_bands_kwargs)
+
+    # Create cost functions fo least square function fitting
+    if mode == 'both':
+        def cost_function(x, experiment_bands):
+            photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass, k_offset = x
+
+            # Least squares for the lower polariton band
+            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0], photon_energy, rabi_splitting,
+                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            lower_cost = np.sum(np.abs(lower_polariton - experiment_bands[0][:, 1]) ** 2)
+
+            # Least squares for the upper polariton band
+            _, upper_polariton = exciton_photon_dispersions(experiment_bands[1][:, 0], photon_energy, rabi_splitting,
+                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            upper_cost = np.sum(np.abs(upper_polariton - experiment_bands[1][:, 1]) ** 2)
+            return lower_cost + upper_cost
+    elif mode == 'lp':
+        def cost_function(x, experiment_bands):
+            photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass, k_offset = x
+
+            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0], photon_energy, rabi_splitting,
+                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            lower_cost = np.sum(np.abs(lower_polariton - experiment_bands[0][:, 1]) ** 2)
+            return lower_cost
+
+    scale = (1, 1, 1e-5, 1, 0.01, 0.1)  # very different order of magnitude of parameters needs least_squares scaling
+    a = least_squares(partial(cost_function, experiment_bands=bands), starting_fit_parameters, x_scale=scale)
+
+    if plotting:
+        new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
+        lower, upper = exciton_photon_dispersions(new_k, *a.x)
+        ax.plot(new_k, lower)
+        ax.plot(new_k, upper)
+    return a
 
 
-def _up_low_polariton(exciton, photon, rabi_splitting):
-    average_energy = (exciton + photon) / 2
-    detuning = exciton - photon
-    offset = np.sqrt(detuning**2 + rabi_splitting**2) / 2
+def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None,
+                   noise_cluster_size=5, min_cluster_distance=10, min_cluster_size=30):
+    """
+    Currently just a wrapper of sklearn.cluster.AgglomerativeClustering with additional filtering of clusters
 
-    up = average_energy + offset
-    low = average_energy - offset
-    return low, up
+    :param points:
+    :param fig_ax: pyplot.Figure or pyplot.Axes or None
+    :param axis_limits: tuple
+        Either a two-tuple (e.g. [-1, 1]) or a two-tuple of two-tuples (e.g. [[-1, 1], [800, 850]]), indicating either
+        the limits on a single axis, or both axis
+    :param agglom_kwargs:
+    :param noise_cluster_size:
+    :param min_cluster_distance:
+    :param min_cluster_size:
+    :return:
+    """
+    if axis_limits is not None:  # Removing points outside the desired axis_limits
+        if depth(axis_limits) == 1:  # If only one tuple, apply to y-direction
+            mask = np.logical_and(points[:, 1] < axis_limits[1],
+                                  points[:, 1] > axis_limits[0])
+            points = points[mask]
+        else:  # if two tuples, apply each to it's corresponding direction
+            for idx, _axis_limits in enumerate(axis_limits):
+                if _axis_limits is not None:
+                    mask = np.logical_and(points[:, idx] < _axis_limits[1],
+                                          points[:, idx] > _axis_limits[0])
+                    points = points[mask]
+
+    """Clustering"""
+    if agglom_kwargs is None: agglom_kwargs = dict()
+    defaults = dict(n_clusters=2, distance_threshold=None,
+                    compute_full_tree=True, linkage='single')
+    kwargs = {**defaults, **agglom_kwargs}
+
+    model = AgglomerativeClustering(**kwargs)
+    clusters = model.fit(points)
+    label_history = [('first labels', deepcopy(clusters.labels_))]
+    labels = clusters.labels_
+
+    """Filtering irrelevant clusters"""
+    if noise_cluster_size is not None:
+        # Removes clusters smaller than a threshold
+        _labels = list(labels)
+        counts = np.array([_labels.count(x) for x in _labels])
+        mask = counts > noise_cluster_size
+        labels[~mask] = -1
+        label_history += [('Noise filtering', deepcopy(labels))]
+
+    if min_cluster_distance is not None and model.n_clusters_ > 1:
+        # Clusters clusters that are closer than some threshold are merged
+        # todo: don't use cluster_centers to determine whether to merge a cluster or not
+        cluster_centers = np.array([np.mean(points[labels == l], 0) for l in range(model.n_clusters_)])
+        cluster_indices = np.arange(len(cluster_centers))
+        _mask = ~np.isnan(np.mean(cluster_centers, 1))
+        if len(cluster_centers[_mask]) > 1:
+            _model = AgglomerativeClustering(n_clusters=None, distance_threshold=min_cluster_distance,
+                                             compute_full_tree=True, linkage='single')
+            clusters_of_clusters = _model.fit(cluster_centers[_mask])
+            new_labels = np.copy(labels)
+            for idx, new_label in zip(cluster_indices[_mask], clusters_of_clusters.labels_):
+                new_labels[labels == idx] = new_label
+            labels = new_labels
+        label_history += [('Proximity clustering', deepcopy(labels))]
+
+    if min_cluster_size is not None:
+        # Removes clusters smaller than a threshold
+        _labels = list(labels)
+        counts = np.array([_labels.count(x) for x in _labels])
+        mask = counts > min_cluster_size
+        labels[~mask] = -1
+        label_history += [('Removing small clusters', deepcopy(labels))]
+
+    masked_clusters = [points[labels == l] for l in np.unique(labels) if l >= 0]
+
+    if fig_ax is not None:
+        a, b = square(len(label_history))
+        fig, axs = plt.subplots(a, b, num='clustering')
+        for idx, ax in enumerate(axs.flatten()):
+            ax.scatter(*points.transpose(), c=label_history[idx][1])
+            ax.set_title(label_history[idx][0])
+
+    return masked_clusters
 
 
-def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass,
-                               k_offset=0, for_fit=True):
-    hbar = 0.658  # in meV*ps
-    c = 300  # in um/ps
+def find_bands(image, plot=False, direction='both', find_peak_kwargs=None, clustering_kwargs=None,
+               xaxis=None, yaxis=None, max_number_of_peaks=5e3):
+    """Find peaks in image, and cluster them into bands
 
-    exciton_mass *= (0.511 * 1e9) / c**2
-    photon_mass *= (0.511 * 1e9) / c**2
+    :param image: 2D array
+    :param plot: bool
+    :param direction: str. Which direction to find peaks along in image
+    :param find_peak_kwargs: dict. To be passed to _find_peaks
+    :param clustering_kwargs: dict. To be passed to cluster_points
+    :param xaxis:
+    :param yaxis:
+    :param max_number_of_peaks: int
+        If the number of peaks from find_peaks is more than this, avoid clustering algorithm, since it takes too long
+    :return:
+    """
+    assert direction in ['both', 'x', 'y']
 
-    exciton_dispersion = exciton_energy + (hbar * (k_axis+k_offset))**2 / (2*exciton_mass)
-    photon_dispersion = photon_energy + (hbar * (k_axis+k_offset))**2 / (2*photon_mass)
+    # Smoothened find_peaks
+    def _find_peaks(x, savgol_kwargs=None, *args, **kwargs):
+        """Simple extension of find_peaks to give more than single-pixel accuracy"""
+        if savgol_kwargs is None: savgol_kwargs = dict()
+        savgol_kwargs = {**dict(window_length=5, polyorder=3), **savgol_kwargs}
 
-    lower_p, upper_p = _up_low_polariton(exciton_dispersion, photon_dispersion, rabi_splitting)
-    if for_fit:
-        return lower_p, upper_p
-    else:
-        return lower_p, upper_p, exciton_dispersion, photon_dispersion
+        smoothened = savgol_filter(x, **savgol_kwargs)
+        sampling = interp1d(range(len(smoothened)), smoothened, 'quadratic')
+        new_x = np.linspace(0, len(smoothened) - 1, len(smoothened) * 10)
+        new_y = sampling(new_x)
+        results = find_peaks(new_y, *args, **kwargs)
+        return new_x[results[0]], results[1]
+
+    # One set of kwargs for each direction
+    if find_peak_kwargs is None:
+        find_peak_kwargs = [dict(), dict()]
+    elif type(find_peak_kwargs) == dict:
+        find_peak_kwargs = [find_peak_kwargs, find_peak_kwargs]
+    if clustering_kwargs is None: clustering_kwargs = dict()
+
+    peaks = []
+    if direction in ['both', 'x']:
+        # Find peaks along each column
+        for idx, x in enumerate(image.transpose()):
+            pks = _find_peaks(x, **find_peak_kwargs[0])[0]
+            peaks += [(pk, idx) for pk in pks]
+    if direction in ['both', 'y']:
+        # Find peaks along each row
+        for idx, x in enumerate(image):
+            pks = _find_peaks(x, **find_peak_kwargs[1])[0]
+            peaks += [(idx, pk) for pk in pks]
+    peaks = np.asarray(peaks, dtype=float)
+    assert len(peaks) < max_number_of_peaks
+
+    # Cluster points as pixels
+    clusters = cluster_points(peaks, True, **clustering_kwargs)
+    # Transform pixels to axis units
+    if xaxis is None: xaxis = np.arange(image.shape[0])
+    if yaxis is None: yaxis = np.arange(image.shape[1])
+    xfunc = partial(np.interp, xp=np.arange(len(xaxis)), fp=xaxis)
+    yfunc = partial(np.interp, xp=np.arange(len(yaxis)), fp=yaxis)
+    clusters = [np.transpose([xfunc(cluster[:, 0]), yfunc(cluster[:, 1])]) for cluster in clusters]
+
+    if plot:
+        try: fig, ax = _make_axes(plot)
+        except: fig, ax = plt.subplots(1, 1)
+        imshow(image.transpose(), ax, xaxis=xaxis, yaxis=yaxis, cbar=False, diverging=False)
+        for cluster in clusters: ax.plot(*cluster.transpose(), '.', alpha=1, ms=0.2)
+    return clusters
+
