@@ -128,7 +128,7 @@ class FittingLinear(ShowGUIMixin):
 class FittingLinearUi(QtWidgets.QMainWindow):
     def __init__(self, fl):
         super(FittingLinearUi, self).__init__()
-        uipath = os.path.join(os.path.dirname(__file__), 'LineFitting.ui')
+        uipath = os.path.join(os.path.dirname(__file__), 'LinearFitting.ui')
         uic.loadUi(uipath, self)
 
         self.object = fl
