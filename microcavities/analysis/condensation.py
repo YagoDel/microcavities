@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
+"""
+Utility functions to analyse condensation characteristics
 
+The main function is dispersion_power_series, which takes a series of file paths to YAML files that have been used to
+take data using the microcavities.utils.HierarchicalScan.ExperimentScan and then extracts the saved data, analyses it
+and plots it
+"""
+
+from microcavities.utils.plotting import *
 from microcavities.utils.HierarchicalScan import get_data_from_yamls
-from microcavities.experiment.utils import spectrometer_calibration, magnification
-from microcavities.analysis.analysis_functions import find_k0, dispersion, fit_quadratic_dispersion
-from microcavities.analysis.utils import normalize
-import numpy as np
-import matplotlib.pyplot as plt
+from microcavities.analysis.dispersion import find_k0, dispersion, fit_quadratic_dispersion
 from cycler import cycler
-from microcavities.utils.plotting import pcolormesh, colorful_imshow
-
-"""
-Utility functions that wrap underlying analysis functionality
-"""
 
 
 def powerseries_remove_overlap(images, powers, correction_type='sum'):
@@ -38,7 +37,6 @@ def get_k0_image(photolum, powers):
     # We assume that the lowest power in the lowest power scan is sufficiently low to extract k=0 by quadratic fitting
     dispersion_img = np.copy(photolum[0][0])
     k0 = int(find_k0(dispersion_img))
-    print(k0, photolum[0].shape, powers)
     new_images, xaxis, _ = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
 
     normalised = []
@@ -65,9 +63,18 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     :param known_sample_parameters:
     :param intensity_corrections:
     :param fig_ax:
+    :param powers_to_imshow: list of floats. Values of power to display in the colorful_imshow subplot
     :return:
     """
 
+    # Creating a figure if not given
+    if fig_ax is None:
+        fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+        axs = axs.flatten()
+    else:
+        fig, axs = fig_ax
+
+    # Extracting the data and removing the background. Can give different backgrounds for each series
     photolum, powers = get_data_from_yamls(yaml_paths, series_names)
     try:
         if len(bkg) == len(series_names):
@@ -78,94 +85,99 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
             bkg = [bkg] * len(series_names)
     except:
         bkg = [bkg] * len(photolum)
-    print(len(photolum), photolum[0].shape)
     photolum = [p - b for p, b in zip(photolum, bkg)]
-    print(powers)
     powers = [p['power_wheel_power'] for p in powers]
+    dispersion_imgs = np.copy(photolum[0][0])
+    if len(dispersion_imgs.shape) == 2:
+        dispersion_imgs = dispersion_imgs[np.newaxis]
 
-    if powers_to_imshow is None:
-        powers_to_imshow = [powers[-1][-1]]
+    # Analysing the dispersion images
+    results = [dispersion(img, k_axis, energy_axis, False, known_sample_parameters)[0] for img in dispersion_imgs]
+    k0_energies = [d[0] for d in results]
+    lifetimes = [d[1] for d in results]
+    masses = [d[2] for d in results]
+    if len(results[0]) == 4: exciton_fractions = [d[3] for d in results]
+    elif len(results[0]) == 3: exciton_fractions = [np.nan for d in results]
+    else:
+        raise RuntimeError('Unexpected number of results. Has microcavities.analysis.dispersion.dispersion changed?')
 
-    # Fitting the low-power dispersion with a quadratic
-    k0_energy, lifetimes, masses, exciton_fractions, dispersion_img, energy_axis, k_axis = get_calibrated_mass(np.copy(photolum[0]), energy_axis, k_axis, known_sample_parameters)
-    quad_fit = fit_quadratic_dispersion(np.mean(dispersion_img, 0), energy_axis, k_axis)
-
+    """subplot(0, 1) pcolormesh of the normalised emission spectra at k~0 at all powers"""
     # Extracting the k=0 spectra at each power
     k0_img, xaxis = get_k0_image(photolum, powers)
-    yaxis = (energy_axis - np.mean(k0_energy))
+    yaxis = (energy_axis - np.mean(k0_energies))
 
     # Finding the energy range that needs to be plotted by finding the energy of maximum emission at each power, and
     # adding a 40 pixel pad around it
     indxs = np.argmax(k0_img, 1)
     lims = [np.max([0, np.min(indxs)-40]), np.min([np.max(indxs) + 40, k0_img.shape[-1]-1])]
 
-    # Cropping the dispersion and condensate images and thresholding between 1 and 99.9
-    condensate_imgs = []
-    for power in powers_to_imshow:
-        section_idx = np.argmin([np.min(np.abs(np.array(x) - power)) for x in powers])
-        dset_idx = np.argmin(np.abs(np.array(powers[section_idx]) - power))
-        print('Here: ', photolum[section_idx].shape)
-        img = photolum[section_idx][dset_idx, :, lims[0]:lims[1]].transpose()
-        img -= np.percentile(img, 1)
-        img /= np.percentile(img, 99.9)
-        condensate_imgs += [img]
-    condensate_imgs = np.array(condensate_imgs)
-
-    dispersion_img = np.mean((dispersion_img[..., lims[0]:lims[1]]), 0).transpose()
-    dispersion_img -= np.percentile(dispersion_img, 1)
-    dispersion_img /= np.percentile(dispersion_img, 99.9)
-
-    # Extracting the total emission
-    k0 = int(find_k0(dispersion_img.transpose()))
-    _, _, sum_corrections = powerseries_remove_overlap(photolum, powers, 'sum')
-    _, _, max_corrections = powerseries_remove_overlap([x[..., k0-5:k0+5, :] for x in photolum], powers, 'max')
-
-    if intensity_corrections is None:
-        intensity_corrections = [1] + list(np.mean([sum_corrections, max_corrections], 0))
-    total_emission = [np.sum(x, (1, 2)) / correction for x, correction in zip(photolum, intensity_corrections)]
-    max_k0_emission = [np.max(x[..., k0-5:k0+5, :], (1, 2)) / correction for x, correction in zip(photolum, intensity_corrections)]
-
-    # Creating a figure if not given
-    if fig_ax is None:
-        fig, axs = plt.subplots(2, 2, figsize=(8, 8))
-        axs = axs.flatten()
-    else:
-        fig, axs = fig_ax
-    # Plotting RGB image of lower-polariton and condensate dispersion
-    colorful_imshow(np.concatenate(([dispersion_img], condensate_imgs)), ax=axs[0], aspect='auto', from_black=False,
-                    xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]]) #[::-1])
-    axs[0].set_xlabel(u'Wavevector / \u00B5m$^{-1}$')
-    axs[0].set_ylabel('Energy / eV')
-    axs[0].text(0.5, 1, (r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)) + '\n' +
-                         (r'$\Gamma$=%.4gps  $|X|^2$=%g' % (np.mean(lifetimes), np.mean(exciton_fractions)))),
-                ha='center', va='center', color='k', transform=axs[0].transAxes)
-    axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(dispersion_img, 1))+10], '%gW' % powers[0][0],
-                ha='center', va='top', color='r')
-    for idx, power in enumerate(powers_to_imshow):
-        axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(condensate_imgs[idx], 1))+10], '%gW' % power,
-                    ha='center', va='top', color='g')
-    k0_idx = np.argmin(np.abs(k_axis + quad_fit[1] / (2 * quad_fit[0])))
-    axs[0].plot(k_axis[k0_idx-70:k0_idx+70], np.poly1d(quad_fit)(k_axis[k0_idx-70:k0_idx+70]), 'w')
-
-    # Plotting the k=0 spectra as a function of power
+    # Plotting
     pcolormesh(k0_img[:, lims[0]:lims[1]].transpose(), axs[1], xaxis, yaxis[lims[0]:lims[1]], diverging=False, cbar=False, cmap='Greys')
     axs[1].set_xlabel('CW power / W')
     axs[1].set_ylabel('Blueshift / meV')
 
-    # Plotting the total (over all k) and maximal (at k=0) emission as a function of power
+    """subplot(0,0) colorful_imshow of:
+     - The lowest power image, which is assumed to be low power enough to fit the mass/lifetime
+     - Selected condensate dispersions"""
+    k0 = int(np.mean([find_k0(img) for img in dispersion_imgs]))
+    if powers_to_imshow is None:
+        powers_to_imshow = [powers[-1][-1]]
+
+    # Cropping the dispersion and condensate images using the same energy range as subplot(0, 1)
+    condensate_imgs = []
+    for power in powers_to_imshow:
+        section_idx = np.argmin([np.min(np.abs(np.array(x) - power)) for x in powers])
+        dset_idx = np.argmin(np.abs(np.array(powers[section_idx]) - power))
+        img = photolum[section_idx][dset_idx, :, lims[0]:lims[1]].transpose()
+        condensate_imgs += [img]
+    condensate_imgs = np.array(condensate_imgs)
+    dispersion_img = np.mean((dispersion_imgs[..., lims[0]:lims[1]]), 0).transpose()
+
+    # Plotting
+    joined_images = np.concatenate(([dispersion_img], condensate_imgs))
+    _, colours = colorful_imshow(joined_images, ax=axs[0], norm_args=(1, 99.99),
+                                 aspect='auto', from_black=False, xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]])
+    quad_fit = fit_quadratic_dispersion(np.mean(dispersion_imgs, 0), energy_axis, k_axis)
+    axs[0].plot(k_axis[k0 - 70:k0 + 70], np.poly1d(quad_fit)(k_axis[k0 - 70:k0 + 70]), 'w')
+
+    label_axes(axs[2], u'Wavevector [\u00B5m$^{-1}$]', 'Energy [meV]')
+    for img, power, c in zip(joined_images, [powers[0][0]]+powers_to_imshow, colours):
+        axs[0].text(k_axis[k0], energy_axis[lims[0]:lims[1]][np.argmax(np.sum(img, 1)) + 10], '%gW' % power,
+                    ha='center', va='top', color=c)
+    axs[0].text(0.5, 1, (r'(%.4g $\pm$ %.1g) m$_e$' % (np.mean(masses), np.std(masses)) + '\n' +
+                         (r'$\Gamma$=(%.4g $\pm$ %.1g)ps  $|X|^2$=%g' % (np.mean(lifetimes), np.std(lifetimes), np.mean(exciton_fractions)))),
+                ha='center', va='center', color='k', transform=axs[0].transAxes)
+
+    """subplot(1, 0) line plots"""
+    # intensity_corrections should be used if there are changes to the setup, like ND filters
+    if intensity_corrections is None:  # if not given, we guess it
+        # Analysing the total emission intensity over all k
+        _, _, sum_corrections = powerseries_remove_overlap(photolum, powers, 'sum')
+        sum_corrections = [1] + list(sum_corrections)
+        # Analysing the maximum emission intensity at around k~0
+        _, _, max_corrections = powerseries_remove_overlap([x[..., k0-5:k0+5, :] for x in photolum], powers, 'max')
+        max_corrections = [1] + list(max_corrections)
+    else:
+        sum_corrections = [1] + list(intensity_corrections)
+        max_corrections = [1] + list(intensity_corrections)
+
+    # Analysing the total emission intensity over all k and the maximum emission at around k~0
+    total_emission = [np.sum(x, (1, 2)) / correction for x, correction in zip(photolum, sum_corrections)]
+    max_k0_emission = [np.max(x[..., k0-5:k0+5, :], (1, 2)) / correction for x, correction in zip(photolum, max_corrections)]
+
+    # Plotting
     custom_cycler = cycler(linestyle=['-', '--', ':', '-.'])
     axs[2].set_prop_cycle(custom_cycler)
     [axs[2].semilogy(x, y, color='k') for x, y in zip(powers, total_emission)]
-    axs[2].set_xlabel('CW power / W')
-    axs[2].set_ylabel('Total emission / a.u.')
+    label_axes(axs[2], 'CW power [W]', 'Total emission [a.u.]')
+
     ax3 = axs[2].twinx()
     ax3.set_prop_cycle(custom_cycler)
     [ax3.semilogy(x, y, color='r') for x, y in zip(powers, max_k0_emission)]
-    ax3.set_ylabel('Max emission / a.u.')
-    ax3.spines['right'].set_color('red')
-    ax3.tick_params(axis='y', colors='red', which='both')
-    ax3.yaxis.label.set_color('red')
+    ax3.set_ylabel('Max emission [a.u.]')
+    colour_axes(ax3, 'red', 'y', 'right')
 
+    """subplot(1, 1)"""
     # Plotting the momenta vs power
     new_images, new_powers, _ = powerseries_remove_overlap(photolum, powers)
     img = np.array([normalize(x, (1, 99.9)) for x in np.sum(new_images[..., lims[0]:lims[1]], -1)])
@@ -174,67 +186,10 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     # Plotting the momentum centroid on the same axes
     summed_energies = [np.sum(x[..., lims[0]:lims[1]], -1) for x in photolum]
     k0s = [[np.average(k_axis, weights=x) for x in summed_energy] for summed_energy in summed_energies]
-    # axs[3].set_prop_cycle(custom_cycler)
     legends = [r'$\langle k_y \rangle$'] + ['_nolegend_'] * (len(powers)-1)
     [axs[3].plot(x, y, 'b', label=legend) for x, y, legend in zip(powers, k0s, legends)]
-    axs[3].set_ylabel(r'$k_y$')
-    axs[3].set_xlabel(r'CW power / W')
+    label_axes(axs[3], r'$k_y$', 'CW power [W]')
     axs[3].legend()
 
     fig.tight_layout()
     return fig, axs
-
-
-def get_calibrated_mass(dispersion_imgs, energy_axis=('rotation_acton', 780, '2'), k_axis=None, known_sample_parameters=None, plotting=False):
-    if len(energy_axis) <= 5:
-        try:
-            wvls = spectrometer_calibration(*energy_axis)
-        except Exception as e:
-            print(energy_axis)
-            raise e
-        #     wavelength = energy_axis[0]
-        #     if len(energy_axis) == 1:
-        #         grating = '1200'
-        #     else:
-        #         grating = energy_axis[1]
-        #     wvls = spectrometer_calibration_old(wavelength=wavelength, grating=grating)
-        energy_axis = 1240 / wvls
-
-    if k_axis is None:
-        k_axis = ('rotation_pvcam', 'k_space')
-    if len(k_axis) <= 2:
-        # try:
-        mag = magnification(*k_axis)[0]
-        mag *= 1e-6  # using the default 20um pixel size
-        # except:
-        #     mag = magnification_old(camera=('pvcam', 'k_space'))[0]
-        k0 = np.mean(list(map(find_k0, dispersion_imgs)))
-        _k_axis = np.arange(dispersion_imgs.shape[1], dtype=np.float)  # pixel units
-        try:
-            _k_axis = _k_axis[k_axis[0]:k_axis[1]]
-            _k_axis -= k0 + k_axis[0]
-        except:
-            pass
-        _k_axis *= mag
-        k_axis = np.copy(_k_axis)
-
-    energies = []
-    lifetimes = []
-    masses = []
-    exciton_fractions = []
-    for img in dispersion_imgs:
-        results, args, kwargs = dispersion(img, k_axis, energy_axis, plotting, known_sample_parameters)
-        energies += [results[0]]
-        lifetimes += [results[1]]
-        masses += [results[2]]
-        if len(results) > 3:
-            exciton_fractions += [results[3]]
-    energies = np.array(energies)
-    lifetimes = np.array(lifetimes)
-    masses = np.array(masses)
-    exciton_fractions = np.array(exciton_fractions)
-    # print("Energy = %.4f (%.4f)" % (np.mean(energies), np.std(energies)))
-    # print("Lifetime = %.4f (%.4f)" % (np.mean(lifetimes), np.std(lifetimes)))
-    # print("Mass = %g (%g)" % (np.mean(masses), np.std(masses)))
-    # print("X = %.4f (%.4f)" % (np.mean(exciton_fractions), np.std(exciton_fractions)))
-    return energies, lifetimes, masses, exciton_fractions, dispersion_imgs, energy_axis, k_axis
