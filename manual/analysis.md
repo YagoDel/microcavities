@@ -7,8 +7,6 @@ lifetime, energy and (if possible) exciton fraction:
 
 ![](figures/dispersion.png)
 
-<img src="figures/dispersion.png" width="48">
-
 
 ## Condensation analysis
 Utility code to analyse the condensation of polaritons. Relies on having taken a power series scan using 
