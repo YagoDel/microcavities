@@ -13,23 +13,20 @@ from microcavities.analysis.dispersion import find_k0, dispersion, fit_quadratic
 from cycler import cycler
 
 
-def powerseries_remove_overlap(images, powers, correction_type='sum'):
-    calculated_intensity_correction = []
+def powerseries_remove_overlap(images, powers):
+    # TODO: replace this with a multidimensional stich_dataset function
     new_images = np.copy(images[0])
     new_powers = np.copy(powers[0])
     # Removes common indices
     for indx in range(len(powers) - 1):
         overlap_index = np.sum(powers[indx + 1] <= np.max(powers[indx]))
-        np_func = getattr(np, correction_type)
         _dummy = np.copy(images[indx + 1][overlap_index:])
         new_images = np.concatenate((new_images, _dummy), 0)
         if overlap_index > 0:
             new_powers = np.concatenate((new_powers, powers[indx + 1][overlap_index:]))
-            calculated_intensity_correction += [np.mean(np_func(images[indx+1][:overlap_index], (1, 2)) / np_func(images[indx][-overlap_index:], (1, 2)))]
         else:
             new_powers = np.concatenate((new_powers, powers[indx + 1]))
-            calculated_intensity_correction += [np_func(images[indx+1][0], (0, 1)) / np_func(images[indx][-1], (0, 1))]
-    return new_images, new_powers, calculated_intensity_correction
+    return new_images, new_powers
 
 
 def get_k0_image(photolum, powers):
@@ -37,7 +34,7 @@ def get_k0_image(photolum, powers):
     # We assume that the lowest power in the lowest power scan is sufficiently low to extract k=0 by quadratic fitting
     dispersion_img = np.copy(photolum[0][0])
     k0 = int(find_k0(dispersion_img))
-    new_images, xaxis, _ = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
+    new_images, xaxis = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
 
     normalised = []
     for dm in np.copy(np.mean(new_images, 1)):
@@ -148,38 +145,52 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
                          (r'$\Gamma$=(%.4g $\pm$ %.1g)ps  $|X|^2$=%g' % (np.mean(lifetimes), np.std(lifetimes), np.mean(exciton_fractions)))),
                 ha='center', va='center', color='k', transform=axs[0].transAxes)
 
-    """subplot(1, 0) line plots"""
-    # intensity_corrections should be used if there are changes to the setup, like ND filters
-    if intensity_corrections is None:  # if not given, we guess it
-        # Analysing the total emission intensity over all k
-        _, _, sum_corrections = powerseries_remove_overlap(photolum, powers, 'sum')
-        sum_corrections = [1] + list(sum_corrections)
-        # Analysing the maximum emission intensity at around k~0
-        _, _, max_corrections = powerseries_remove_overlap([x[..., k0-5:k0+5, :] for x in photolum], powers, 'max')
-        max_corrections = [1] + list(max_corrections)
-    else:
-        sum_corrections = [1] + list(intensity_corrections)
-        max_corrections = [1] + list(intensity_corrections)
-
+    """subplot(1, 0) line plots of the condensate emission"""
     # Analysing the total emission intensity over all k and the maximum emission at around k~0
-    total_emission = [np.sum(x, (1, 2)) / correction for x, correction in zip(photolum, sum_corrections)]
-    max_k0_emission = [np.max(x[..., k0-5:k0+5, :], (1, 2)) / correction for x, correction in zip(photolum, max_corrections)]
+    total_emissions = [np.sum(x, (1, 2)) for x in photolum]
+    max_k0_emissions = [np.max(x[..., k0-5:k0+5, :], (1, 2)) for x in photolum]
+
+    if intensity_corrections is None:  # if not given, we guess it by making the lines overlap
+        # create interpolated arrays that cover all given power values
+        x_new = np.sort(np.concatenate(powers))
+
+        # Corrections for the total emission
+        interpolated_datasets = [interp1d(x, y, bounds_error=False)(x_new) for x, y in zip(powers, total_emissions)]
+        intensity_corrections = [1]
+        for idx in range(len(interpolated_datasets)-1):
+            # The emission ratio between adjacent datasets to be used to scale them
+            emission_ratio = np.nanmean(interpolated_datasets[idx]/interpolated_datasets[idx+1])
+            # Each correction needs to take into account previous scalings
+            intensity_corrections += [np.prod(intensity_corrections) * emission_ratio]
+        total_emissions = [e*c for e, c in zip(total_emissions, intensity_corrections)]
+
+        # Corrections for the maximum emission around k~0
+        interpolated_datasets = [interp1d(x, y, bounds_error=False)(x_new) for x, y in zip(powers, max_k0_emissions)]
+        intensity_corrections = [1]
+        for idx in range(len(interpolated_datasets)-1):
+            emission_ratio = np.nanmean(interpolated_datasets[idx]/interpolated_datasets[idx+1])
+            intensity_corrections += [np.prod(intensity_corrections) * emission_ratio]
+        max_k0_emissions = [e*c for e, c in zip(max_k0_emissions, intensity_corrections)]
+    else:
+        # intensity_corrections should be given if there are changes to the setup, like ND filters
+        total_emissions = [e/c for e, c in zip(total_emissions, intensity_corrections)]
+        max_k0_emissions = [e/c for e, c in zip(max_k0_emissions, intensity_corrections)]
 
     # Plotting
     custom_cycler = cycler(linestyle=['-', '--', ':', '-.'])
     axs[2].set_prop_cycle(custom_cycler)
-    [axs[2].semilogy(x, y, color='k') for x, y in zip(powers, total_emission)]
+    [axs[2].semilogy(x, y, color='k') for x, y in zip(powers, total_emissions)]
     label_axes(axs[2], 'CW power [W]', 'Total emission [a.u.]')
 
     ax3 = axs[2].twinx()
     ax3.set_prop_cycle(custom_cycler)
-    [ax3.semilogy(x, y, color='r') for x, y in zip(powers, max_k0_emission)]
+    [ax3.semilogy(x, y, color='r') for x, y in zip(powers, max_k0_emissions)]
     ax3.set_ylabel('Max emission [a.u.]')
     colour_axes(ax3, 'red', 'y', 'right')
 
     """subplot(1, 1)"""
     # Plotting the momenta vs power
-    new_images, new_powers, _ = powerseries_remove_overlap(photolum, powers)
+    new_images, new_powers = powerseries_remove_overlap(photolum, powers)
     img = np.array([normalize(x, (1, 99.9)) for x in np.sum(new_images[..., lims[0]:lims[1]], -1)])
     pcolormesh(img.transpose(), axs[3], new_powers, k_axis, diverging=False, cbar=False, cmap='Greys')
 
