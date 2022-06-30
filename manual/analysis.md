@@ -5,7 +5,9 @@ Utility code to analyse low-power dispersion PL images of polaritons. Main resul
 result of [dispersion](../microcavities/analysis/dispersion.py).dispersion, and calculates the lower polariton mass, 
 lifetime, energy and (if possible) exciton fraction:
 
-![](figures/dispersion.png)
+![](figures/analysis_dispersion.png)
+
+<img src="figures/analysis_dispersion.png" width="48">
 
 
 ## Condensation analysis
