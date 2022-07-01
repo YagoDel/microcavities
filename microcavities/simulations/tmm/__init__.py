@@ -317,7 +317,9 @@ class GrownLayers(Structure):
 
 
 if __name__ == '__main__':
-    mcav = Microcavity('microcavity_example.yaml')
+    import os
+    directory = os.path.dirname(os.path.abspath(__file__))
+    mcav = Microcavity(os.path.join(directory, 'microcavity_example.yaml'))
     mcav.normal_incidence()
     mcav.dispersion()
     mcav.field_distribution(800)
