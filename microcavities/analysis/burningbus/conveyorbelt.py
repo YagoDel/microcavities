@@ -7,8 +7,8 @@ from scipy.ndimage import gaussian_filter
 from microcavities.simulations.quantum_box import *
 from matplotlib.colors import LogNorm
 from microcavities.utils import apply_along_axes, random_choice
-from microcavities.analysis.characterisation import *
-from microcavities.analysis.analysis_functions import *
+from microcavities.analysis.dispersion import *
+from microcavities.analysis.condensation import *
 from microcavities.analysis.phase_maps import low_pass
 from microcavities.analysis.utils import remove_outliers
 from scipy.interpolate import interp1d
@@ -27,6 +27,7 @@ from pyqtgraph.parametertree import ParameterTree, Parameter
 import h5py
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormatter, ScalarFormatter, LogLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+import math
 
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
@@ -1766,17 +1767,29 @@ def fit_ground_state(band, xaxis=None, debug=False):
 
 
 # SCHRODINGER EQUATION SIMULATIONS
+# MODE = 'sinusoid'  #  'looser'  # 'tighter'  #
+# BAND_EDGE_FACTOR = 1  # Determines the threshold for what to consider a trapped band in the eigenvalue spectrum
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
-mass_factor = 2.8  # 3.3
+mass_factor = 1.9  # 2.8  # 3.3
 MASS = mass_factor * 10 ** (-5) * me
-# MASS = 3.3e-5  # 1.2
-# MODE = 'sinusoid'  #  'looser'  # 'tighter'  #
-# BAND_EDGE_FACTOR = 1  # Determines the threshold for what to consider a trapped band in the eigenvalue spectrum
-DETUNING = 10.6
-RABI = 4.2
+DETUNING = 8  # 6  # 10  # 10.6
+RABI = 4.65  # 4.2
 
+# """Values from the experimental dispersion fit
+mass_factor = 3.1
+MASS = mass_factor * 10 ** (-5) * me
+DETUNING = 10.5
+RABI = 6.65 / 2
+# """
+
+# # """Values from the experimental dispersion fit + the experimental below threshold blueshift
+# mass_factor = 3.1
+# MASS = mass_factor * 10 ** (-5) * me
+# DETUNING = 10.5 - 7.2
+# RABI = 6.65 / 2
+# # """
 
 # def sinusoid(depth, period, periods=5, size=101, bkg_value=0, mass=1e-3):
 #     x = np.linspace(-periods*period, periods*period, size)
@@ -1887,7 +1900,7 @@ def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass
     single_period = 2 * np.pi / np.abs(delta_k)
 
     if periods is None:
-        x = np.linspace(-20, 20, n_points)
+        x = np.linspace(-21, 20, n_points)
     else:
         x = np.linspace(-single_period * periods/2 - 0.1*single_period, single_period*periods/2, n_points)
         # print(x.min(), x.max())
@@ -1903,7 +1916,7 @@ def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass
 
 
 def test_hamiltonians():
-    potential = 8.9
+    potential = 0 #8.9
     deltak = 0.43
     vals = []
     # for n_points in [32, 64, 501, 1001]:
@@ -1931,7 +1944,7 @@ def test_hamiltonians():
     # [axs[1].plot(val) for val in vals]
     ax2 = ax.twiny()
     # print(bands.shape)
-    ax2.plot(bands[:, :5])
+    ax2.plot(bands[:, :])
 
 
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
@@ -1958,6 +1971,8 @@ def farfield(hamiltonian, starting_vectors, timerange):
         psi = solve_timerange(vec, hamiltonian, timerange)
         psikw = np.fft.fftshift(np.fft.fft2(psi[:N, :]))
         rho += np.abs(psikw) ** 2
+        if np.isnan(rho).any():
+            break
     return rho
 
 
@@ -2022,7 +2037,7 @@ def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
     #     raise ValueError()
 
     values = []
-    analysed = []
+    # analysed = []
     for depth in tqdm(depths, 'run_simulations', disable=disable_output):
         _vals = []
         for period in periods:
@@ -2074,7 +2089,7 @@ def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, result
         laser_separations = dfile['laser_separations'][...]
     period = np.abs(2*np.pi / laser_separations[dataset_index])
     if depths is None:
-        depths = np.linspace(0.1, 5.1, 11)
+        depths = np.linspace(0.1, 10.1, 51)
     # eigenvalues, (centers, widths, edges) = run_simulations(depths, [period], 0, MASS, MODE)
     theory_bands, theory_kaxis = run_simulations(depths, [period], 0, MASS)
 
@@ -2110,7 +2125,7 @@ def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, result
     return results
 
 
-def fit_theory(dataset_index, selected_indices=None, run_sims=False, adjust_tilt=False):
+def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=False):
     if dataset_index == 1:
         return None
     with h5py.File(collated_analysis, 'r') as dfile:
@@ -2162,16 +2177,18 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=False, adjust_tilt
     theory_depths = results['depths']
     # theory_centers = results['centers']
     theory_bands = results['bands']
-    theory_centers = np.mean(theory_bands, 1)
+    # theory_centers = np.mean(theory_bands, 1)
+    # theory_centers = np.percentile(theory_bands, 20, 1)
+    theory_centers = np.amin(theory_bands, 1) #+ 0.2 * (np.amax(theory_bands, 1) - np.amin(theory_bands, 1))
 
     all_splittings = np.diff(theory_centers, axis=-1)
     first_splitting = all_splittings[..., 0]
     theory_depth_vs_splitting = interp1d(first_splitting, theory_depths, bounds_error=False, fill_value=np.nan)
 
     # Fitting
-    fig, ax = plt.subplots(1, 1)
-    ax.plot(theory_bands[0])
-    print(exper_split, theory_bands.shape, theory_centers.shape, theory_depths)
+    # fig, ax = plt.subplots(1, 1)
+    # ax.plot(theory_bands[0])
+    # print(exper_split, theory_bands.shape, theory_centers.shape, theory_depths)
     fitted_depths = theory_depth_vs_splitting(exper_split)
 
     # Re-running simulations for the fitted values
@@ -2195,7 +2212,7 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=False, adjust_tilt
 
 
 def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=False, axis_offsets=(0, 0),
-                    ax=None, imshow_kw=None, plot_kw=None, fill_kw=None, plotting_kw=None):
+                    ax=None, imshow_kw=None, plot_kw=None, fill_kw=None, plotting_kw=None, label_kw=None):
     """
 
     :param dataset_index:
@@ -2206,6 +2223,8 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
     :param fill_kw:
     :return:
     """
+    if label_kw is None: label_kw = dict()
+
     data, bands, config, analysis_results, variables = get_experimental_data(dataset_index)
     if run_fit:
         fitted_results = fit_theory(dataset_index, selected_indices, run_sims)
@@ -2215,8 +2234,6 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
         theory_bands, theory_kaxis, depths = [fitted_results[x][selected_indices] for x in ['bands', 'k_axis', 'depths']]
         if len(theory_kaxis.shape) == 1:
             depths = [depths]
-    power_axis = np.array(variables['vwp']) * 1e3
-    # frequency_axis = np.array(variables['f'])
 
     band = bands[selected_indices]
     image = data[selected_indices]
@@ -2261,9 +2278,8 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
     for ax, bnd, img, exper_energy, depth in zip(*iterable):
         xaxis = np.array(config['k_axis'])-axis_offsets[0]
         yaxis = np.array(config['energy_axis'])
-        # print('yaxis: ', np.mean(yaxis))
         yaxis *= 1e3
-        imshow(img, ax, xaxis=xaxis, yaxis=yaxis, **imshow_kw)
+        imshow(normalize(img), ax, xaxis=xaxis, yaxis=yaxis, **imshow_kw)
         if plotting_kw['show_bands']:
             if 'plot_max_band' in plotting_kw:
                 max_band = plotting_kw['plot_max_band']
@@ -2291,7 +2307,9 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
                 if 'n_bands' in plotting_kw:
                     ax.plot(theory_kaxis[min_idx:max_idx], theory_bands[min_idx:max_idx, :plotting_kw['n_bands']], **fill_kw)
                 else:
-                    ax.plot(theory_kaxis[min_idx:max_idx], theory_bands[min_idx:max_idx], **fill_kw)
+                    print(theory_kaxis.shape, theory_bands.shape)
+                    ax.plot(np.squeeze(theory_kaxis)[min_idx:max_idx],
+                            np.squeeze(theory_bands)[min_idx:max_idx], **fill_kw)
 
                 # xaxis = np.array(config['k_axis'])-axis_offsets[0]
                 # ax.set_xlim(xaxis.min(), xaxis.max())
@@ -2314,38 +2332,141 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
                     pass
                 if not np.isnan(depth):
                     label += '$V_{eff}$=%.2fmeV' % depth
-            ax.text(0.5, 0.99, label, ha='center', va='top', transform=ax.transAxes)
+            ax.text(0.5, 0.99, label, ha='center', va='top', transform=ax.transAxes, **label_kw)
 
         ax.set_xlim(xaxis.min(), xaxis.max())
-        # ax.set_ylim(yaxis.min(), yaxis.max())
         _formatter = dummy_formatter(axis_offsets[1], True, None, True)
-        _formatter._offset_threshold = 2
-        _formatter.format = '%.1g'
         ax.yaxis.set_major_formatter(_formatter)
 
-    # if axis_offsets[1] > 0:
-    #     print(axis_offsets)
-    #     for ax in axs:
-    #         _formatter = dummy_formatter(axis_offsets[1], True, None, True)
-    #         _formatter._offset_threshold = 2
-    #         _formatter.format = '%.1g'
-    #         ax.yaxis.set_major_formatter(_formatter)
 
-    # if not np.isnan(depth):
-    #     eigenvalues, (centers, widths, edges) = run_simulations([depth], [period], 0, MASS, MODE, n_bands=5)
-    #     # centers, widths, _ = analyse_modes(eigenvalues, n_traps=10, potential_maximum=BAND_EDGE_FACTOR * depth,
-    #     #                                    n_modes=5)
-    #     centers *= 1e-3
-    #     widths *= 1e-3
-    #     # print(centers, exper_energy)
-    #     centers -= np.nanmin(centers)
-    #     centers += exper_energy[0]
-    #
-    #     # print(centers)
-    #     for tf, lw in zip(centers, widths):
-    #         lw = 1e-4
-    #         ax.fill_between(config['k_axis'], tf - lw / 2, tf + lw / 2, color='C8', alpha=0.7)
-    #     ax.set_title(r'$V_{depth}$=%.2f' % (depth, ))
+def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=False,
+                        ground_state_pixel=None, ground_state_energy=None, imshow_kwargs=None):
+    if imshow_kwargs is None: imshow_kwargs = dict()
+
+    data, variables, config = get_experimental_data_base(dataset_index)
+    simulations = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_fits.npy' % dataset_index),
+                          allow_pickle=True).take(0)
+    depths = simulations['depths']
+
+    if len(data.shape) < 5:
+        # ensures that the first axis is always cw power, even if the dataset doesn't have that variable
+        # data = np.array([data])
+        selected_indices = (0,) + selected_indices
+        depths = np.array([depths])
+        cw = None
+    else:
+        try:
+            cw = np.array(variables['cw'])[selected_indices[0]]
+        except:
+            cw = np.array(variables['power'])[selected_indices[0]]
+    fit_veff = depths[selected_indices]
+    power = np.array(variables['vwp'])[selected_indices[2]]
+    freq = np.array(variables['f'])[selected_indices[1]]
+    h5pylabel = 'deltak={deltak}/'
+    if cw is not None:
+        h5pylabel += 'cw={cw}/'
+    h5pylabel += 'power={power}/f={f}'
+    h5pylabel = h5pylabel.format(deltak=config['laser_angle'], cw=cw, power=power, f=freq)
+    print('Daset details: ', h5pylabel, ' Veff=%g' % fit_veff)
+
+    path = get_data_path('2021_07_conveyorbelt/simulations/pl_density.h5')
+
+    # Getting (or simulating, if not available) all the data
+    with h5py.File(path, 'a') as dfile:
+        # Simulation parameters
+        # n_points = 151
+        # periods = 8
+        # times = np.linspace(-100, 100, 4001)
+        n_points = 101
+        periods = 8
+        times = np.linspace(-50, 50, 2001)
+        kwargs = dict(potential=fit_veff, periods=periods, n_points=n_points, delta_k=config['laser_angle'])
+
+        # Calculating momentum axis
+        single_period = 2 * np.pi / np.abs(config['laser_angle'])
+        if periods is None:
+            x = np.linspace(-21, 20, n_points)
+        else:
+            x = np.linspace(-single_period * periods / 2 - 0.1 * single_period, single_period * periods / 2, n_points)
+        dx = np.diff(x)[0]
+        theory_kax = np.linspace(-np.pi/dx, np.pi/dx, n_points)
+
+        # Calculating static eigenvalues and eigenvectors, which are used as starting points in the temporal evolution
+        # of the Floquet Hamiltonian
+        static_hamiltonian = Hamiltonian_x(0, frequency=0, **kwargs)
+        values, vectors = np.linalg.eig(static_hamiltonian)
+        # _fig, _ax = plt.subplots(1, 1)
+        # _ax.plot(np.diag(static_hamiltonian))
+
+        if rerun or (h5pylabel not in dfile):
+            floquet_hamiltonian = partial(Hamiltonian_x, frequency=freq * 1e-3, **kwargs)
+            idx = np.argsort(values)
+            vectors = vectors[:, idx]
+            theory_density = farfield(floquet_hamiltonian, vectors, times)
+            if rerun:
+                try:
+                    del dfile[h5pylabel]
+                except:
+                    pass
+            dfile.create_dataset(h5pylabel, data=theory_density)
+        else:
+            dset = dfile[h5pylabel]
+            theory_density = dset[...]
+        dE = hbar * np.pi / times[-1]
+        theory_eax = (np.linspace(-dE, dE, len(times)) * len(times) / 2)[::-1]
+
+        print('n_points: ', n_points, '  theory_density.shape: ', theory_density.shape)
+        print('Theory k_ax: ', theory_kax[:3], '...', theory_kax[-3:])
+
+    # Cropping the data to the physically relevant area
+    if ground_state_pixel is None:
+        k0 = theory_density[theory_density.shape[0]//2]
+        idxs = find_peaks(normalize(k0), 0.01)[0]
+        try:
+            ground_state_pixel = np.max(idxs)
+            print('Ground state pixel: ', ground_state_pixel)
+        except:
+            ground_state_pixel = 50
+            print('Failed at ground state pixel: ', ground_state_pixel)
+    if ground_state_energy is None:
+        ground_state_energy = np.mean(config['energy_axis']) * 1e3
+    theory_eax -= theory_eax[ground_state_pixel]
+    theory_eax += ground_state_energy
+    bottom_lim = config['energy_axis'][-1] * 1e3
+    top_lim = config['energy_axis'][0] * 1e3
+    max_idx = np.argmin(np.abs(theory_eax - bottom_lim))
+    min_idx = np.argmin(np.abs(theory_eax - top_lim))
+
+    # imshow(np.fliplr(theory_density.transpose()),
+    #        cbar=False, diverging=False, cmap='Greys')
+    # print(theory_density)
+    fig, ax = _make_axes(fig_ax)
+    _kwargs = dict(cbar=False, diverging=False, norm=LogNorm(1e-5, 1), cmap='Greys')
+    imshow_kwargs = {**_kwargs, **imshow_kwargs}
+    imshow(normalize(np.fliplr(theory_density.transpose()[min_idx:max_idx])), ax,
+           xaxis=theory_kax, yaxis=theory_eax[min_idx:max_idx], **imshow_kwargs)
+    ax.set_xlim(config['k_axis'][0], config['k_axis'][-1])
+    _formatter = dummy_formatter(ground_state_energy, True, None, True)
+    _formatter._offset_threshold = 2
+    _formatter.format = '%.1g'
+    ax.yaxis.set_major_formatter(_formatter)
+    return fig, ax
+
+
+def compare_to_experiment(dataset_index, selected_indices, ground_state_energy=0., ground_state_pixel=None,
+                          max_bands=None, rerun=False, arbitrary_k_scale=1, show_label=False, show_theory=True):
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4), sharex=True, sharey=True, gridspec_kw=dict(wspace=0.01))
+    plot_kw = dict(color='#a25bdc', ls='--', alpha=0.3)
+    fill_kw = dict(alpha=0.5, color=(142 / 255, 37 / 255, 228 / 255, 0.3))
+    plot_theory_fit(dataset_index, selected_indices, ax=axs[0], plot_kw=plot_kw, fill_kw=fill_kw,
+                    plotting_kw=dict(n_bands=max_bands, show_label=show_label, show_theory=show_theory), axis_offsets=(-0.12, ground_state_energy))
+
+    plot_theory_density(dataset_index, selected_indices, axs[1], rerun=rerun,
+                        ground_state_pixel=ground_state_pixel, ground_state_energy=ground_state_energy,
+                        arbitrary_k_scale=arbitrary_k_scale)
+    label_grid(fig._gridspecs[0], 'Energy [eV]', 'left', offset=0.05)
+    label_grid(fig._gridspecs[0], 'Momentum [%sm$^{-1}$]' % mu, 'bottom')
+    return fig, axs
 
 
 def figsize_(aspect_ratio, columns='double', margins=5, column_separation=5):
@@ -2362,23 +2483,11 @@ def figsize_(aspect_ratio, columns='double', margins=5, column_separation=5):
 class dummy_formatter(ScalarFormatter):
     def __init__(self, offset, *args, **kwargs):
         super(dummy_formatter, self).__init__(*args, **kwargs)
-        self.my_offset = offset
-        self.offset_flag = True
-    def __call__(self, *args, **kwargs):
-        tick = super(dummy_formatter, self).__call__(*args, **kwargs)
-        try:
-            return '%g' % (float(tick.replace('\u2212', '-')))
-        except Exception as e:
-            print(e)
-            print(tick)
-            return tick
-    def _compute_offset(self):
-        self.offset = self.my_offset
-    def get_offset(self):
-        if self.offset_flag:
-            return '+%geV' % (self.my_offset)
-        else:
-            return ''
+        self.set_useOffset(offset)
+        self.format = '%g'
+
+    def format_data(self, value):
+        return '%g' % value
 
 
 with h5py.File(collated_data_path, 'r') as dfile:
