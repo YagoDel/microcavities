@@ -6,6 +6,7 @@ from matplotlib import gridspec
 from matplotlib import colors, cm, collections
 from matplotlib.colors import LogNorm
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.legend_handler import HandlerTuple
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from matplotlib import transforms
 import matplotlib.patches as mpatches
@@ -15,6 +16,7 @@ import os
 from collections import OrderedDict
 from shapely.geometry import MultiLineString
 from scipy.interpolate import interp1d
+from itertools import cycle
 
 import re
 import imageio
@@ -234,11 +236,77 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         raise ValueError()
 
 
-def unique_legend(ax, sort=False, *args, **kwargs):
+def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
     """Removes repeated labels in a legend"""
+
+    # Simple extension of maptlotlib.legend_handler.HandlerTuple to stack artists vertically instead of horizontally
+    class HandlerTuple2(HandlerTuple):
+        """
+        Handler for Tuple.
+
+        Additional kwargs are passed through to `HandlerBase`.
+
+        Parameters
+        ----------
+        ndivide : int, default: 1
+            The number of sections to divide the legend area into. If None,
+            use the length of the input tuple.
+        pad : float, default: :rc:`legend.borderpad`
+            Padding in units of fraction of font size.
+        direction : str, default: 'horizontal'
+            Direction in which to stack artists
+        """
+
+        def __init__(self, ndivide=1, pad=None, direction='vertical', **kwargs):
+            self._direction = direction
+            super(HandlerTuple2, self).__init__(ndivide, pad, **kwargs)
+
+        def create_artists(self, legend, orig_handle,
+                           xdescent, ydescent, width, height, fontsize,
+                           trans):
+            if self._direction == 'horizontal':
+                return super(HandlerTuple2, self).create_artists(legend, orig_handle,
+                           xdescent, ydescent, width, height, fontsize,
+                           trans)
+            elif self._direction == 'vertical':
+                # Literally just copied from the matplotlib code
+                handler_map = legend.get_legend_handler_map()
+
+                if self._ndivide is None:
+                    ndivide = len(orig_handle)
+                else:
+                    ndivide = self._ndivide
+
+                if self._pad is None:
+                    pad = legend.borderpad * fontsize
+                else:
+                    pad = self._pad * fontsize
+
+                if ndivide > 1:
+                    height = (height - pad * (ndivide - 1)) / ndivide
+
+                yds_cycle = cycle(ydescent - (height + pad) * np.arange(ndivide))
+
+                a_list = []
+                for handle1 in orig_handle:
+                    handler = legend.get_legend_handler(handler_map, handle1)
+                    _a_list = handler.create_artists(
+                        legend, handle1,
+                        xdescent, next(yds_cycle), width, height, fontsize, trans)
+                    a_list.extend(_a_list)
+                return a_list
+
     handles, labels = ax.get_legend_handles_labels()
-    by_label = OrderedDict(zip(labels, handles))
-    values = np.array(list(by_label.values()))
+    by_label = dict()
+    for label, handle in zip(labels, handles):
+        if label not in by_label:
+            by_label[label] = (handle, )
+        else:
+            by_label[label] += (handle, )
+    for label in labels:
+        if len(by_label[label]) == 1:
+            by_label[label] = by_label[label][0]
+    _values = np.array(list(by_label.values()))
     keys = np.array(list(by_label.keys()))
     if sort:
         if type(sort) == bool:
@@ -247,8 +315,20 @@ def unique_legend(ax, sort=False, *args, **kwargs):
             regex_str = sort
         parsed_values = [float(re.match(regex_str, key).groups()[0]) for key in keys]
         indices = np.argsort(parsed_values)
-        values = values[indices]
+        _values = _values[indices]
         keys = keys[indices]
+
+    values = []
+    for v in _values:
+        try:
+            values += [tuple(v)]
+        except:
+            values += [v]
+
+    # values = [tuple(x) for x in values]
+    if multi_artist:
+        print('Yep')
+        kwargs = {**dict(handler_map={tuple: HandlerTuple2(ndivide=None)}), **kwargs}
     ax.legend(values, keys, *args, **kwargs)
 
 
