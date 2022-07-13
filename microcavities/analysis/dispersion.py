@@ -4,7 +4,6 @@ Utility functions to analyse low power dispersion images
 """
 
 from microcavities.utils.plotting import *
-from microcavities.utils.plotting import _make_axes
 from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 from scipy.ndimage import gaussian_filter
@@ -182,10 +181,7 @@ def fit_quadratic_dispersion(image, energy=None, wavevector=None, plotting=None,
 
     quad_fit = np.polyfit(fitting_x, fitting_y, 2)
     if plotting is not None:
-        try:
-            fig, ax = plotting
-        except:
-            fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+        fig, ax = create_axes(plotting)
         pcolormesh(image.transpose(), ax, wavevector, energy, diverging=False, cbar=False, cmap='Greys')
         ax.plot(wavevector, energies, '--', lw=0.7)
         ax.plot(fitting_x, np.poly1d(quad_fit)(fitting_x), '--', lw=1)
@@ -231,8 +227,8 @@ def find_mass(image, energy_axis=('rotation_acton', 780, '2'), wavevector_axis=(
     return mass
 
 
-def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
-               known_sample_parameters=None):
+def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
+               known_sample_parameters=None, fit_kwargs=None):
     """Finds polariton energy, mass and lifetime. If possible, also finds detuning.
 
     If given, energies should be in eV or meV and wavevectors in inverse micron.
@@ -272,26 +268,30 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
     # Fitting the linewidth
     k0_spectra = image[np.argmin(np.abs(k_axis))]
     result = fit_energy(k0_spectra, energy_axis)
-    if plotting:
-        fig, axs = plt.subplots(1, 2, figsize=(7, 6))
-        axs[1].plot(energy_axis, k0_spectra)
-        axs[1].plot(energy_axis, result.init_fit, '--')
-        axs[1].plot(energy_axis, result.best_fit)
-        _plotting = (fig, (axs[0]))
-    else:
-        _plotting = None
+
+    if plotting is not None:
+        fig, axs = create_axes(plotting, (1, 2))
+
+        axs[1].plot(energy_axis, k0_spectra, '-', energy_axis, result.init_fit, '--', energy_axis, result.best_fit, '-')
+        # axs[1].plot(energy_axis, result.init_fit, '--')
+        # axs[1].plot(energy_axis, result.best_fit)
+        plotting = (fig, (axs[0]))  # to pass axes to find_mass
 
     # Fitting the mass
-    mass = find_mass(image, energy_axis, k_axis, _plotting)
+    mass = find_mass(image, energy_axis, k_axis, plotting)
+
+    # Fitting the Rabi splitting and detuning
+    if fit_kwargs is None: fit_kwargs = dict()
+    defaults = dict(mode='lp')
+    fit_kwargs = {**defaults, **fit_kwargs}
+    fit = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
 
     # Getting return values in physically useful units
     energy = result.best_values['center']
     hbar = 0.658  # in meV*ps
-    lifetime = hbar / (2 * result.best_values['sigma'])
-
-    results = (energy, lifetime, mass)
-    args = ()
-    kwargs = dict(plotting=plotting)
+    lifetime = hbar / (2 * result.best_values['sigma'])  # in ps
+    rabi = fit.x[1]
+    results = (energy, lifetime, mass, rabi)
 
     if known_sample_parameters is not None:
         known_sample_parameters['polariton_mass'] = mass
@@ -301,11 +301,11 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=True,
         except Exception as e:
             print(e)
             pass
-    return results, args, kwargs
+    return results, fit
 
 
 # Full dispersion fitting
-def fit_dispersion(image, k_axis, energy_axis, plotting, known_sample_parameters=None, mode='both',
+def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_parameters=None, mode='both',
                    find_bands_kwargs=None, starting_fit_parameters=(1550., 4, 2e-5, 1555., 0.35, 0)):
     """
     # todo: parse known sample parameters
@@ -327,9 +327,6 @@ def fit_dispersion(image, k_axis, energy_axis, plotting, known_sample_parameters
         - k_offset in um-1
     :return:
     """
-    ax = False
-    if plotting:
-        fig, ax = plt.subplots(1, 1)
     if find_bands_kwargs is None: find_bands_kwargs = dict()
 
     # By default try to fit both upper and lower polariton
@@ -343,7 +340,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting, known_sample_parameters
                                            agglom_kwargs=dict(n_clusters=n_clusters, linkage='single')),
                     xaxis=k_axis, yaxis=energy_axis)
     find_bands_kwargs = {**defaults, **find_bands_kwargs}
-    bands = find_bands(image, ax, **find_bands_kwargs)
+    bands = find_bands(image, **find_bands_kwargs)
 
     # Create cost functions fo least square function fitting
     if mode == 'both':
@@ -373,10 +370,11 @@ def fit_dispersion(image, k_axis, energy_axis, plotting, known_sample_parameters
     a = least_squares(partial(cost_function, experiment_bands=bands), starting_fit_parameters, x_scale=scale)
 
     if plotting:
+        fig, ax = create_axes(plotting)
         new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
         lower, upper = exciton_photon_dispersions(new_k, *a.x)
-        ax.plot(new_k, lower)
-        ax.plot(new_k, upper)
+        ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
+        ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
     return a
 
 
@@ -464,7 +462,7 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None,
     return masked_clusters
 
 
-def find_bands(image, plot=False, direction='both', find_peak_kwargs=None, clustering_kwargs=None,
+def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, clustering_kwargs=None,
                xaxis=None, yaxis=None, max_number_of_peaks=5e3):
     """Find peaks in image, and cluster them into bands
 
@@ -516,7 +514,7 @@ def find_bands(image, plot=False, direction='both', find_peak_kwargs=None, clust
     assert len(peaks) < max_number_of_peaks
 
     # Cluster points as pixels
-    clusters = cluster_points(peaks, True, **clustering_kwargs)
+    clusters = cluster_points(peaks, plotting, **clustering_kwargs)
     # Transform pixels to axis units
     if xaxis is None: xaxis = np.arange(image.shape[0])
     if yaxis is None: yaxis = np.arange(image.shape[1])
@@ -524,9 +522,8 @@ def find_bands(image, plot=False, direction='both', find_peak_kwargs=None, clust
     yfunc = partial(np.interp, xp=np.arange(len(yaxis)), fp=yaxis)
     clusters = [np.transpose([xfunc(cluster[:, 0]), yfunc(cluster[:, 1])]) for cluster in clusters]
 
-    if plot:
-        try: fig, ax = _make_axes(plot)
-        except: fig, ax = plt.subplots(1, 1)
+    if plotting is not None:
+        fig, ax = create_axes(plotting)
         imshow(image.transpose(), ax, xaxis=xaxis, yaxis=yaxis, cbar=False, diverging=False)
         for cluster in clusters: ax.plot(*cluster.transpose(), '.', alpha=1, ms=0.2)
     return clusters
