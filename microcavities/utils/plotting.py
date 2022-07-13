@@ -85,12 +85,25 @@ def default_save(figure, name, base_path=None, dpi=1200):
     figure.savefig(os.path.join(base_path, 'figures', name), dpi=dpi, bbox_inches='tight')
 
 
-def _make_axes(ax=None):
-    if ax is None:
-        fig = figure()
-        ax = fig.subplots(1, 1)
-    else:
+def create_axes(ax=None, subplots_shape=(1, 1), fig_kw=None):
+    """Utility function to create/return a (fig,ax) tuple"""
+    if ax in [None, True]:
+        if fig_kw is None: fig_kw = dict()
+        defaults = dict(aspect_ratio=subplots_shape[1]/subplots_shape[0])
+        fig_kw = {**defaults, **fig_kw}
+        fig = figure(**fig_kw)
+        ax = fig.subplots(*subplots_shape)
+    elif isinstance(ax, tuple):
+        fig, ax = ax
+    elif isinstance(ax, plt.Axes):
         fig = ax.figure
+    elif isinstance(ax, plt.Figure):
+        fig = ax
+        ax = fig.get_axes()
+        if len(ax) == 1:
+            ax = ax[0]
+    else:
+        raise ValueError('Cannot handle %s' % type(ax))
     return fig, ax
 
 
@@ -475,7 +488,7 @@ def colorbar_wrapper(ax, mappable, cbar_kwargs=None, cax_kwargs=None):
     :param cax_kwargs:
     :return:
     """
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
     if cbar_kwargs is None: cbar_kwargs = dict()
     cbar_kwargs = {**dict(orientation='vertical'), **cbar_kwargs}
 
@@ -517,7 +530,7 @@ def waterfall(lines, ax=None, cmap=None, xaxis=None, offsets=None,
     :param kwargs:
     :return:
     """
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
 
     # Handling defaults
     if label_kwargs is None: label_kwargs = dict()
@@ -616,7 +629,7 @@ def colorline(y, ax=None, z=None, xaxis=None, cmap='copper', vmin=None, vmax=Non
         points = np.array([x, y]).T.reshape(-1, 1, 2)
         return np.concatenate([points[:-1], points[1:]], axis=1)
 
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
 
     if xaxis is None:
         xaxis = np.arange(len(y))
@@ -664,7 +677,7 @@ def plot_fill(y_array, ax=None, xaxis=None, *args, **kwargs):
     :return:
     """
     if xaxis is None: xaxis = np.arange(y_array.shape[1])
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
     y_mean = np.nanmean(y_array, 0)
     y_err = np.nanstd(y_array, 0)
     ax.plot(xaxis, y_mean, *args, **kwargs)
@@ -698,7 +711,7 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None,
     :return:
     """
 
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
 
     # Extent handling
     if 'extent' not in kwargs:
@@ -918,7 +931,7 @@ def pcolormesh(img, ax=None, xaxis=None, yaxis=None, cbar=True, cbar_kwargs=None
     :return:
     """
 
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
 
     # Define image axes if not provided
     if xaxis is None:
@@ -982,7 +995,7 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
         xs = [np.arange(image.shape[1]) for image in images]
     if ys is None:
         ys = [np.arange(image.shape[0]) for image in images]
-    fig, ax = _make_axes(ax)
+    fig, ax = create_axes(ax)
 
     lines = []
     intersections = []
