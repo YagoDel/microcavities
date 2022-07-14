@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Utility functions to analyse low power dispersion images
+
+
+
 """
 
 from microcavities.utils.plotting import *
@@ -282,14 +285,21 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
 
     # Fitting the Rabi splitting and detuning
     if fit_kwargs is None: fit_kwargs = dict()
-    defaults = dict(mode='lp')
+    defaults = dict(mode='lp',
+                    starting_fit_parameters=(np.mean(energy_axis),  # photon energy
+                                             (np.max(energy_axis)-np.min(energy_axis))/4,  # rabi
+                                             mass,  # photon mass
+                                             np.mean(energy_axis),  # exciton energy
+                                             mass * 1e5,  # exciton mass
+                                             0)  # k_0 offset
+                    )
     fit_kwargs = {**defaults, **fit_kwargs}
     fit = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
 
     # Getting return values in physically useful units
     energy = result.best_values['center']
     hbar = 0.658  # in meV*ps
-    lifetime = hbar / (2 * result.best_values['sigma'])  # in ps
+    lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
     rabi = fit.x[1]
     results = (energy, lifetime, mass, rabi)
 
@@ -371,10 +381,13 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
     if plotting:
         fig, ax = create_axes(plotting)
-        new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
-        lower, upper = exciton_photon_dispersions(new_k, *a.x)
-        ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
-        ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
+        if a.success:
+            new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
+            lower, upper = exciton_photon_dispersions(new_k, *a.x)
+            ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
+            ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
+        else:
+            ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
     return a
 
 
