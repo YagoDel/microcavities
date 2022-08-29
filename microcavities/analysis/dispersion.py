@@ -381,13 +381,16 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
     if plotting:
         fig, ax = create_axes(plotting)
+        imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm(), cmap='Greys')
+        [ax.plot(*band.transpose()) for band in bands]
+        new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
         if a.success:
-            new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
             lower, upper = exciton_photon_dispersions(new_k, *a.x)
-            ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
-            ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
         else:
+            lower, upper = exciton_photon_dispersions(new_k, *starting_fit_parameters)
             ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
+        ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
+        ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
     return a
 
 
