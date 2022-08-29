@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from microcavities.utils.plotting import *
-from microcavities.utils.plotting import _make_axes
+from microcavities.utils.plotting import create_axes
 import lmfit
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
@@ -28,6 +28,7 @@ import h5py
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormatter, ScalarFormatter, LogLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import math
+import pythtb
 
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
@@ -154,8 +155,10 @@ def get_experimental_data_base(dataset_index):
     ellipse_a = 20
     ellipse_b = 40
     _mom = 2*np.pi / 0.805
-    angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom
-    laser_size = np.pi * ellipse_a * ellipse_b * np.sin(angle_of_incidence)
+    # angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom  # approximately true for small angles
+    # laser_size = np.pi * ellipse_a * ellipse_b / np.sin(angle_of_incidence)
+    angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom  # approximately true for small angles
+    laser_size = np.pi * ellipse_a * ellipse_b / np.sin(np.pi/2-angle_of_incidence)
     norm_ax = variables['vwp'] / laser_size
 
     variables['normalised_power_axis'] = norm_ax
@@ -1874,6 +1877,127 @@ RABI = 6.65 / 2
 #             band_energy = np.append(band_energy, fill_na2, 0)
 #     return band_centers, band_widths, band_energy
 
+def multi_peak_fitting(spectra, energy_axis, n_peaks=3, model_type=None):
+    # if model_type is None:
+    #     model_type = LorentzianModel
+
+    # model = model_type()
+    # for indx in range(1, n_peaks):
+    #     model += model_type(prefix='peak%d' % indx)
+    # model += ConstantModel()
+
+    model = LorentzianModel() + LorentzianModel(prefix='peak1_') \
+            + LorentzianModel(prefix='peak2_') + ConstantModel()
+
+    bkg = np.argmin(spectra)
+
+    # Segmenting by thresholding
+    thresh = np.max(spectra)
+    step = (np.max(spectra) - np.min(spectra)) / 100
+    n_regions = 0
+    while n_regions != n_peaks:
+        thresh -= step
+        masked = spectra < thresh
+        diff = np.diff(np.asarray(masked, int))
+        diff[diff < 0] = 0
+        n_regions = np.sum(diff)
+
+    diff = np.diff(np.asarray(masked, int))
+    _indices = np.argsort(diff)
+    centers_left = np.sort(_indices[:n_peaks])
+    centers_right = np.sort(_indices[-n_peaks:])
+    centers = np.mean([centers_left, centers_right], 0, dtype=int)
+    print(centers)
+
+    sigma = 1e-6
+    guess = dict(sigma=sigma, center=energy_axis[centers[0]], amplitude=spectra[centers[0]]-bkg, c=bkg)
+    for indx in range(1, n_peaks):
+        guess['peak%d_sigma' % indx] = sigma
+        guess['peak%d_amplitude' % indx] = spectra[centers[indx]] - bkg
+        guess['peak%d_center' % indx] = energy_axis[centers[indx]]
+
+    # if guess_kwargs is None: guess_kwargs = dict()
+    # my_guess = guess_peak(spectra, energy_axis, **guess_kwargs)
+    params_guess = model.make_params(**guess)
+
+
+    def brillouin_masks(k_axis, laser_angle, k_range=0.1):
+        mask_left = (np.abs(k_axis+laser_angle/2) - k_range) < 0
+        mask_right = (np.abs(k_axis-laser_angle/2) - k_range) < 0
+        return mask_left, mask_right
+
+    masks = brillouin_masks(config['k_axis'] + 0.15, 0.33, 0.11)
+    energy_axis = config['energy_axis']
+    model = LorentzianModel() + ConstantModel()
+    ground_bands = data[..., 27:, :]
+    # mdls = []
+    centers = []
+    sigmas = []
+    for _ground_bands in tqdm(ground_bands):
+        _centers = []
+        _sigmas = []
+        for gbs in tqdm(_ground_bands):
+            cntrs = []
+            sgms = []
+            for _gbs in gbs:
+                _cntrs = []
+                _sgms = []
+                for mask in masks:
+                    _cntr = []
+                    _sgm = []
+                    for k in _gbs[:, mask].transpose():
+                        guess = dict(c=500, center=energy_axis[27:][np.argmax(k)], sigma=1e-6, amplitude=np.max(k))
+                        param_guess = model.make_params(**guess)
+                        _mdl = model.fit(k, param_guess, x=energy_axis[27:])
+                        _cntr += [_mdl.best_values['center']]
+                        _sgm += [_mdl.best_values['sigma']]
+                    _cntrs += [_cntr]
+                    _sgms += [_sgm]
+                cntrs += [_cntrs]
+                sgms += [_sgms]
+            _centers += [cntrs]
+            _sigmas += [sgms]
+        centers += [_centers]
+        sigmas += [_sigmas]
+    centers = np.array(centers)
+    sigmas = np.array(sigmas)
+
+    centers_dataset0 = np.asarray(centers)
+    sigmas_dataset0 = np.asarray(sigmas)
+    centers_dataset4 = np.asarray(centers)
+    sigmas_dataset4 = np.asarray(sigmas)
+
+    sigma_diff0 = np.diff(np.nanmean(sigmas_dataset0, -1), axis=-1)[..., 0]
+    sigma_diff4 = np.diff(np.nanmean(sigmas_dataset4, -1), axis=-1)[..., 0]
+
+    #     _mdls = []
+    #     for k in gb[-1].transpose():
+    #         guess = dict(c=500, center=energy_axis[27:][np.argmax(k)], sigma=1e-6, amplitude=np.max(k))
+    #         param_guess = model.make_params(**guess)
+    #         _mdls += [model.fit(k, param_guess, x=energy_axis[27:])]
+    #     mdls += [_mdls]
+    # return model.fit(spectra, params_guess, x=energy_axis)
+
+
+def analytical_coupling_strength(potential_depth, lattice_period, mass=MASS):
+    return 4 * potential_depth * np.exp(-np.sqrt(2*mass*potential_depth)*lattice_period/hbar)
+
+
+def sinusoidal_k(k, potential, delta_k=10., mass=MASS, n_bands=6):
+    G = delta_k
+
+    # TODO  compare to a model where the photon and the exciton are fully separated (mass)
+    space_size = 2 * n_bands + 1
+
+    # Kinetic energy
+    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
+
+    # Potential energy
+    pot = [potential / 2] * (space_size - 1)
+    Hv = np.diag(pot, -1) + np.diag(pot, 1)
+
+    return Hk0 + Hv
+
 
 def Hamiltonian_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
     G = delta_k
@@ -1888,6 +2012,28 @@ def Hamiltonian_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=
     # Potential energy
     pot = [potential / 2] * (space_size - 1)
     Hv = np.diag(pot, -1) + np.diag(pot, 1)
+    Hv += np.eye(space_size) * detuning / 2
+
+    # Coupling to exciton
+    H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
+    H2row = np.hstack([rabi * np.eye(space_size), Hv])
+    return np.vstack([H1row, H2row])
+
+
+def Hamiltonian_delta_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
+    G = delta_k
+
+    # TODO  compare to a model where the photon and the exciton are fully separated (mass)
+    space_size = 2*n_bands + 1
+
+    # Kinetic energy
+    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
+    Hk0 -= np.eye(space_size) * detuning / 2
+
+    # Potential energy
+    # pot = [potential / 2] * (space_size - 1)
+    # Hv = np.diag(pot, -1) + np.diag(pot, 1)
+    Hv = potential * np.ones((space_size, space_size))
     Hv += np.eye(space_size) * detuning / 2
 
     # Coupling to exciton
@@ -1935,16 +2081,108 @@ def test_hamiltonians():
         vec1 = vec1[:, _sort_idx]
         vals += [val1]
 
-
+    ks = np.linspace(-2, 2, 101)
     hk = partial(Hamiltonian_k, potential=potential, delta_k=deltak, n_bands=6)
-    bands, modes = solve_for_krange(np.linspace(-2, 2, 101), hk)
+    bands, modes = solve_for_krange(ks, hk)
 
     fig, ax = plt.subplots(1, 1)
+    ax.plot(ks, bands[:, :])
     [ax.plot(val[:100], '--') for val in vals]
     # [axs[1].plot(val) for val in vals]
     ax2 = ax.twiny()
     # print(bands.shape)
     ax2.plot(bands[:, :])
+
+
+def testing_nonhermitian():
+    gs_widths = []
+    gaps = []
+    ampl = 1
+    k = np.linspace(-2, 2, 501)
+    thetas = np.linspace(-np.pi/2, np.pi/2, 51)
+    for theta in thetas:
+        p = ampl * np.exp(1j * theta)
+        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+        bands, modes = solve_for_krange(k, hk)
+        gs_widths += [np.max(bands[:, 0]) - np.min(bands[:, 0])]
+        gaps += [np.min(bands[:, 1]) - np.max(bands[:, 0])]
+    gs_widths = np.array(gs_widths)
+    gaps = np.array(gaps)
+
+    fig = plt.figure()
+    gs = gridspec.GridSpec(1, 3, fig)
+    _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+    ax = plt.subplot(_gs[0])
+    ax.plot(thetas, gs_widths.real, '.-')
+    ax2 = ax.twinx()
+    ax2.plot(thetas, gs_widths.imag, '.-', color='C1')
+    ax = plt.subplot(_gs[1])
+    ax.plot(thetas, gaps.real)
+
+    p = ampl * np.exp(1j * 0)
+    hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+    bands, modes = solve_for_krange(k, hk)
+    _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1])
+    axs = _gs.subplots()
+    axs[0].plot(k, bands[:, :2].real)
+    axs[1].plot(k, bands[:, :2].imag)
+
+    p = ampl * np.exp(1j * np.pi/2)
+    hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+    bands, modes = solve_for_krange(k, hk)
+    _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[2])
+    axs = _gs.subplots()
+    axs[0].plot(k, bands[:, :2].real)
+    axs[1].plot(k, bands[:, :2].imag)
+
+
+    fig, axs = plt.subplots(2, 4, sharex=True)
+    k = np.linspace(-2, 2, 501)
+    for p, ax in zip([np.sqrt(5)*1j, 1+2j, 2+1j, np.sqrt(5)], axs.transpose()):
+        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+        bands, modes = solve_for_krange(k, hk)
+        ax[0].plot(k, bands[:, :3].real)
+        _bands = bands[:, :3]
+        if p.real < 1e-5:
+            _b2 = _bands[:, -1]
+            _b01 = _bands[:, :-1]
+            mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
+            for idx, msk in enumerate(mask):
+                if msk:
+                    indxs = np.argsort(_b01[idx].imag)
+                    _b01[idx] = _b01[idx][indxs]
+            # indxs = np.argsort(_b01.imag, axis=-1)
+            # _b01[mask] = _b01[mask][indxs[mask]]
+
+            _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
+        ax[1].plot(k, _bands.imag)
+    for idx in range(len(axs[0])-1):
+        axs[0, idx].sharey(axs[0, idx+1])
+        axs[1, idx].sharey(axs[1, idx+1])
+
+    fig, axs = plt.subplots(2, 3, sharex=True)
+    k = np.linspace(-2, 2, 501)
+    for p, ax in zip([2, 2+1j, 2+2j], axs.transpose()):
+        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+        bands, modes = solve_for_krange(k, hk)
+        ax[0].plot(k, bands[:, :3].real)
+        _bands = bands[:, :3]
+        if p.real < 1e-5:
+            _b2 = _bands[:, -1]
+            _b01 = _bands[:, :-1]
+            mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
+            for idx, msk in enumerate(mask):
+                if msk:
+                    indxs = np.argsort(_b01[idx].imag)
+                    _b01[idx] = _b01[idx][indxs]
+            # indxs = np.argsort(_b01.imag, axis=-1)
+            # _b01[mask] = _b01[mask][indxs[mask]]
+
+            _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
+        ax[1].plot(k, _bands.imag)
+    for idx in range(len(axs[0])-1):
+        axs[0, idx].sharey(axs[0, idx+1])
+        axs[1, idx].sharey(axs[1, idx+1])
 
 
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
@@ -2440,7 +2678,7 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     # imshow(np.fliplr(theory_density.transpose()),
     #        cbar=False, diverging=False, cmap='Greys')
     # print(theory_density)
-    fig, ax = _make_axes(fig_ax)
+    fig, ax = create_axes(fig_ax)
     _kwargs = dict(cbar=False, diverging=False, norm=LogNorm(1e-5, 1), cmap='Greys')
     imshow_kwargs = {**_kwargs, **imshow_kwargs}
     imshow(normalize(np.fliplr(theory_density.transpose()[min_idx:max_idx])), ax,
@@ -2494,7 +2732,8 @@ with h5py.File(collated_data_path, 'r') as dfile:
     laser_separations = dfile['laser_separations'][...]
 dataset_order = np.argsort(np.abs(laser_separations))
 normalized_laser_separations = normalize(np.abs(laser_separations))
-colormap_laser_separation = cm.get_cmap('Greens')((normalized_laser_separations + 0.2)/1.2)
+# colormap_laser_separation = cm.get_cmap('Greens')((normalized_laser_separations + 0.24)/1.2)
+colormap_laser_separation = cm.get_cmap('Greens_r')((normalized_laser_separations - 0.24)/1.2)
 
 
 # def find_two_parameters(ground_state, splitting, xaxis, yaxis, plot=False, colours=None):
