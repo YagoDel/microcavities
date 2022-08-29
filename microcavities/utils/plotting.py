@@ -87,7 +87,9 @@ def default_save(figure, name, base_path=None, dpi=1200):
 
 def create_axes(ax=None, subplots_shape=(1, 1), fig_kw=None):
     """Utility function to create/return a (fig,ax) tuple"""
-    if ax in [None, True]:
+    if ax in [False]:
+        return None, None
+    elif ax in [None, True]:
         if fig_kw is None: fig_kw = dict()
         defaults = dict(aspect_ratio=subplots_shape[1]/subplots_shape[0])
         fig_kw = {**defaults, **fig_kw}
@@ -338,9 +340,7 @@ def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
         except:
             values += [v]
 
-    # values = [tuple(x) for x in values]
     if multi_artist:
-        print('Yep')
         kwargs = {**dict(handler_map={tuple: HandlerTuple2(ndivide=None)}), **kwargs}
     ax.legend(values, keys, *args, **kwargs)
 
