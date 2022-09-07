@@ -33,8 +33,11 @@ import pythtb
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
 
-collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
-collated_analysis = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+# collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
+# collated_analysis = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+folder_name = '2022_08_conveyorbelt'
+collated_data_path = get_data_path('2022_08_conveyorbelt/collated_data.h5')
+collated_analysis = get_data_path('2022_08_conveyorbelt/collated_analysis.h5')
 spatial_scale = magnification('rotation_pvcam', 'real_space')[0] * 1e6
 momentum_scale = magnification('rotation_pvcam', 'k_space')[0] * 1e-6
 mu = '\u03BC'
@@ -182,10 +185,12 @@ def get_experimental_data(dataset_index):
     if analyse:
         cls = FullDatasetModeDetection(data, config)
         cls.configuration['plotting'] = False
-        bands = np.load(get_data_path('2021_07_conveyorbelt/bands/dataset%d.npy' % dataset_index), allow_pickle=True)
+        bands = np.load(get_data_path('%s/bands/bands_dataset%d.npy' % (folder_name, dataset_index)), allow_pickle=True)
+        if 'data_axes_order' in config:
+            bands = np.transpose(bands, config['data_axes_order'][:-2])
         analysed_bands = cls.analyse_bands(bands)
     else:
-        with h5py.File(get_data_path('2021_07_conveyorbelt/collated_analysed_data.h5'), 'r') as full_file:
+        with h5py.File(get_data_path('%s/collated_analysed_data.h5' % folder_name), 'r') as full_file:
             dset = full_file['speeds%d' % (dataset_index + 1)]
             mode_tilts = dset[...]
         bands = None
@@ -261,7 +266,7 @@ def get_selected_tilt_data(dataset_index):
         all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
         selected_modes = mode_tilts[:, :, 2:, :2]
         tst = np.transpose(selected_modes, (1, 2, 0, 3))
-        selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2) * (shape[3] - 2)))
+        selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2) * 2))
         modes_for_fitting = selected_modes[:-2]
         fitting_freq = all_freq[:-2]
     elif dataset_index == 6:
@@ -269,7 +274,7 @@ def get_selected_tilt_data(dataset_index):
         all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
         selected_modes = mode_tilts[1:, :, 2:, 1:3]
         tst = np.transpose(selected_modes, (1, 2, 0, 3))
-        selected_modes = np.reshape(tst, (shape[1], (shape[0] - 1) * (shape[2] - 2) * (2)))
+        selected_modes = np.reshape(tst, (shape[1], (shape[0] - 1) * (shape[2] - 2) * 2))
         modes_for_fitting = selected_modes[5:-5]
         fitting_freq = all_freq[5:-5]
     elif dataset_index == 7:
@@ -726,7 +731,7 @@ def smoothened_find_peaks(x, *args, **kwargs):
 def _make_axis_functions(configuration):
     if 'energy_axis' not in configuration:
         e_roi = configuration['energy_roi']
-        _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
+        _wvls = spectrometer_calibration('rotation_acton_old', 803, '1')[e_roi[1]:e_roi[0]:-1]
         energy_axis = 1240 / _wvls
     else:
         energy_axis = configuration['energy_axis']
@@ -770,7 +775,7 @@ class SingleImageModeDetection:
 
         if 'energy_axis' not in self.configuration:
             e_roi = self.configuration['energy_roi']
-            _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
+            _wvls = spectrometer_calibration('rotation_acton_old', 803, '1')[e_roi[1]:e_roi[0]:-1]
             self.energy_axis = 1240 / _wvls
         else:
             self.energy_axis = self.configuration['energy_axis']
@@ -1091,6 +1096,7 @@ class SingleImageModeDetection:
                     # func = np.poly1d(fit)
                     k0_energy = np.poly1d(fit)(0)  # func(self.config['k_masking']['k0'])
                     tilt = fit[0]
+                    # print(np.min(band[:, 1]), np.max(band[:, 1]), self.configuration['energy_axis'])
                     inverse_fit = np.polyfit(self.k_inverse(band[:, 0]), self.e_inverse(band[:, 1]), 1)
                     vectors, start_slice, end_slice = self._calculate_slice(inverse_fit, band_width)
                     slice, coords = pg.affineSlice(self.image, end_slice, start_slice, vectors, (0, 1),
@@ -1775,16 +1781,51 @@ def fit_ground_state(band, xaxis=None, debug=False):
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
-mass_factor = 1.9  # 2.8  # 3.3
-MASS = mass_factor * 10 ** (-5) * me
-DETUNING = 8  # 6  # 10  # 10.6
-RABI = 4.65  # 4.2
+# mass_factor = 1.9  # 2.8  # 3.3
+# MASS = mass_factor * 10 ** (-5) * me
+# DETUNING = 8  # 6  # 10  # 10.6
+# RABI = 4.65  # 4.2
 
 # """Values from the experimental dispersion fit
-mass_factor = 3.1
-MASS = mass_factor * 10 ** (-5) * me
-DETUNING = 10.5
-RABI = 6.65 / 2
+# mass_factor = 3.1
+# MASS = mass_factor * 10 ** (-5) * me
+# DETUNING = 10.5
+# RABI = 6.65 / 2
+
+# DETUNING = 1.55084098e+03 - 1.54474466e+03 + 3.2
+# RABI = 9.72567869e+00 / 2
+# MASS = 5.04588683e-05 * me
+
+# DETUNING = 1.54967641e+03 - 1.54427430e+03
+# RABI = 5.51506333e+00 / 2
+# MASS = 5.59446091e-05 * me
+
+# DETUNING = 1550.950755715595-1545.8839004736938 #+ 3.2
+# RABI = 9.3 / 2
+# MASS = 4.7e-05 * me
+
+
+# DETUNING = 1551.562761279269-1547.6817304837896 + 3.2
+# RABI = 12.474762310879346 / 2
+# MASS = 4.0e-05 * me
+
+# DETUNING = 1552.3424937153245-1545.1695382999703 + 3.2
+# RABI = 8.5 / 2
+# MASS = 6.0e-05 * me
+#
+# DETUNING = 1549.662767035435-1544.0526583768167 + 3.2
+# RABI = 4.9 / 2
+# MASS = 6.e-05 * me
+#
+# DETUNING = 1550.6481245629955-1545.4985884750406 + 3.2
+# RABI = 8.5 / 2
+# MASS = 4.9e-05 * me
+
+DETUNING = 1550.9923163262479-1546.0828304664699 + 3.2
+RABI = 9.7 / 2
+MASS = 4.6e-05 * me
+
+
 # """
 
 # # """Values from the experimental dispersion fit + the experimental below threshold blueshift
@@ -2327,7 +2368,7 @@ def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, result
         laser_separations = dfile['laser_separations'][...]
     period = np.abs(2*np.pi / laser_separations[dataset_index])
     if depths is None:
-        depths = np.linspace(0.1, 10.1, 51)
+        depths = np.linspace(0.1, 10.1, 101)
     # eigenvalues, (centers, widths, edges) = run_simulations(depths, [period], 0, MASS, MODE)
     theory_bands, theory_kaxis = run_simulations(depths, [period], 0, MASS)
 
@@ -2408,9 +2449,9 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
     # Theory
     if run_sims:
         results = run_simulations_dataset(dataset_index)
-        np.save(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_simulations' % dataset_index), results)
+        np.save(get_data_path('%s/simulations/dataset%d_simulations' % (folder_name, dataset_index)), results)
     else:
-        results = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_simulations.npy' % dataset_index),
+        results = np.load(get_data_path('%s/simulations/dataset%d_simulations.npy' % (folder_name, dataset_index)),
                           allow_pickle=True).take(0)
     theory_depths = results['depths']
     # theory_centers = results['centers']
@@ -2468,7 +2509,7 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
         fitted_results = fit_theory(dataset_index, selected_indices, run_sims)
         theory_bands, theory_kaxis, depths = [fitted_results[x] for x in ['bands', 'k_axis', 'depths']]
     else:
-        fitted_results = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_fits.npy' % dataset_index), allow_pickle=True).take(0)
+        fitted_results = np.load(get_data_path('%s/simulations/dataset%d_fits.npy' % (folder_name, dataset_index)), allow_pickle=True).take(0)
         theory_bands, theory_kaxis, depths = [fitted_results[x][selected_indices] for x in ['bands', 'k_axis', 'depths']]
         if len(theory_kaxis.shape) == 1:
             depths = [depths]
@@ -2582,7 +2623,7 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     if imshow_kwargs is None: imshow_kwargs = dict()
 
     data, variables, config = get_experimental_data_base(dataset_index)
-    simulations = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_fits.npy' % dataset_index),
+    simulations = np.load(get_data_path('%s/simulations/dataset%d_fits.npy' % (folder_name, dataset_index)),
                           allow_pickle=True).take(0)
     depths = simulations['depths']
 
@@ -2605,9 +2646,9 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
         h5pylabel += 'cw={cw}/'
     h5pylabel += 'power={power}/f={f}'
     h5pylabel = h5pylabel.format(deltak=config['laser_angle'], cw=cw, power=power, f=freq)
-    print('Daset details: ', h5pylabel, ' Veff=%g' % fit_veff)
+    print('Dataset details: ', h5pylabel, ' Veff=%g' % fit_veff)
 
-    path = get_data_path('2021_07_conveyorbelt/simulations/pl_density.h5')
+    path = get_data_path('%s/simulations/pl_density.h5' % folder_name)
 
     # Getting (or simulating, if not available) all the data
     with h5py.File(path, 'a') as dfile:
@@ -2728,7 +2769,7 @@ class dummy_formatter(ScalarFormatter):
         return '%g' % value
 
 
-with h5py.File(collated_data_path, 'r') as dfile:
+with h5py.File(collated_analysis, 'r') as dfile:
     laser_separations = dfile['laser_separations'][...]
 dataset_order = np.argsort(np.abs(laser_separations))
 normalized_laser_separations = normalize(np.abs(laser_separations))
@@ -2765,8 +2806,8 @@ if __name__ == '__main__':
     if TOGGLE == 'cluster analysis':
         import h5py
         from microcavities.utils import random_choice
-        collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
-        collated_analysis_path = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+        collated_data_path = get_data_path('%s/collated_data.h5' % folder_name)
+        collated_analysis_path = get_data_path('%s/collated_analysis.h5' % folder_name)
 
         example_config = dict(
             plotting=False, #['make_bands'],  #True,  # ['image_preprocessing', 'peak_finding']
