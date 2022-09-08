@@ -33,7 +33,7 @@ def get_k0_image(photolum, powers):
     """From a sequence of energy-momentum images at different powers, extracts the power-ordered k=0 spectra"""
     # We assume that the lowest power in the lowest power scan is sufficiently low to extract k=0 by quadratic fitting
     dispersion_img = np.copy(photolum[0][0])
-    k0 = int(find_k0(dispersion_img))
+    k0 = int(find_k0(dispersion_img, plotting=False))
     new_images, xaxis = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
 
     normalised = []
@@ -46,7 +46,7 @@ def get_k0_image(photolum, powers):
 
 
 def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('rotation_acton', 780, '2'), k_axis=None,
-                            known_sample_parameters=None, intensity_corrections=None, fig_ax=None,
+                            dispersion_fit_parameters=None, intensity_corrections=None, fig_ax=None,
                             powers_to_imshow=None):
     """For experiments with multiple ExperimentScan power series of energy-resolved, k-space images (at different exposures)
 
@@ -57,7 +57,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     :param bkg:
     :param energy_axis:
     :param k_axis:
-    :param known_sample_parameters:
+    :param dispersion_fit_parameters:
     :param intensity_corrections:
     :param fig_ax:
     :param powers_to_imshow: list of floats. Values of power to display in the colorful_imshow subplot
@@ -89,14 +89,11 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
         dispersion_imgs = dispersion_imgs[np.newaxis]
 
     # Analysing the dispersion images
-    results = [dispersion(img, k_axis, energy_axis, False, known_sample_parameters)[0] for img in dispersion_imgs]
-    k0_energies = [d[0] for d in results]
-    lifetimes = [d[1] for d in results]
-    masses = [d[2] for d in results]
-    if len(results[0]) == 4: exciton_fractions = [d[3] for d in results]
-    elif len(results[0]) == 3: exciton_fractions = [np.nan for d in results]
-    else:
-        raise RuntimeError('Unexpected number of results. Has microcavities.analysis.dispersion.dispersion changed?')
+    results = [dispersion(img, k_axis, energy_axis, False, dispersion_fit_parameters) for img in dispersion_imgs]
+    k0_energies = [d['polariton_energy'] for d in results]
+    lifetimes = [d['polariton_lifetime'] for d in results]
+    masses = [d['polariton_mass'] for d in results]
+    exciton_fractions = [d['exciton_fraction'] for d in results]
 
     """subplot(0, 1) pcolormesh of the normalised emission spectra at k~0 at all powers"""
     # Extracting the k=0 spectra at each power
@@ -116,7 +113,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     """subplot(0,0) colorful_imshow of:
      - The lowest power image, which is assumed to be low power enough to fit the mass/lifetime
      - Selected condensate dispersions"""
-    k0 = int(np.mean([find_k0(img) for img in dispersion_imgs]))
+    k0 = int(np.mean([find_k0(img, plotting=False) for img in dispersion_imgs]))
     if powers_to_imshow is None:
         powers_to_imshow = [powers[-1][-1]]
 
@@ -134,7 +131,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     joined_images = np.concatenate(([dispersion_img], condensate_imgs))
     _, colours = colorful_imshow(joined_images, ax=axs[0], norm_args=(1, 99.99),
                                  aspect='auto', from_black=False, xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]])
-    quad_fit = fit_quadratic_dispersion(np.mean(dispersion_imgs, 0), energy_axis, k_axis)
+    quad_fit = fit_quadratic_dispersion(np.mean(dispersion_imgs, 0), energy_axis, k_axis, plotting=False)
     axs[0].plot(k_axis[k0 - 70:k0 + 70], np.poly1d(quad_fit)(k_axis[k0 - 70:k0 + 70]), 'w')
 
     label_axes(axs[2], u'Wavevector [\u00B5m$^{-1}$]', 'Energy [meV]')

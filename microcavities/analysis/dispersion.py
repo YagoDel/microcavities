@@ -16,6 +16,7 @@ from lmfit.models import LorentzianModel, ConstantModel
 from functools import partial
 from scipy.signal import savgol_filter, find_peaks
 from scipy.optimize import least_squares
+from scipy.linalg import svd
 from sklearn.cluster import AgglomerativeClustering
 from copy import deepcopy
 
@@ -129,7 +130,7 @@ def make_dispersion_axes(image, wavevector_axis=('rotation_pvcam', 'k_space'),
     energy_axis = energy_axis[energy_roi[0]:energy_roi[1]]
 
     # Getting wavevector_axis from calibration files, if not given
-    k0 = find_k0(image)
+    k0 = find_k0(image, plotting=False)
     if wavevector_axis is None:
         wavevector_axis = np.arange(image.shape[0]) - k0
     elif image.shape[0] != len(wavevector_axis):
@@ -183,22 +184,22 @@ def fit_quadratic_dispersion(image, energy=None, wavevector=None, plotting=None,
         fitting_y = energies[smooth_idx[0]:smooth_idx[1]]
 
     quad_fit = np.polyfit(fitting_x, fitting_y, 2)
-    if plotting is not None:
-        fig, ax = create_axes(plotting)
+    fig, ax = create_axes(plotting)
+    if ax is not None:
         pcolormesh(image.transpose(), ax, wavevector, energy, diverging=False, cbar=False, cmap='Greys')
         ax.plot(wavevector, energies, '--', lw=0.7)
         ax.plot(fitting_x, np.poly1d(quad_fit)(fitting_x), '--', lw=1)
     return quad_fit
 
 
-def find_k0(image):
+def find_k0(image, *args, **kwargs):
     """Finds the pixel value of the k~0 polariton by finding the minima in the dispersion curve
 
     :param image: 2D np.ndarray
         Dispersion PL data. First axis is k (order irrelevant), second axis is energy (high-energy at small pixels).
     :return:
     """
-    quad_fit = fit_quadratic_dispersion(image)
+    quad_fit = fit_quadratic_dispersion(image, *args, **kwargs)
     fitted_k0_pixel = - quad_fit[1] / (2 * quad_fit[0])
     return fitted_k0_pixel
 
@@ -230,8 +231,7 @@ def find_mass(image, energy_axis=('rotation_acton', 780, '2'), wavevector_axis=(
     return mass
 
 
-def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
-               known_sample_parameters=None, fit_kwargs=None):
+def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=None):
     """Finds polariton energy, mass and lifetime. If possible, also finds detuning.
 
     If given, energies should be in eV or meV and wavevectors in inverse micron.
@@ -252,9 +252,8 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
     plotting : bool
         Whether to pop-up a GUI for checking fitting is working correctly (the
         default is True).
-    known_sample_parameters : dict
-        Should contain at least two keys: exciton_energy and coupling. They
-        will be used for returning a detuning (the default is None).
+    fit_kwargs : dict
+        To be passed to fit_dispersion for extracting the parameters of the two oscillator model
 
     Returns
     -------
@@ -269,15 +268,17 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
     k_axis, energy_axis = make_dispersion_axes(image, k_axis, energy_axis)
 
     # Fitting the linewidth
-    k0_spectra = image[np.argmin(np.abs(k_axis))]
+    k0_spectra = normalize(image[np.argmin(np.abs(k_axis))])
     result = fit_energy(k0_spectra, energy_axis)
 
-    if plotting is not None:
-        fig, axs = create_axes(plotting, (1, 2))
+    fig, axs = create_axes(plotting, (1, 2))
 
+    if axs is not None:
         axs[1].plot(energy_axis, k0_spectra, '-', energy_axis, result.init_fit, '--', energy_axis, result.best_fit, '-')
-        # axs[1].plot(energy_axis, result.init_fit, '--')
-        # axs[1].plot(energy_axis, result.best_fit)
+        axs[1].set_xlim(result.best_values['center'] - 10*result.best_values['sigma'],
+                        result.best_values['center'] + 10*result.best_values['sigma'])
+        axs[1].text(0.95, 0.95, 'FWHM = %.2g meV' % (2*result.best_values['sigma']), transform=axs[1].transAxes,
+                    ha='right', va='top')
         plotting = (fig, (axs[0]))  # to pass axes to find_mass
 
     # Fitting the mass
@@ -286,40 +287,36 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None,
     # Fitting the Rabi splitting and detuning
     if fit_kwargs is None: fit_kwargs = dict()
     defaults = dict(mode='lp',
-                    starting_fit_parameters=(np.mean(energy_axis),  # photon energy
-                                             (np.max(energy_axis)-np.min(energy_axis))/4,  # rabi
-                                             mass,  # photon mass
-                                             np.mean(energy_axis),  # exciton energy
-                                             mass * 1e5,  # exciton mass
-                                             0)  # k_0 offset
+                    # starting_fit_parameters=(np.mean(energy_axis),  # photon energy
+                    #                          (np.max(energy_axis)-np.min(energy_axis))/4,  # rabi
+                    #                          mass,  # photon mass
+                    #                          np.mean(energy_axis),  # exciton energy
+                    #                          mass * 1e5,  # exciton mass
+                    #                          0),  # k_0 offset
+                    least_squares_kw=dict(max_nfev=5e4)
                     )
     fit_kwargs = {**defaults, **fit_kwargs}
-    fit = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
+    final_params, parameter_errors, res = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
+    exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
+                                                final_params['photon_energy'] - final_params['exciton_energy'])
 
     # Getting return values in physically useful units
     energy = result.best_values['center']
     hbar = 0.658  # in meV*ps
     lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
-    rabi = fit.x[1]
-    results = (energy, lifetime, mass, rabi)
 
-    if known_sample_parameters is not None:
-        known_sample_parameters['polariton_mass'] = mass
-        try:
-            exciton_fraction, _ = hopfield_coefficients(**known_sample_parameters)
-            results += (exciton_fraction, )
-        except Exception as e:
-            print(e)
-            pass
-    return results, fit
+    final_params['polariton_energy'] = energy
+    final_params['polariton_lifetime'] = lifetime
+    final_params['polariton_mass'] = mass
+    final_params['exciton_fraction'] = exciton_fraction
+
+    return final_params
 
 
 # Full dispersion fitting
 def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_parameters=None, mode='both',
-                   find_bands_kwargs=None, starting_fit_parameters=(1550., 4, 2e-5, 1555., 0.35, 0)):
+                   find_bands_kwargs=None, starting_fit_parameters=None, least_squares_kw=None):
     """
-    # todo: parse known sample parameters
-
     :param image: 2D array. 1st axis is momentum, 2nd axis is energy
     :param k_axis: 1D array
     :param energy_axis: 1D array
@@ -328,19 +325,22 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     :param mode: str
         One of 'both' or 'lp', whether to perform the fit on just the lower polariton or both polariton branches
     :param find_bands_kwargs: dict. To be passed to find_bands
-    :param starting_fit_parameters: list. In order:
+    :param starting_fit_parameters: dict
         - photon_energy in meV
         - rabi_splitting in meV
         - photon_mass in m_e (free electron mass)
         - exciton_energy in meV
         - exciton_mass in m_e (free electron mass)
         - k_offset in um-1
+    :param least_squares_kw: dict. Keys same as starting_fit_parameters
+
     :return:
     """
     if find_bands_kwargs is None: find_bands_kwargs = dict()
+    if least_squares_kw is None: least_squares_kw = dict()
+    if known_sample_parameters is None: known_sample_parameters = dict()
 
-    # By default try to fit both upper and lower polariton
-    n_clusters = 2
+    n_clusters = 2   # by default try to fit both upper and lower polariton
     if mode == 'lp': n_clusters = 1
 
     # Default find_band parameters that work for most dispersion images. Might need optimizing
@@ -352,50 +352,101 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     find_bands_kwargs = {**defaults, **find_bands_kwargs}
     bands = find_bands(image, **find_bands_kwargs)
 
-    # Create cost functions fo least square function fitting
+    if starting_fit_parameters is None:
+        lp_energy = np.percentile(bands[0][:, 1], 5)
+        if len(bands) > 1:
+            up_energy = np.percentile(bands[1][:, 1], 5)
+        else:
+            up_energy = lp_energy + 10
+        starting_fit_parameters = (lp_energy, 10, 2e-5, up_energy, 0.35, 0)
+
+    # Handling known parameters
+    parameter_names = ['photon_energy', 'rabi_splitting', 'photon_mass', 'exciton_energy', 'exciton_mass', 'k_offset']
+    scales = [0.01, 0.1, 1e-7, 0.01, 0.01, 0.01]  # parameters have very different orders of magnitude scaling
+
+    dispersion_parameters = dict()
+    unknown_parameters = []
+    least_square_scale = []
+    least_square_start = []
+    for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
+        if key in known_sample_parameters:
+            exec('%s=%g' % (key, known_sample_parameters[key]), dispersion_parameters)
+        else:
+            unknown_parameters += [key]
+            least_square_scale += [sc]
+            least_square_start += [st]
+    exec_string = ','.join(unknown_parameters)
+
+    # Create cost functions for least square function fitting
     if mode == 'both':
         def cost_function(x, experiment_bands):
-            photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass, k_offset = x
+            exec('%s=%s' % (exec_string, list(x)), dispersion_parameters)
 
             # Least squares for the lower polariton band
-            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0], photon_energy, rabi_splitting,
-                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0],
+                                                            *[dispersion_parameters[key] for key in parameter_names])
             lower_cost = np.sum(np.abs(lower_polariton - experiment_bands[0][:, 1]) ** 2)
 
             # Least squares for the upper polariton band
-            _, upper_polariton = exciton_photon_dispersions(experiment_bands[1][:, 0], photon_energy, rabi_splitting,
-                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            _, upper_polariton = exciton_photon_dispersions(experiment_bands[1][:, 0],
+                                                            *[dispersion_parameters[key] for key in parameter_names])
             upper_cost = np.sum(np.abs(upper_polariton - experiment_bands[1][:, 1]) ** 2)
             return lower_cost + upper_cost
     elif mode == 'lp':
         def cost_function(x, experiment_bands):
-            photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass, k_offset = x
+            exec('%s=%s' % (exec_string, list(x)), dispersion_parameters)
 
-            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0], photon_energy, rabi_splitting,
-                                                            photon_mass, exciton_energy, exciton_mass, k_offset)
+            lower_polariton, _ = exciton_photon_dispersions(experiment_bands[0][:, 0],
+                                                            *[dispersion_parameters[key] for key in parameter_names])
             lower_cost = np.sum(np.abs(lower_polariton - experiment_bands[0][:, 1]) ** 2)
             return lower_cost
 
-    scale = (1, 1, 1e-5, 1, 0.01, 0.1)  # very different order of magnitude of parameters needs least_squares scaling
-    a = least_squares(partial(cost_function, experiment_bands=bands), starting_fit_parameters, x_scale=scale)
+    res = least_squares(partial(cost_function, experiment_bands=bands), least_square_start,
+                        x_scale=least_square_scale, **least_squares_kw)
+
+    # parsing fit values
+    if res.success:
+        final_params = [dispersion_parameters[key] for key in parameter_names]
+    else:
+        final_params = []
+        for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
+            if key in known_sample_parameters:
+                final_params += [known_sample_parameters[key]]
+            else:
+                final_params += [st]
+    final_params = {key: value for key, value in zip(parameter_names, final_params)}
+
+    # parsing fit errors, copying from scipy.optimize.curve_fit
+    # todo: FIX. this currently gives values that are much smaller than makes physical sense
+    _, s, VT = svd(res.jac, full_matrices=False)
+    threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+    s = s[s > threshold]
+    VT = VT[:s.size]
+    pcov = np.dot(VT.T / s ** 2, VT)
+    parameter_errors = np.sqrt(np.diag(pcov))
 
     if plotting:
         fig, ax = create_axes(plotting)
         imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm(), cmap='Greys')
         [ax.plot(*band.transpose()) for band in bands]
+
         new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
-        if a.success:
-            lower, upper = exciton_photon_dispersions(new_k, *a.x)
-        else:
-            lower, upper = exciton_photon_dispersions(new_k, *starting_fit_parameters)
+        lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
+        [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+        [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+
+        if not res.success:
             ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
-        ax.plot(new_k, lower, color='darkviolet', alpha=0.3, lw=3)
-        ax.plot(new_k, upper, color='darkorange', alpha=0.3, lw=3)
-    return a
+        else:
+            ax.text(0.5, 0.95,
+                    u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
+                                                                   final_params['exciton_energy']-final_params['photon_energy']),
+                    transform=ax.transAxes, ha='center', va='top')
+    return final_params, parameter_errors, res
 
 
-def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None,
-                   noise_cluster_size=5, min_cluster_distance=10, min_cluster_size=30):
+def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, noise_cluster_size=5,
+                   min_cluster_distance=10, min_cluster_size=30):
     """
     Currently just a wrapper of sklearn.cluster.AgglomerativeClustering with additional filtering of clusters
 
@@ -483,7 +534,7 @@ def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, cl
     """Find peaks in image, and cluster them into bands
 
     :param image: 2D array
-    :param plot: bool
+    :param plotting: bool
     :param direction: str. Which direction to find peaks along in image
     :param find_peak_kwargs: dict. To be passed to _find_peaks
     :param clustering_kwargs: dict. To be passed to cluster_points
