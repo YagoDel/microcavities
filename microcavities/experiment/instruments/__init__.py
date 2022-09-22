@@ -132,6 +132,27 @@ def camera_spectrometer_factory(camera_class, spectrometer_class):
     return Combined
 
 
+def camera_aom_factory(camera_class, aom_class):
+    class Combined(camera_class):
+        def __init__(self, aom_args, *args, **kwargs):
+            super(Combined, self).__init__(*args, **kwargs)
+            self.aom1 = aom_class(1, *aom_args)
+            self.aom2 = aom_class(2, *aom_args)
+            self._exposure_aom_time = 1e-6
+
+        @NotifiedProperty
+        def Exposure(self):
+            return self._exposure_aom_time
+
+        @Exposure.setter
+        def Exposure(self, value):
+            self.aom1.exposure = value
+            self.aom2.exposure = value
+            self.set_andor_parameter('Exposure', value)
+            self._exposure_aom_time = value
+    return Combined
+
+
 AndorActon_base = camera_spectrometer_factory(unitful_camera_factory(Andor), SP2750)
 PrincetonActon = camera_spectrometer_factory(PvcamClient, SP2750)
 
@@ -211,38 +232,13 @@ class AndorActon(AndorActon_base):
 
         return image
 
-
-class AndorActonAom(AndorActon):
-    def __init__(self, aom_args, *args, **kwargs):
-        super(AndorActonAom, self).__init__(*args, **kwargs)
-        self.aom1 = AcoustoOpticModulator(1, *aom_args)
-        self.aom2 = AcoustoOpticModulator(2, *aom_args)
-
-    @NotifiedProperty
-    def Exposure(self):
-        return self._exposure_aom_time
-
-    @Exposure.setter
-    def Exposure(self, value):
-        self.aom1.exposure = value
-        self.aom2.exposure = value
-        self.set_andor_parameter('Exposure', value)
-        self._exposure_aom_time = value
+    def image_counts(self, *args, **kwargs):
+        raw_image = self.raw_image(*args, **kwargs)
+        if self.dark_image is not None:
+            return (raw_image - self.dark_image) / self.Exposure
+        else:
+            return raw_image
 
 
-class AndorAom(unitful_camera_factory(Andor)):
-    def __init__(self, aom_args, *args, **kwargs):
-        super(AndorAom, self).__init__(*args, **kwargs)
-        self.aom1 = AcoustoOpticModulator(1, *aom_args)
-        self.aom2 = AcoustoOpticModulator(2, *aom_args)
-
-    @NotifiedProperty
-    def Exposure(self):
-        return self._exposure_aom_time
-
-    @Exposure.setter
-    def Exposure(self, value):
-        self.aom1.exposure = value
-        self.aom2.exposure = value
-        self.set_andor_parameter('Exposure', value)
-        self._exposure_aom_time = value
+AndorActonAom = camera_aom_factory(AndorActon, AcoustoOpticModulator)
+AndorAom = camera_aom_factory(unitful_camera_factory(Andor), AcoustoOpticModulator)
