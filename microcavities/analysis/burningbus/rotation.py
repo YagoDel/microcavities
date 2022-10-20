@@ -69,6 +69,9 @@ lp = np.array([low_pass(x, 0.05) for x in below_threshold])
 k0_CoM = np.array([center_of_mass(x) for x in lp])
 k0_argmax = np.array([np.argmax(np.mean(lp, ax), axis=1) for ax in [-1, -2]])
 k0_eye = [155, 169]
+# k0_eye = [145, 179]
+# k0_eye = [165, 159]
+
 with h5py.File(data_path, 'r') as dfile:
     bkg = dfile['full_scan1/just_toptica_bkg'][...]
     static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
