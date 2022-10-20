@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from microcavities.utils.plotting import *
-from microcavities.utils.plotting import _make_axes
+from microcavities.utils.plotting import create_axes
 import lmfit
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
@@ -28,17 +28,33 @@ import h5py
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormatter, ScalarFormatter, LogLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import math
+import pythtb
 
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
 
-collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
-collated_analysis = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+folder_name = '2022_08_conveyorbelt'
+collated_data_path = get_data_path('%s/collated_data.h5' % folder_name)
+collated_analysis = get_data_path('%s/collated_analysis.h5' % folder_name)
 spatial_scale = magnification('rotation_pvcam', 'real_space')[0] * 1e6
 momentum_scale = magnification('rotation_pvcam', 'k_space')[0] * 1e-6
 mu = '\u03BC'
 delta = '\u0394'
 pi = '\u03C0'
+hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
+c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
+me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
+
+DETUNING = 1550.9923163262479-1546.0828304664699 + 3.2
+RABI = 9.7 / 2
+MASS = 4.6e-05 * me
+
+with h5py.File(collated_analysis, 'r') as dfile:
+    laser_separations = dfile['laser_separations'][...]
+dataset_order = np.argsort(np.abs(laser_separations))
+normalized_laser_separations = normalize(np.abs(laser_separations))
+colormap_laser_separation = cm.get_cmap('Greens_r')((normalized_laser_separations - 0.24)/1.2)
+
 
 # List of parameters required for different steps in the analysis for each of the 9 datasets
 configurations = [
@@ -137,6 +153,19 @@ configurations = [
 ]
 
 
+"""UTILITY FUNCTIONS"""
+
+
+class dummy_formatter(ScalarFormatter):
+    def __init__(self, offset, *args, **kwargs):
+        super(dummy_formatter, self).__init__(*args, **kwargs)
+        self.set_useOffset(offset)
+        self.format = '%g'
+
+    def format_data(self, value):
+        return '%g' % value
+
+
 def get_experimental_data_base(dataset_index):
     with h5py.File(collated_analysis, 'r') as dfile:
         laser_separations = dfile['laser_separations'][...]
@@ -154,8 +183,8 @@ def get_experimental_data_base(dataset_index):
     ellipse_a = 20
     ellipse_b = 40
     _mom = 2*np.pi / 0.805
-    angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom
-    laser_size = np.pi * ellipse_a * ellipse_b * np.sin(angle_of_incidence)
+    angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom  # approximately true for small angles
+    laser_size = np.pi * ellipse_a * ellipse_b / np.sin(np.pi/2-angle_of_incidence)
     norm_ax = variables['vwp'] / laser_size
 
     variables['normalised_power_axis'] = norm_ax
@@ -170,7 +199,7 @@ def get_experimental_data_base(dataset_index):
 
 def get_experimental_data(dataset_index):
     data, variables, config = get_experimental_data_base(dataset_index)
-    # config = configurations[dataset_index]
+
     if configurations[dataset_index] is None:
         analyse = False
     else:
@@ -179,12 +208,16 @@ def get_experimental_data(dataset_index):
     if analyse:
         cls = FullDatasetModeDetection(data, config)
         cls.configuration['plotting'] = False
-        bands = np.load(get_data_path('2021_07_conveyorbelt/bands/dataset%d.npy' % dataset_index), allow_pickle=True)
+        bands = np.load(get_data_path('%s/bands/bands_dataset%d.npy' % (folder_name, dataset_index)), allow_pickle=True)
+        if 'data_axes_order' in config:
+            bands = np.transpose(bands, config['data_axes_order'][:-2])
         analysed_bands = cls.analyse_bands(bands)
     else:
-        with h5py.File(get_data_path('2021_07_conveyorbelt/collated_analysed_data.h5'), 'r') as full_file:
+        with h5py.File(get_data_path('%s/collated_analysed_data.h5' % folder_name), 'r') as full_file:
             dset = full_file['speeds%d' % (dataset_index + 1)]
             mode_tilts = dset[...]
+        if dataset_index == 1:
+            mode_tilts /= 2
         bands = None
         analysed_bands = (None, mode_tilts, None, None)
         # bands = None
@@ -192,108 +225,17 @@ def get_experimental_data(dataset_index):
     return data, bands, config, analysed_bands, variables
 
 
-def get_selected_tilt_data(dataset_index):
+def get_selected_tilt_data(dataset_index, select=True):
     _, _, config, analysis_results, variables = get_experimental_data(dataset_index)
     mode_tilts = -remove_outliers(analysis_results[1])
 
-    # if dataset_index in [1]:
-    #     with h5py.File(get_data_path('2021_07_conveyorbelt/collated_analysed_data.h5'), 'r') as full_file:
-    #         dset = full_file['speeds%d' % (dataset_index + 1)]
-    #         mode_tilts = -dset[...]
-    #         all_freq = dset.attrs['freq']
-    #         config = dict(laser_angle=laser_separations[dataset_index])
-    # else:
-    #     with h5py.File(collated_data_path, 'r') as dfile:
-    #         dset = dfile['alignment%d/scan' % dataset_index]
-    #         _v = dset.attrs['variables']
-    #     variables = eval(_v)
-    #     # power_axis = np.array(variables['vwp']) * 1e3
-    #     all_freq = np.array(variables['f'])
-    #     # if 'power' in variables:
-    #     #     cw_power_axis = np.array(variables['power']) * 1e3
-    #     # if 'cw' in variables:
-    #     #     cw_power_axis = np.array(variables['cw']) * 1e3
-    #
-    #     data, bands, config, analysis_results, _ = get_experimental_data(dataset_index)
-    #
-    #     mode_tilts = -remove_outliers(analysis_results[1])
     shape = mode_tilts.shape
     all_freq = np.array(variables['f'])
 
-    # Manually chosen fitting regions (avoiding high-frequency, low-modulation, low-power)
-    if dataset_index == 0:
-        tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-        all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-        selected_modes = tst[:, 4:, -1, 1:3]
-        selected_modes = np.reshape(selected_modes, (shape[1], (shape[2] - 4) * 2))
-        modes_for_fitting = selected_modes[2:-2]
-        fitting_freq = all_freq[2:-2]
-    elif dataset_index == 1:
-        all_modes = np.copy(mode_tilts)
-        selected_modes = all_modes[:, 2:]
-        modes_for_fitting = selected_modes[2:]
-        fitting_freq = all_freq[2:]
-    elif dataset_index == 2:
-        all_modes = np.reshape(mode_tilts, (shape[0], shape[1] * shape[2]))
-        selected_modes = mode_tilts[:, 4:, 0]
-        modes_for_fitting = selected_modes[5:-5]
-        fitting_freq = all_freq[5:-5]
-        # selected_modes = np.reshape(selected_modes, (shape[0], (shape[1]-4) * shape[2]))
-    elif dataset_index == 3:
-        all_modes = np.reshape(mode_tilts, (shape[0], shape[1] * shape[2]))
-        selected_modes = mode_tilts[:, 3:, 0]
-        modes_for_fitting = selected_modes[2:]
-        fitting_freq = all_freq[2:]
-        # selected_modes = np.reshape(selected_modes, (shape[0], (shape[1]-3) * shape[2]))
-    elif dataset_index == 4:
-        tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-        all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-        selected_modes = mode_tilts[:, :, 2:, 0]
-        tst = np.transpose(selected_modes, (1, 2, 0))
-        selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2)))
-        modes_for_fitting = selected_modes
-        fitting_freq = all_freq
-    elif dataset_index == 5:
-        tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-        all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-        selected_modes = mode_tilts[:, :, 2:, :2]
-        tst = np.transpose(selected_modes, (1, 2, 0, 3))
-        selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2) * (shape[3] - 2)))
-        modes_for_fitting = selected_modes[:-2]
-        fitting_freq = all_freq[:-2]
-    elif dataset_index == 6:
-        tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-        all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-        selected_modes = mode_tilts[1:, :, 2:, 1:3]
-        tst = np.transpose(selected_modes, (1, 2, 0, 3))
-        selected_modes = np.reshape(tst, (shape[1], (shape[0] - 1) * (shape[2] - 2) * (2)))
-        modes_for_fitting = selected_modes[5:-5]
-        fitting_freq = all_freq[5:-5]
-    elif dataset_index == 7:
-        tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-        all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-        selected_modes = mode_tilts[:, :, 2:, :2]
-        tst = np.transpose(selected_modes, (1, 2, 0, 3))
-        selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2) * 2))
-        modes_for_fitting = selected_modes[2:-2]
-        fitting_freq = all_freq[2:-2]
-    elif dataset_index == 8:
-            tst = np.transpose(mode_tilts, (1, 2, 0, 3))
-            all_modes = np.reshape(tst, (shape[1], shape[0] * shape[2] * shape[3]))
-            selected_modes = mode_tilts[:, :, 2:, :2]
-            tst = np.transpose(selected_modes, (1, 2, 0, 3))
-            selected_modes = np.reshape(tst, (shape[1], shape[0] * (shape[2] - 2) * 2))
-            modes_for_fitting = selected_modes[2:-2]
-            fitting_freq = all_freq[2:-2]
-    else:
-        raise ValueError()
     full_frequency_axis = np.linspace(-9, 9, 19)
-    available_frequency = np.argwhere([a in fitting_freq for a in full_frequency_axis]).flatten()
-    left_index = np.min(available_frequency)
-    right_index = np.max(available_frequency)
-    left_append = np.full((left_index, modes_for_fitting.shape[1]), np.nan)
-    right_append = np.full((18 - right_index, modes_for_fitting.shape[1]), np.nan)
-    modes_for_fitting = np.concatenate([left_append, modes_for_fitting, right_append], 0)
+    if len(shape) == 4:
+        mode_tilts = np.transpose(mode_tilts, (1, 0, 2, 3))
+    all_modes = np.reshape(mode_tilts, (shape[0], np.prod(shape[1:])))
 
     available_frequency = np.argwhere([a in all_freq for a in full_frequency_axis]).flatten()
     left_index = np.min(available_frequency)
@@ -301,14 +243,40 @@ def get_selected_tilt_data(dataset_index):
     left_append = np.full((left_index, all_modes.shape[1]), np.nan)
     right_append = np.full((18 - right_index, all_modes.shape[1]), np.nan)
     all_modes = np.concatenate([left_append, all_modes, right_append], 0)
-    left_append = np.full((left_index, selected_modes.shape[1]), np.nan)
-    right_append = np.full((18 - right_index, selected_modes.shape[1]), np.nan)
-    selected_modes = np.concatenate([left_append, selected_modes, right_append], 0)
 
-    return selected_modes, all_modes, modes_for_fitting, full_frequency_axis, config
+    if select:
+        if dataset_index == 0:
+            selected_modes = mode_tilts[:, :, 2:, 1:4]
+        elif dataset_index == 1:
+            selected_modes = mode_tilts[:, 2:]
+        elif dataset_index == 2:
+            selected_modes = mode_tilts[:, 2:, 0]
+        elif dataset_index == 3:
+            selected_modes = mode_tilts[:, 2:]
+        elif dataset_index == 4:
+            selected_modes = mode_tilts[:, :, 2:, 1]
+        elif dataset_index == 5:
+            selected_modes = mode_tilts[:, :, 2:, :2]
+        elif dataset_index == 6:
+            selected_modes = mode_tilts[:, :, 2:, 1:4]
+        elif dataset_index == 7:
+            selected_modes = mode_tilts[:, :, 2:, 1]
+        elif dataset_index == 8:
+            selected_modes = mode_tilts[:, :, 2:, :2]
+
+        _shape = selected_modes.shape
+        selected_modes = np.reshape(selected_modes, (_shape[0], np.prod(_shape[1:])))
+        left_append = np.full((left_index, selected_modes.shape[1]), np.nan)
+        right_append = np.full((18 - right_index, selected_modes.shape[1]), np.nan)
+        selected_modes = np.concatenate([left_append, selected_modes, right_append], 0)
+    else:
+        selected_modes = np.nan
+
+    return selected_modes, all_modes, full_frequency_axis, config
 
 
-# EXPERIMENTAL DATA FITTING
+"""EXPERIMENTAL DATA FITTING"""
+
 
 def smoothened_find_peaks(x, *args, **kwargs):
     """Simple extension of find_peaks to give more than single-pixel accuracy"""
@@ -320,421 +288,17 @@ def smoothened_find_peaks(x, *args, **kwargs):
     return new_x[results[0]], results[1]
 
 
-# class FitQHOModes:
-#     """
-#     TODO: sanity checks that the number of expected lobes for band are there
-#     """
-#     def __init__(self, image, configuration):
-#         # if image is None:
-#         #     idx = np.random.randint(_data.shape[0])
-#         #     idx2 = np.random.randint(_data.shape[1])
-#         #     idx3 = np.random.randint(_data.shape[2])
-#         #     print(idx, idx2, idx3)
-#         #     image = _data[idx, idx2, idx3]
-#         # if configuration is None:
-#         #     configuration = config
-#         self.config = configuration
-#         self.smoothened_image = low_pass(normalize(image), self.config['low_pass_threshold'])
-#
-#         if 'energy_axis' not in self.config:
-#             e_roi = self.config['energy_roi']
-#             _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
-#             self.energy_axis = 1240 / _wvls
-#         else:
-#             self.energy_axis = self.config['energy_axis']
-#         self.energy_func = interp1d(range(len(self.energy_axis)), self.energy_axis, bounds_error=False, fill_value=np.nan)
-#         self.e_inverse = interp1d(self.energy_axis, range(len(self.energy_axis)))
-#         if 'k_axis' not in self.config:
-#             self.k_axis = np.arange(self.smoothened_image.shape[1], dtype=np.float) - self.config['k_masking']['k0']
-#             self.k_axis *= momentum_scale
-#         else:
-#             self.k_axis = self.config['k_axis']
-#         self.k_func = interp1d(range(len(self.k_axis)), self.k_axis, bounds_error=False, fill_value=np.nan)
-#         self.k_inverse = interp1d(self.k_axis, range(len(self.k_axis)))
-#         # print(self.energy_axis.shape, self.k_axis.shape, self.smoothened_image.shape, image.shape)
-#         # plt.figure()
-#         # plt.plot(self.energy_axis)
-#         # plt.plot(range(10), self.energy_func(range(10)))
-#
-#     def _mask_by_momentum(self, peaks, k_range=None):
-#         # Eliminates peaks that are outside the given momentum range
-#         if k_range is None:
-#             if 'k_range' in self.config:
-#                 k_range = self.config['k_range']
-#             else:
-#                 k_range = (np.min(peaks[:, 0])-1, np.max(peaks[:, 0]) + 1)
-#         return np.logical_and(peaks[:, 0] > k_range[0], peaks[:, 0] < k_range[1])
-#
-#     def _mask_by_intensity(self, peak_intensities, threshold=0.01):
-#         return peak_intensities > threshold * np.max(peak_intensities)
-#
-#     def mask_untrapped(self, peaks, min_energy=None):
-#         config = self.config['k_masking']
-#         k0 = config['k0']
-#         slope = config['k_slope']
-#         if min_energy is None:
-#             min_energy = np.max(peaks[:, 1]) - config['e_offset']
-#             LOGGER.debug('mask_untrapped min_energy=%g' % min_energy)
-#         mask1 = (peaks[:, 0]-k0)*slope+min_energy > peaks[:, 1]
-#         mask2 = -(peaks[:, 0]-k0)*slope+min_energy > peaks[:, 1]
-#         mask = np.logical_and(mask1, mask2)
-#         # fig, ax = plt.subplots(1, 1)
-#         # ax.plot(peaks[:, 0], peaks[:, 1], '.')
-#         # ax.plot(peaks[:, 0], (peaks[:, 0]-k0)*slope+min_energy)
-#         # ax.plot(peaks[:, 0], -(peaks[:, 0]-k0)*slope+min_energy)
-#         return peaks[mask], min_energy
-#
-#     def find_peaks_1d(self, ax=None, **plot_kwargs):
-#         config = self.config['peak_finding']
-#         peaks = []
-#         for idx, x in enumerate(self.smoothened_image.transpose()):
-#             # pks = find_peaks(x, **self.config['find_peaks_kw'])[0]
-#             pks = smoothened_find_peaks(x, **config['peaks_1d'])[0]
-#             peaks += [(idx, pk) for pk in pks]
-#         peaks = np.asarray(peaks, dtype=np.float)
-#         if self.config['plotting'] and ax is None:
-#             _, ax = plt.subplots(1, 1)
-#         if ax is not None:
-#             imshow(self.smoothened_image, ax, cmap='Greys', diverging=False, norm=LogNorm(),
-#                    xaxis=self.k_axis, yaxis=self.energy_axis)
-#             defaults = dict(ms=1, ls='None', marker='.')
-#             for key, value in defaults.items():
-#                 if key not in plot_kwargs:
-#                     plot_kwargs[key] = value
-#             ax.plot(self.k_func(peaks[:, 0]), self.energy_func(peaks[:, 1]), **plot_kwargs)
-#         return peaks
-#
-#     def find_peaks_2d(self, ax=None, **plot_kwargs):
-#         config = self.config['peak_finding']
-#         peaks = peak_local_max(self.smoothened_image, **config['peaks_2d'])
-#         if self.config['plotting'] and ax is None:
-#             _, ax = plt.subplots(1, 1)
-#         if ax is not None:
-#             defaults = dict(ms=1, ls='None', marker='.')
-#             for key, value in defaults.items():
-#                 if key not in plot_kwargs:
-#                     plot_kwargs[key] = value
-#             imshow(self.smoothened_image, ax, cmap='Greys', diverging=False, norm=LogNorm(),
-#                    xaxis=self.k_axis, yaxis=self.energy_axis)
-#             ax.plot(self.k_func(peaks[:, 1]), self.energy_func(peaks[:, 0]), **plot_kwargs)
-#         return peaks[:, ::-1]
-#
-#     def make_bands(self, peaks1d=None, peaks2d=None, n_bands=None, ax=None, plot_kwargs=None):
-#         """Create bands from 1D and 2D peak fitting
-#
-#         Algorithm proceeds as follows:
-#             Starting from 2D peaks, create chains of nearest-neighbours from the 1D peak fitting:
-#                 - The neighbouring distance can be configured
-#                 - Excludes points that are outside the expected trapping cone (see mask_untrapped)
-#                 - Excludes points that are too far away from the expected mode linewidth (prevents considering chains
-#                 that climb up the thermal line)
-#             Groups the chains into bands:
-#                 - Only considers chains that are long enough (min_band_points)
-#                 - If the average energy of the chain is similar to an existing band (min_band_distance), append the two
-#                 chains (ensures that different lobes of the same band get grouped correctly. Would fail for heavily
-#                 tilted bands with high contrast between lobes)
-#             Sanity checks:
-#                 - The average momentum of the band needs to be near k0 (k_acceptance). Otherwise, exclude
-#                 - Sorts the band by energy
-#
-#         :param peaks1d:
-#         :param peaks2d:
-#         :param ax:
-#         :return:
-#         """
-#         if plot_kwargs is None:
-#             plot_kwargs = dict()
-#         if self.config['plotting'] and ax is None:
-#             _, (ax0, ax1, ax2) = plt.subplots(1, 3, sharey='all', sharex='all')
-#         elif ax is None:
-#             ax0 = None
-#             ax1 = None
-#             ax2 = None
-#         else:
-#             try:
-#                 ax0, ax1, ax2 = ax
-#             except Exception as e:
-#                 ax0 = ax
-#                 ax1 = ax
-#                 ax2 = ax
-#         if peaks1d is None:
-#             peaks1d = self.find_peaks_1d(ax0, **plot_kwargs)
-#         if peaks2d is None:
-#             peaks2d = self.find_peaks_2d(ax1, **plot_kwargs)
-#         tree = KDTree(peaks1d)
-#         groups = tree.query_radius(peaks2d, self.config['peak_finding']['neighbourhood'])
-#
-#         # First, select 2D peaks that have more than 2 nearest neighbours
-#         selected_points = []
-#         for idx, g in enumerate(groups):
-#             if len(g) > self.config['peak_finding']['min_neighbours']:
-#                 selected_points += [peaks2d[idx]]
-#         selected_points = np.array(selected_points)
-#         # Exclude and estimate the parameters for excluding untrapped 2D peaks
-#         # TODO: when calculating the min_energy, add some sort of limits/pre-given estimates
-#         selected_points, _min_energy = self.mask_untrapped(selected_points)
-#
-#         # Get chains of 1D peaks. Starting from the selected 2D points, extract chains of 1D peaks that are sequences of
-#         # points that are not too far apart
-#         config = self.config['chain_making']
-#         kd_tree_radius = config['kd_tree_radius']
-#         starting_groups = [peaks1d[g] for g in tree.query_radius(selected_points, kd_tree_radius)]
-#         LOGGER.debug('%d starting groups %s, %d selected points for chains' % (len(starting_groups), [len(x) for x in starting_groups], len(selected_points)))
-#
-#         chains = []
-#         for g in starting_groups:
-#             max_idx = config['max_iterations']
-#             stop = False
-#             idx = 0
-#             new_g = np.copy(g)
-#             while not stop:
-#                 if idx > max_idx:
-#                     raise RuntimeError('Maximum iterations reached')
-#                 start_length = len(new_g)
-#                 if start_length == 0:
-#                     stop = True
-#                 else:
-#                     indices = tree.query_radius(new_g, kd_tree_radius)
-#                     new_g = [peaks1d[g] for g in indices]
-#                     new_g = np.concatenate(new_g)
-#                     new_g = np.unique(new_g, axis=0)
-#                     end_length = len(new_g)
-#                     idx += 1
-#                     if start_length == end_length:  # idx > max_idx or
-#                         stop = True
-#             _len1 = len(new_g)
-#             # Exclude untrapped polaritons
-#             new_g = self.mask_untrapped(new_g, _min_energy)[0]
-#             LOGGER.debug('Found chain of length %d (%d after masking) after %d iterations' % (_len1, len(new_g), idx))
-#
-#             # Only include chains that are larger than a minimum size (in points)
-#             if len(new_g) > config['min_chain_size']:
-#                 chains += [new_g]
-#         # Order the chains in energy, which prevents issues in which joining chains in different orders can give
-#         # different bands
-#         average_energies = [np.mean(p, 0)[1] for p in chains]
-#         argsort = np.argsort(self.energy_func(average_energies))
-#         chains = [chains[idx] for idx in argsort]
-#
-#         tilt_limits = [config['expected_tilt']-config['tilt_width'], config['expected_tilt']+config['tilt_width']]
-#
-#         def calculate_tilts(_chain, _chains=None):
-#             if _chains is None:
-#                 _chains = chains
-#             tilts = []
-#             for chain in _chains:
-#                 k1, e1 = [f(x) for f, x in zip((self.k_func, self.energy_func), np.median(chain, 0))]
-#                 k0, e0 = [f(x) for f, x in zip((self.k_func, self.energy_func), np.median(_chain, 0))]
-#                 deltak = (k1-k0)
-#                 deltae = (e1-e0)
-#                 tilts += [deltae/deltak]
-#             tilts = np.array(tilts)
-#             return tilts
-#
-#         def join_chains_by_tilt(_chains):
-#             _new_chains = []
-#             _merged_chains = []
-#             for chain_index, chain in enumerate(_chains):
-#                 if chain_index in _merged_chains:
-#                     continue
-#                 LOGGER.debug('Chain_index: %d' % chain_index)
-#                 tilts = calculate_tilts(chain, _chains)
-#                 LOGGER.debug('Tilts: %s' % tilts)
-#                 where = np.nonzero(np.logical_or(
-#                     np.logical_and(tilts >= tilt_limits[0], tilts <= tilt_limits[1]),
-#                     np.isnan(tilts)))[0]
-#                 LOGGER.debug('Where: %s   tilts[where]: %s' % (where, tilts[where]))
-#                 _merged_chains += [idx for idx in where]
-#                 to_merge = [_chains[idx] for idx in where]
-#                 merged_chain = np.concatenate(to_merge)
-#                 _new_chains += [np.unique(merged_chain, axis=0)]
-#                 LOGGER.debug('old_chains: %d   new_chains: %d' % (len(_chains), len(_new_chains)))
-#             if len(_chains) > len(_new_chains):
-#                 return join_chains_by_tilt(_new_chains)
-#             else:
-#                 return _new_chains
-#
-#         LOGGER.debug('Joining chains by tilt')
-#         bands = join_chains_by_tilt(chains)
-#
-#         def calculate_distances(_chain, _chains):
-#             distances = []
-#             for chain in _chains:
-#                 distances += [np.sqrt(np.sum(np.abs(np.mean(chain, 0) - np.mean(_chain, 0))**2))]
-#             return np.array(distances)
-#
-#         def join_chains_by_distance(_chains, threshold=config['min_chain_separation']):
-#             _new_chains = []
-#             _merged_chains = []
-#             for chain_index, chain in enumerate(_chains):
-#                 if chain_index in _merged_chains:
-#                     continue
-#                 LOGGER.debug('Chain_index: %d' % chain_index)
-#                 distances = calculate_distances(chain, _chains)
-#                 LOGGER.debug('Distances: %s' % distances)
-#                 where = np.nonzero(distances < threshold)[0]
-#                 LOGGER.debug('Where: %s   tilts[where]: %s' % (where, distances[where]))
-#                 _merged_chains += [idx for idx in where]
-#                 to_merge = [_chains[idx] for idx in where]
-#                 merged_chain = np.concatenate(to_merge)
-#                 _new_chains += [np.unique(merged_chain, axis=0)]
-#                 LOGGER.debug('old_chains: %d   new_chains: %d' % (len(_chains), len(_new_chains)))
-#             if len(_chains) > len(_new_chains):
-#                 return join_chains_by_distance(_new_chains)
-#             else:
-#                 return _new_chains
-#         LOGGER.debug('Joining chains by distance')
-#         bands = join_chains_by_distance(bands)
-#
-#         config = self.config['band_filtering']
-#         LOGGER.debug('Full chains: %s' % (str([(np.array(band).shape, np.mean(band, 0), np.percentile(band[:, 1], 10)) for band in bands])))
-#         # Clipping bands that snake up the thermal line
-#         masks = [band[:, 1] > np.percentile(band[:, 1], 90) - config['max_band_linewidth'] for band in bands]
-#         LOGGER.debug('Removing %s points in each band because they fall outside the linewidth' % str([np.sum(mask) for mask in masks]))
-#         bands = [g[m] for g, m in zip(bands, masks)]
-#
-#         # Excluding groups that have average momentum too far from 0
-#         k0 = self.config['k_masking']['k0']
-#         ka = config['k_acceptance']
-#         average_energies = np.array([np.mean(p, 0)[1] for p in bands])
-#         masks = np.array([k0-ka < np.mean(g[:, 0]) < k0+ka for g in bands])
-#         _excluded_indices = np.arange(len(average_energies))[~masks]
-#         LOGGER.debug('Excluding bands by momentum: %s with %s energy %s momentum' % (_excluded_indices,
-#                                                                          self.energy_func(average_energies[~masks]),
-#                                                                          [self.k_func(np.mean(bands[x], 0)) for x in _excluded_indices]))
-#         bands = [g for g, m in zip(bands, masks) if m]
-#
-#         # Keeping only bands that are larger than some minimum size
-#         bands = [band for band in bands if len(band) > config['min_band_size']]
-#
-#         # Sorting by energy
-#         average_energies = [np.mean(p, 0)[1] for p in bands]
-#         argsort = np.argsort(self.energy_func(average_energies))
-#         bands = [bands[idx] for idx in argsort]
-#
-#         # Transform into units
-#         bands = [np.array([self.k_func(band[:, 0]), self.energy_func(band[:, 1])]).transpose() for band in bands]
-#
-#         # Make a fixed length tuple if required
-#         if n_bands is not None:
-#             if n_bands < len(bands):
-#                 bands = bands[:n_bands]
-#             else:
-#                 bands += [np.empty((0, 2))]*(n_bands-len(bands))
-#
-#         LOGGER.debug('Final bands: %s' % str(list([len(band), np.mean(band[:, 0]), np.mean(band[:, 1])] for band in bands)))
-#
-#         if ax2 is not None:
-#             imshow(self.smoothened_image, ax2, diverging=False, cmap='Greys', norm=LogNorm(), cbar=False,
-#                    xaxis=self.k_axis, yaxis=self.energy_axis)
-#             defaults = dict(ms=1, ls='None', marker='.')
-#             for key, value in defaults.items():
-#                 if key not in plot_kwargs:
-#                     plot_kwargs[key] = value
-#             ax2.plot(self.k_func(selected_points[:, 0]), self.energy_func(selected_points[:, 1]), color='k', **plot_kwargs)
-#             for s in bands:
-#                 ax2.plot(s[:, 0], s[:, 1], **plot_kwargs)
-#         return bands
-#
-#     def _calculate_slice(self, linear_fit, band_width, image=None):
-#         if image is None:
-#             image = self.smoothened_image
-#         full_func = np.poly1d(linear_fit)
-#         slope_func = np.poly1d([linear_fit[0], 0])
-#         start_slice = (full_func(0) - band_width / 2, 0)
-#         end_slice = (image.shape[1], band_width)
-#         v1 = [slope_func(1), 1]
-#         v2 = [1, -slope_func(1)]
-#         vectors = np.array([v1, v2])
-#         vectors = [v / np.linalg.norm(v) for v in vectors]
-#         LOGGER.debug('Slice at: %s %s %s' % (vectors, start_slice, end_slice))
-#         return vectors, start_slice, end_slice
-#
-#     def analyse_bands(self, bands=None, n_bands=None, gs=None):
-#         # Fit a linear trend to it:
-#         #   Return the k0 energy and the tilt
-#         # Mode profiles
-#         #   Density distribution?
-#         # Linewidths?
-#         #   Get energy modes at the peaks of the mode profiles?
-#         if bands is None:
-#             bands = self.make_bands()
-#         if n_bands is None:
-#             n_bands = len(bands)
-#
-#         _fits = []
-#         _coords = []
-#         energies = []
-#         tilts = []
-#         slices = []
-#         for idx in range(n_bands):
-#             band_width = 10
-#             if idx > len(bands) or bands[idx].size == 0:
-#                 energies += [np.nan]
-#                 tilts += [np.nan]
-#                 slices += [np.full((self.smoothened_image.shape[1], band_width), np.nan)]
-#             # elif:
-#             #     np.isempty(bands[idx]
-#             else: # idx < len(bands):
-#                 band = bands[idx]
-#                 fit = np.polyfit(band[:, 0], band[:, 1], 1)
-#                 # func = np.poly1d(fit)
-#                 k0_energy = np.poly1d(fit)(0)  # func(self.config['k_masking']['k0'])
-#                 tilt = fit[0]
-#                 inverse_fit = np.polyfit(self.k_inverse(band[:, 0]), self.e_inverse(band[:, 1]), 1)
-#                 vectors, start_slice, end_slice = self._calculate_slice(inverse_fit, band_width)
-#                 slice, coords = pg.affineSlice(self.smoothened_image, end_slice, start_slice, vectors, (0, 1), returnCoords=True)
-#                 _coords += [coords]
-#                 _fits += [fit]
-#                 energies += [k0_energy]
-#                 tilts += [tilt]
-#                 slices += [slice]
-#             # else:
-#             #     energies += [np.nan]
-#             #     tilts += [np.nan]
-#             #     slices += [np.full((self.smoothened_image.shape[1], band_width), np.nan)]
-#
-#         if self.config['plotting'] and gs is None:
-#             fig = plt.figure()
-#             gs = gridspec.GridSpec(1, 2, fig)
-#         if gs is not None:
-#             ax0 = plt.subplot(gs[0])
-#             imshow(self.smoothened_image, ax0, diverging=False, cmap='Greys', norm=LogNorm(), xaxis=self.k_axis, yaxis=self.energy_axis)
-#             # ax0.imshow(self.smoothened_image, cmap='Greys', norm=LogNorm(), aspect='auto')
-#
-#             gs1 = gridspec.GridSpecFromSubplotSpec(len(slices), 1, gs[1])
-#             axs = gs1.subplots()
-#             for idx, _fit, energ, tilt, slice in zip(range(len(_fits)), _fits, energies, tilts, slices):
-#                 color = cm.get_cmap('Iris', len(_fits))(idx)
-#                 func = np.poly1d(_fit)
-#                 x_points = self.k_func([0, self.smoothened_image.shape[1]-1])
-#                 ax0.plot(x_points, func(x_points))
-#                 ax0.plot(self.k_func(_coords[idx][1].flatten()), self.energy_func(_coords[idx][0].flatten()),
-#                          '.', ms=0.3, color=color)
-#                 try:
-#                     axs[idx].imshow(slice.transpose())
-#                     colour_axes(axs[idx], color)
-#                 except TypeError:
-#                     axs.imshow(slice.transpose())
-#
-#         return np.array(energies), np.array(tilts), np.array(slices)
-
-
 def _make_axis_functions(configuration):
     if 'energy_axis' not in configuration:
         e_roi = configuration['energy_roi']
-        _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
+        _wvls = spectrometer_calibration('rotation_acton_old', 803, '1')[e_roi[1]:e_roi[0]:-1]
         energy_axis = 1240 / _wvls
     else:
         energy_axis = configuration['energy_axis']
     energy_func = interp1d(range(len(energy_axis)), energy_axis, bounds_error=False, fill_value=np.nan)
     e_inverse = interp1d(energy_axis, range(len(energy_axis)))
 
-    if 'k_axis' not in configuration:
-        k_axis = np.arange(image.shape[1], dtype=np.float) - configuration['k_masking']['k0']
-        k_axis *= momentum_scale
-    else:
-        k_axis = configuration['k_axis']
+    k_axis = configuration['k_axis']
     k_func = interp1d(range(len(k_axis)), k_axis, bounds_error=False, fill_value=np.nan)
     k_inverse = interp1d(k_axis, range(len(k_axis)))
     return energy_func, k_func, e_inverse, k_inverse
@@ -767,7 +331,7 @@ class SingleImageModeDetection:
 
         if 'energy_axis' not in self.configuration:
             e_roi = self.configuration['energy_roi']
-            _wvls = spectrometer_calibration('rotation_acton', 803, '2')[e_roi[1]:e_roi[0]:-1]
+            _wvls = spectrometer_calibration('rotation_acton_old', 803, '1')[e_roi[1]:e_roi[0]:-1]
             self.energy_axis = 1240 / _wvls
         else:
             self.energy_axis = self.configuration['energy_axis']
@@ -1088,6 +652,7 @@ class SingleImageModeDetection:
                     # func = np.poly1d(fit)
                     k0_energy = np.poly1d(fit)(0)  # func(self.config['k_masking']['k0'])
                     tilt = fit[0]
+                    # print(np.min(band[:, 1]), np.max(band[:, 1]), self.configuration['energy_axis'])
                     inverse_fit = np.polyfit(self.k_inverse(band[:, 0]), self.e_inverse(band[:, 1]), 1)
                     vectors, start_slice, end_slice = self._calculate_slice(inverse_fit, band_width)
                     slice, coords = pg.affineSlice(self.image, end_slice, start_slice, vectors, (0, 1),
@@ -1367,12 +932,13 @@ class AutoParameterTree(ParameterTree):
         self.setParameters(self.parameters, showTop=False)
 
 
-# TODO:
-#     - Add shear to the interactive
-#     - Allow one to also group bands in the interactive band listing
-#     - If bands already exist, plot them
-#     - If no configuration file exists, create it from the default
 class InteractiveAnalysis(InteractiveBase):
+    # TODO:
+    #     - Add shear to the interactive
+    #     - Allow one to also group bands in the interactive band listing
+    #     - If bands already exist, plot them
+    #     - If no configuration file exists, create it from the default
+
     def __init__(self, images, configuration=None, variables=None):
         self.configuration = configuration
         self.analysis_class = FullDatasetModeDetection(images, configuration)
@@ -1440,12 +1006,6 @@ class InteractiveAnalysisUI(InteractiveBaseUi):
             if old != new:
                 self.indx_spinboxes[idx].setValue(new)
 
-    # def new_image(self):
-    #     super(InteractiveAnalysisUI, self).new_image()
-        # print('Clearing %d band_data_items' % len(self._band_data_items))
-        # [self.ImageDisplay.removeItem(p) for p in self._band_data_items]
-        # self.configuration_tree.default()
-
     def analyse(self):
         img = self.object.images[tuple(self._indxs)]
         configuration = self.configuration_tree.make_dictionary()
@@ -1460,7 +1020,6 @@ class InteractiveAnalysisUI(InteractiveBaseUi):
             configuration['selected_bands'] = list(range(len(bands)))
         self._configuration = configuration
 
-        # self._band_data_items = []
         self._analysed_bands = []
         for ii, band in enumerate(bands):
             if ii in configuration['selected_bands']:
@@ -1479,11 +1038,9 @@ class InteractiveAnalysisUI(InteractiveBaseUi):
 
         self._band_data_items = []
         for ii, band in enumerate(bands):
-            # if ii in configuration['selected_bands']:
             pitem = pg.PlotDataItem(self.k_to_px(band[:, 0]), self.e_to_px(band[:, 1]),
                                     pen=pg.intColor(ii, len(bands)))
             self.ImageDisplay.addItem(pitem)
-            # time.sleep(0.1)
             self._band_data_items += [pitem]
 
     def save(self):
@@ -1495,384 +1052,11 @@ class InteractiveAnalysisUI(InteractiveBaseUi):
         self.analyse()
 
 
-def test():
-    from nplab.utils.gui import QtGui, get_qt_app
-    app = get_qt_app()
-    p = dict(
-            image_preprocessing=dict(),
-            peak_finding=dict(peak_width=3,
-                              # find_peaks=dict(height=0.007, prominence=0.00001),
-                              find_peaks=dict(height=0.01, prominence=0.01)),
-            clustering=dict(energy_limit=[10, 30], min_cluster_size=30, min_cluster_distance=3, noise_cluster_size=3,),
-            make_bands=dict(k0=-0.1, k_acceptance=1, bandwidth=0.0005),
-            analyse_bands=dict(k_range_fit=1.5),
-            testing='asdf'
-        )
-    # p = dict(a=1, b=1.1, c='hey hey', d=dict(e='Yep', f=None))
-
-    t = AutoParameterTree(p)
-    print('Input: ', p)
-    print('Output: ', t.make_dictionary())
-
-    win = QtGui.QWidget()
-    layout = QtGui.QGridLayout()
-    win.setLayout(layout)
-    # layout.addWidget(QtGui.QLabel("These are two views of the same data. They should always display the same values."),
-    #                  0, 0, 1, 2)
-    layout.addWidget(t, 1, 0, 1, 1)
-    win.show()
-    app.exec_()
-# test()
-
-def clusterND(points, shear=0, scale=1, scale2=1, **kwargs):
-    shear_matrix = np.identity(points.shape[1])
-    shear_matrix[0, 1] = shear
-    scaling_matrix = np.identity(points.shape[1])
-    scaling_matrix[0, 0] = scale
-    scaling_matrix[-1, -1] = scale2
-
-    sheared = np.dot(points, shear_matrix)
-    scaled = np.dot(sheared, scaling_matrix)
-
-    defaults = dict(distance_threshold=2, compute_full_tree=True, linkage='single')
-    [kwargs.setdefault(key, value) for key, value in defaults.items() if key not in kwargs]
-    model = AgglomerativeClustering(None, **kwargs)
-    clusters = model.fit(scaled)
-
-    if points.shape[1] == 3:
-        n_images = int(np.max(points[:, 2])) + 1
-        a, b = square(n_images)
-        fig = plt.figure()
-        gs = gridspec.GridSpec(1, 2, fig)
-        gs1 = gridspec.GridSpecFromSubplotSpec(a, b, gs[0])
-        gs2 = gridspec.GridSpecFromSubplotSpec(a, b, gs[1])
-        # fig, axs = plt.subplots(a, b, sharex=True, sharey=True)
-        axs = gs1.subplots(sharex=True, sharey=True)
-        for idx in range(n_images):
-            ax = axs.flatten()[idx]
-            indices = points[:, 2] == idx
-            ax.scatter(*points[indices].transpose(), c=clusters.labels_[indices])
-        axs = gs2.subplots(sharex=True, sharey=True)
-        for idx in range(n_images):
-            ax = axs.flatten()[idx]
-            indices = points[:, 2] == idx
-            ax.scatter(*scaled[indices].transpose(), c=clusters.labels_[indices])
+"""SCHRODINGER EQUATION SIMULATIONS"""
 
 
-def fit_peak(spectra, xaxis=None, find_peaks_kwargs=None, n_peaks=None, axplot=None):
-    spectra = gaussian_filter(np.copy(spectra), 2)
-
-    if xaxis is None:
-        xaxis = np.arange(len(spectra))
-    if find_peaks_kwargs is None:
-        find_peaks_kwargs = dict()
-    default_kwargs = dict(distance=10, width=1, prominence=10)
-    [find_peaks_kwargs.update({key: value}) for key, value in default_kwargs.items() if key not in find_peaks_kwargs]
-
-    peak_indices, peak_properties = find_peaks(spectra, **find_peaks_kwargs)
-    if n_peaks is None:
-        n_peaks = len(peak_indices)
-    if len(peak_indices) > 1:
-        # Sort by height and clip
-        heights = spectra[peak_indices]
-        sorter = np.argsort(heights)[::-1]
-        peak_indices = peak_indices[sorter][:n_peaks]
-        # Sort by index (so things are always ordered)
-        sorter = np.argsort(peak_indices)
-        peak_indices = peak_indices[sorter][::-1]
-
-    centers = []
-    for idx in range(n_peaks):
-        try:
-            peak = peak_indices[idx]
-            _spectra = spectra[peak-3:peak+3]
-            _xaxis = xaxis[peak-3:peak+3]
-            fit = np.polyfit(_xaxis, _spectra, 2)
-            centers += [-fit[1]/(2*fit[0])]
-        except IndexError:
-            centers += [np.nan]
-    if axplot is not None:
-        axplot.plot(xaxis, spectra)
-        colours = [cm.get_cmap('tab10')(x % 10) for x in range(len(peak_indices))]
-        axplot.vlines(centers, -np.max(spectra)/20, np.max(spectra)/20, colours)
-    return np.array(centers)
-
-
-def fit_spectra(spectra, xaxis=None, find_peaks_kwargs=None, n_peaks=None, fit_in_one=False, plot=None,
-                peak_model='VoigtModel'):
-    spectra = gaussian_filter(np.copy(spectra), 1)
-    if xaxis is None:
-        xaxis = np.arange(len(spectra))
-    if find_peaks_kwargs is None:
-        find_peaks_kwargs = dict()
-    default_kwargs = dict(distance=10, width=1, prominence=10)
-    [find_peaks_kwargs.update({key: value}) for key, value in default_kwargs.items() if key not in find_peaks_kwargs]
-
-    peak_indices, peak_properties = find_peaks(spectra, **find_peaks_kwargs)
-    # print(peak_indices)
-    if plot is not None:
-        # print(peak_indices)
-        # fig, ax = plt.subplots(1, 1)
-        ax = plot
-        ax.plot(xaxis, spectra)
-        ax.vlines(peak_indices, 0, np.max(spectra) / 10, 'k')
-    if len(peak_indices) > 1:
-        if n_peaks is not None:
-            # Sort by height and select limit
-            heights = spectra[peak_indices]
-            sorter = np.argsort(heights)[::-1]
-            peak_indices = peak_indices[sorter][:n_peaks]
-            new_properties = dict()
-            for key, value in peak_properties.items():
-                new_properties[key] = value[sorter][:n_peaks]
-            peak_properties = new_properties
-        sorter = np.argsort(peak_indices)
-        peak_indices = peak_indices[sorter]
-        new_properties = dict()
-        for key, value in peak_properties.items():
-            new_properties[key] = value[sorter]
-        peak_properties = new_properties
-
-    if plot is not None:
-        ax.vlines(peak_indices, -np.max(spectra) / 10, 0, 'r')
-
-    if 'prominences' in peak_properties:
-        prominences = (peak_properties['prominences'], (peak_properties['left_bases'], peak_properties['right_bases']))
-    else:
-        prominences = peak_prominences(spectra, peak_indices)
-    if 'widths' in peak_properties:
-        widths = (peak_properties['widths'], peak_properties['width_heights'], (peak_properties['left_ips'], peak_properties['right_ips']))
-    else:
-        widths = peak_widths(spectra, peak_indices, prominence_data=prominences)
-    # guess = dict(background=np.percentile(spectra, 10))
-    if fit_in_one:
-        guess = dict()
-        for idx, peak in enumerate(peak_indices):
-            guess['peak%d_center' % idx] = xaxis[peak]
-            width = widths[0][idx]
-            guess['peak%d_width' % idx] = width
-            prominence = prominences[0][idx]
-            guess['peak%d_amplitude' % idx] = prominence * width
-        print(guess)
-        # model = lmfit.models.ConstantModel()
-        model = None
-        for idx, _ in enumerate(peak_indices):
-            if model is None:
-                model = lmfit.models.VoigtModel(prefix='peak%d_' % idx)
-            else:
-                model += lmfit.models.VoigtModel(prefix='peak%d_' % idx)
-        print(model.param_names)
-        params_guess = model.make_params(**guess)
-        fit = model.fit(spectra, params_guess, x=xaxis)
-        plt.plot(xaxis, spectra)
-        plt.plot(xaxis, fit.init_fit)
-        plt.plot(xaxis, fit.best_fit)
-    else:
-        best_fit = dict()
-        for idx, peak in enumerate(peak_indices):
-            pk_model = getattr(lmfit.models, peak_model)
-            # model = lmfit.models.PolynomialModel(1) + pk_model(prefix='peak%d_' % idx)
-            model = lmfit.models.ConstantModel() + pk_model(prefix='peak%d_' % idx)
-            guess = dict()
-            width = widths[0][idx]
-            prominence = prominences[0][idx]
-            # print(len(peak_indices), idx)
-            if len(peak_indices) == 1:
-                roi = [np.max([0, int(peak - 2 * width)]),
-                       np.min([len(xaxis), int(np.round(peak + 2 * width))])]
-            else:
-                if len(peak_indices) - 1 > idx > 0:
-                    roi = [np.max([int(peak_indices[idx-1]+width), int(peak-2*width)]),
-                           np.min([len(xaxis), int(np.round(peak+2*width)), int(peak_indices[idx+1]-width)])]
-                elif idx > 0:
-                    roi = [np.max([int(peak_indices[idx-1]+width), int(peak-2*width)]),
-                           np.min([len(xaxis), int(np.round(peak+2*width))])]
-                else:
-                    roi = [np.max([0, int(peak-2*width)]),
-                           np.min([len(xaxis), int(np.round(peak+2*width)), int(peak_indices[idx+1]-width)])]
-
-            guess['peak%d_center' % idx] = xaxis[peak]
-            guess['peak%d_sigma' % idx] = width
-            guess['peak%d_amplitude' % idx] = prominence * width
-            guess['c'] = np.percentile(spectra[roi[0]:roi[1]], 1)
-            # guess['c0'] = np.percentile(spectra[roi[0]:roi[1]], 1)
-            # guess['c1'] = 0
-            # guess['c2'] = 0
-            # guess['c3'] = 0
-            params_guess = model.make_params(**guess)
-            if plot is not None:
-                # print(model.param_names)
-                ax.plot(xaxis[roi[0]:roi[1]], model.eval(params_guess, x=xaxis[roi[0]:roi[1]]), 'k--')
-            try:
-                fit = model.fit(spectra[roi[0]:roi[1]], params_guess, x=xaxis[roi[0]:roi[1]])
-                for key, value in fit.best_values.items():
-                    if 'peak' in key:
-                        best_fit[key] = value
-            except Exception as e:
-                print('Failed fit: ', idx, peak, peak_indices, guess, e)
-                for key, value in guess.items():
-                    if 'peak' in key:
-                        best_fit[key] = np.nan
-            if plot is not None:
-                _best_fit = dict(best_fit)
-                try:
-                    _best_fit['c0'] = fit.best_fit['c']
-                    # _best_fit['c0'] = fit.best_fit['c0']
-                    # _best_fit['c1'] = fit.best_fit['c1']
-                except:
-                    _best_fit['c'] = 0
-                    # _best_fit['c0'] = 0
-                    # _best_fit['c1'] = 0
-                _best_fit = model.make_params(**_best_fit)
-                # print(model.eval(_best_fit, x=xaxis[roi[0]:roi[1]]))
-                ax.plot(xaxis[roi[0]:roi[1]], model.eval(_best_fit, x=xaxis[roi[0]:roi[1]]), 'k.-')
-                try:
-                    ax.plot(xaxis[roi[0]:roi[1]], fit.best_fit, 'r')
-                except Exception as e:
-                    pass
-    return best_fit
-
-
-def fit_ground_state(band, xaxis=None, debug=False):
-    if xaxis is None:
-        xaxis = np.arange(len(band), dtype=np.float)
-        xaxis -= np.mean(xaxis)
-
-    # Remove np.nan
-    indices = np.where(~np.isnan(band))
-    band = band[indices]
-    xaxis = xaxis[indices]
-
-    # brillouin, _ = find_peaks(band, distance=10, width=5)
-    if debug:
-        # print(brillouin)
-        plt.figure()
-        plt.plot(xaxis, band)
-        # plt.plot(xaxis[brillouin], band[brillouin], 'x')
-    linear = np.polyfit(xaxis, band, 1)
-
-    model = lmfit.models.LinearModel() + lmfit.models.SineModel()
-    # print(model.param_names)
-    # print(np.squeeze(np.diff(xaxis[brillouin])))
-    guess = dict(slope=linear[0], intercept=linear[1], amplitude=(np.max(band) - np.min(band))/2,
-                 # frequency=2*np.pi/np.squeeze(np.diff(xaxis[brillouin])),
-                 frequency=2*np.pi/35,
-                 shift=-np.pi/2)
-    params_guess = model.make_params(**guess)
-    fit = model.fit(band, params_guess, x=xaxis)
-    if debug:
-        plt.plot(xaxis, fit.init_fit, 'k--')
-        plt.plot(xaxis, fit.best_fit)
-    return fit.best_values, fit.best_fit, xaxis
-
-
-# SCHRODINGER EQUATION SIMULATIONS
-# MODE = 'sinusoid'  #  'looser'  # 'tighter'  #
-# BAND_EDGE_FACTOR = 1  # Determines the threshold for what to consider a trapped band in the eigenvalue spectrum
-hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
-c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
-me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
-mass_factor = 1.9  # 2.8  # 3.3
-MASS = mass_factor * 10 ** (-5) * me
-DETUNING = 8  # 6  # 10  # 10.6
-RABI = 4.65  # 4.2
-
-# """Values from the experimental dispersion fit
-mass_factor = 3.1
-MASS = mass_factor * 10 ** (-5) * me
-DETUNING = 10.5
-RABI = 6.65 / 2
-# """
-
-# # """Values from the experimental dispersion fit + the experimental below threshold blueshift
-# mass_factor = 3.1
-# MASS = mass_factor * 10 ** (-5) * me
-# DETUNING = 10.5 - 7.2
-# RABI = 6.65 / 2
-# # """
-
-# def sinusoid(depth, period, periods=5, size=101, bkg_value=0, mass=1e-3):
-#     x = np.linspace(-periods*period, periods*period, size)
-#     potential = np.asarray(depth * np.cos(x * 2*np.pi / period) + bkg_value, dtype=np.complex)
-#     mass_array = np.ones(size) * mass
-#     return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0]), x
-#
-#
-# def sinusoid_tighter(depth, period, periods=5, size=101, bkg_value=0, mass=1e-3):
-#     x = np.linspace(-periods*period, periods*period, size)
-#     # osc = np.cos(x * 2*np.pi / period)
-#     # potential = depth * np.sign(osc) * np.asarray(osc, dtype=np.complex) ** 2 + bkg_value
-#
-#     osc = np.sqrt((np.cos(x * 2*np.pi / period) + 1)/2) * 2 - 1
-#     potential = depth * np.asarray(osc, dtype=np.complex) + bkg_value
-#
-#     mass_array = np.ones(size) * mass
-#     return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0]), x
-#
-#
-# def sinusoid_looser(depth, period, periods=5, size=101, bkg_value=0, mass=1e-3):
-#     x = np.linspace(-periods*period, periods*period, size)
-#     osc = (((np.cos(x * 2*np.pi / period) + 1) / 2)**2) * 2 - 1
-#     potential = depth * np.asarray(osc, dtype=np.complex) + bkg_value
-#     mass_array = np.ones(size) * mass
-#     return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0]), x
-#
-#
-# def analyse_modes(eigenvalues, n_traps, potential_maximum=None, n_modes=None):
-#     """
-#
-#     # TODO: when is a mode unbound? When any part of it's spectra is above the binding, or when it's average energy is above the binding?
-#     # Currently it assumes that when any part of the mode is unbound, the mode is unbound
-#     :param eigenvalues:
-#     :param n_traps:
-#     :param potential_maximum:
-#     :param n_modes:
-#     :return:
-#     """
-#     if potential_maximum is None:
-#         potential_maximum = 0
-#     energies = np.real(eigenvalues)
-#
-#     # Selecting only bound energies
-#     energies = energies[energies < potential_maximum]
-#     unbound = np.argmin(np.abs(energies - potential_maximum))  # the index of the unbound threshold
-#
-#     # Finding the band edges by finding the peaks in the energy differential
-#     band_edges, _props = find_peaks(np.diff(energies), width=[0.1, 2], prominence=1e-4)
-#     # Only selecting the bands that are where we expect them to be (each band should contain n_traps number of modes)
-#     mask = [not (_x+1) % n_traps for _x in band_edges]
-#     band_edges = band_edges[np.argwhere(mask)][:, 0]
-#     # Adding the unbound limit to the band edges
-#     band_edges = np.append(band_edges, unbound)
-#
-#     # If there are no bound modes, return NaNs
-#     if len(band_edges) <= 1:
-#         if n_modes is not None:
-#             return np.repeat(np.nan, n_modes), np.repeat(np.nan, n_modes), np.full((n_modes, 2), np.nan)
-#         else:
-#             return np.nan, np.nan, np.nan
-#
-#     # Extract energies from the indices
-#     _band_edges = np.append([-1], band_edges)
-#     bands = [energies[idx+1:idxnext+1] for idx, idxnext in zip(_band_edges, _band_edges[1:])]
-#     band_centers = np.array([np.mean(_band) for _band in bands])
-#     band_energy = np.array([(np.min(_band, -1), np.max(_band, -1)) for _band in bands])
-#     band_widths = band_energy[:, 1] - band_energy[:, 0]
-#     # band_energy = np.transpose([np.min(bands, -1), np.max(bands, -1)])
-#
-#     # Reshape bands. Useful when we want all outputs to be the same shape
-#     if n_modes is not None:
-#         if len(band_centers) >= n_modes:
-#             band_centers = band_centers[:n_modes]
-#             band_widths = band_widths[:n_modes]
-#             band_energy = band_energy[:n_modes]
-#         else:
-#             fill_na = np.full((n_modes - len(band_centers), ), np.nan)
-#             fill_na2 = np.full((n_modes - len(band_centers), 2), np.nan)
-#             band_centers = np.append(band_centers, fill_na)
-#             band_widths = np.append(band_widths, fill_na)
-#             band_energy = np.append(band_energy, fill_na2, 0)
-#     return band_centers, band_widths, band_energy
+def analytical_coupling_strength(potential_depth, lattice_period, mass=MASS):
+    return 4 * potential_depth * np.exp(-np.sqrt(2*mass*potential_depth)*lattice_period/hbar)
 
 
 def Hamiltonian_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
@@ -1903,9 +1087,8 @@ def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass
         x = np.linspace(-21, 20, n_points)
     else:
         x = np.linspace(-single_period * periods/2 - 0.1*single_period, single_period*periods/2, n_points)
-        # print(x.min(), x.max())
     D2 = np.diag(-2*np.ones(n_points)) + np.diag(np.ones(n_points-1), 1) + np.diag(np.ones(n_points-1), -1)
-    dx = np.diff(x)[0]  # 1.25
+    dx = np.diff(x)[0]
     D2 /= dx**2
     Hk0 = -D2 * hbar ** 2 / (2 * mass)
     Hk0 -= np.eye(n_points) * detuning / 2
@@ -1913,38 +1096,6 @@ def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass
     H1row = np.hstack([Hk0, rabi * np.eye(n_points)])
     H2row = np.hstack([rabi * np.eye(n_points), Hv])
     return np.vstack([H1row, H2row])
-
-
-def test_hamiltonians():
-    potential = 0 #8.9
-    deltak = 0.43
-    vals = []
-    # for n_points in [32, 64, 501, 1001]:
-    #     hx = Hamiltonian_x(0, potential, deltak, 0, n_points=n_points)
-    #     val1, vec1 = np.linalg.eig(hx)
-    #     _sort_idx = np.argsort(val1)
-    #     val1 = val1[_sort_idx]
-    #     vec1 = vec1[:, _sort_idx]
-    #     vals += [val1]
-
-    for period in [3, 5, 7]:
-        hx = Hamiltonian_x(0, potential, deltak, 0, period, n_points=101)
-        val1, vec1 = np.linalg.eig(hx)
-        _sort_idx = np.argsort(val1)
-        val1 = val1[_sort_idx]
-        vec1 = vec1[:, _sort_idx]
-        vals += [val1]
-
-
-    hk = partial(Hamiltonian_k, potential=potential, delta_k=deltak, n_bands=6)
-    bands, modes = solve_for_krange(np.linspace(-2, 2, 101), hk)
-
-    fig, ax = plt.subplots(1, 1)
-    [ax.plot(val[:100], '--') for val in vals]
-    # [axs[1].plot(val) for val in vals]
-    ax2 = ax.twiny()
-    # print(bands.shape)
-    ax2.plot(bands[:, :])
 
 
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
@@ -1964,18 +1115,6 @@ def solve_timerange(psi0, hamiltonian, timerange):
     return full_psi
 
 
-def farfield(hamiltonian, starting_vectors, timerange):
-    N = len(starting_vectors) // 2
-    rho = np.zeros((N, len(timerange)))
-    for vec in tqdm(starting_vectors, 'farfield'):
-        psi = solve_timerange(vec, hamiltonian, timerange)
-        psikw = np.fft.fftshift(np.fft.fft2(psi[:N, :]))
-        rho += np.abs(psikw) ** 2
-        if np.isnan(rho).any():
-            break
-    return rho
-
-
 def solve_for_krange(krange, hamiltonian):
     bands = []
     modes = []
@@ -1988,18 +1127,19 @@ def solve_for_krange(krange, hamiltonian):
     return np.array(bands), np.array(modes)
 
 
-def time_step(psi, hamiltonian, t):
-    return np.matmul(expm(-1j * hamiltonian * t), psi)
+def farfield(hamiltonian, starting_vectors, timerange):
+    N = len(starting_vectors) // 2
+    rho = np.zeros((N, len(timerange)))
+    for vec in tqdm(starting_vectors, 'farfield'):
+        psi = solve_timerange(vec, hamiltonian, timerange)
+        psikw = np.fft.fftshift(np.fft.fft2(psi[:N, :]))
+        rho += np.abs(psikw) ** 2
+        if np.isnan(rho).any():
+            break
+    return rho
 
 
-def time_evolution(psi, hamiltonian, time_range):
-    return np.array([time_step(psi, hamiltonian, t) for t in time_range])
-
-
-def random_start(eigen_vecs, n_modes=None):
-    if n_modes is None: n_modes = eigen_vecs.shape[-1]
-    phases = (np.random.random(n_modes) - 0.5) * 2*np.pi
-    return np.sum([(phase * vec) for phase, vec in zip(phases[:n_modes], eigen_vecs.transpose()[:n_modes])], 0)
+"""SIMULATIONS FOR EXPERIMENT"""
 
 
 def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
@@ -2010,10 +1150,11 @@ def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
     :param periods:
     :param backgrounds:
     :param masses:
-    :param mode:
-    :param size:
-    :param n_traps:
     :param n_bands:
+    :param disable_output:
+    :param detuning:
+    :param rabi:
+    :param k_axis:
     :return:
     """
     try: len(depths)
@@ -2027,51 +1168,24 @@ def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
 
     if k_axis is None:
         k_axis = np.linspace(-3, 3, 301)
-    # if mode == 'sinusoid':
-    #     func = sinusoid
-    # elif mode == 'tighter':
-    #     func = sinusoid_tighter
-    # elif mode == 'looser':
-    #     func = sinusoid_looser
-    # else:
-    #     raise ValueError()
 
     values = []
-    # analysed = []
     for depth in tqdm(depths, 'run_simulations', disable=disable_output):
         _vals = []
         for period in periods:
             _valss = []
             for mass in masses:
-                # # print(depth, period, n_traps, size, mass)
-                # pot, kin, x = func(depth, period, n_traps, size, mass=mass)
-                # # print('# of NaN: ', np.sum(np.isnan(pot+kin)), '# of infs: ', np.sum(np.isinf(pot+kin)))
-                # vals, _ = solve(pot + kin)
                 bands, _ = solve_for_krange(k_axis,
-                                         partial(Hamiltonian_k, n_bands=n_bands,
-                                                 mass=mass, detuning=detuning, rabi=rabi,
-                                                 potential=depth, delta_k=2*np.pi/period))
-                # Hamiltonian_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6)
+                                            partial(Hamiltonian_k, n_bands=n_bands, mass=mass, detuning=detuning,
+                                                    rabi=rabi, potential=depth, delta_k=2*np.pi/period))
                 _values = []
                 for background in backgrounds:
                     _eig = bands + background
                     _values += [_eig]
-                    # _c, _w, _e = analyse_modes(_eig, n_traps=n_traps, potential_maximum=BAND_EDGE_FACTOR * depth,
-                    #                            n_modes=n_bands)
-                    #
-                    # analysed += [(_c, _w, _e)]
                 _valss += [bands]
-                # _nlsd += [_nlslds]
             _vals += [_valss]
-            # _analysed += [_nlsd]
         values += [_vals]
-        # analysed += [_analysed]
-    # iter_shape = (len(depths), len(periods), len(masses), len(backgrounds))
-    # analysed_centers = np.squeeze(np.reshape([a[0] for a in analysed], iter_shape + _c.shape))
-    # analysed_widths = np.squeeze(np.reshape([a[1] for a in analysed], iter_shape + _w.shape))
-    # # print('Debug: ', _e.shape, [a[2].shape for a in analysed])
-    # analysed_edges = np.squeeze(np.reshape([a[2] for a in analysed], iter_shape + _e.shape))
-    return np.squeeze(values), k_axis  #, (analysed_centers, analysed_widths, analysed_edges)
+    return np.squeeze(values), k_axis
 
 
 def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, results=None, _index=0):
@@ -2089,17 +1203,9 @@ def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, result
         laser_separations = dfile['laser_separations'][...]
     period = np.abs(2*np.pi / laser_separations[dataset_index])
     if depths is None:
-        depths = np.linspace(0.1, 10.1, 51)
-    # eigenvalues, (centers, widths, edges) = run_simulations(depths, [period], 0, MASS, MODE)
+        depths = np.linspace(0.1, 10.1, 101)
     theory_bands, theory_kaxis = run_simulations(depths, [period], 0, MASS)
 
-    # centers, widths, _ = [], [], []
-    # for depth, _eig in tqdm(zip(depths, eigenvalues), 'Schrodinger analysis'):
-    #     _c, _w, _ = analyse_modes(_eig, n_traps=10, potential_maximum=BAND_EDGE_FACTOR * depth, n_modes=5)
-    #     centers += [_c]
-    #     widths += [_w]
-    # centers = np.array(centers)
-    # widths = np.array(widths)
     if results is None:
         results = dict(depths=depths, bands=theory_bands, k_axis=theory_kaxis)
     else:
@@ -2107,21 +1213,6 @@ def run_simulations_dataset(dataset_index, max_iterations=1, depths=None, result
                        bands=np.append(theory_bands, results['bands'], axis=0),
                        k_axis=np.append(theory_kaxis, results['k_axis'], axis=0))
 
-    # if _index < max_iterations:
-    #     mode_separations = np.diff(centers, axis=-1)
-    #     # print(mode_separations)
-    #     next_depths = []
-    #     for _idx in range(2):
-    #         mode_separation = mode_separations[:, _idx]
-    #         nan_index = np.argwhere(np.isnan(mode_separation))[-1][0]
-    #         # print(nan_index, mode_separation, np.isnan(mode_separation), np.argwhere(np.isnan(mode_separation)))
-    #         if nan_index < len(depths) - 1:
-    #             _next = np.linspace(depths[nan_index], depths[nan_index + 1], 11)
-    #             next_depths += [np.linspace(_next[1], _next[-2], 9)]
-    #     # print(next_depths)
-    #     return run_simulations_dataset(dataset_index, max_iterations, np.array(next_depths).flatten(),
-    #                                    results, _index + 1)
-    # else:
     return results
 
 
@@ -2134,8 +1225,6 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
 
     # Experiment
     _, bands, config, analysis_results, variables = get_experimental_data(dataset_index)
-    # if 'data_axes_order' in config:
-    #     data = np.transpose(data, config['data_axes_order'])
     if selected_indices is None:
         selected_indices = tuple([slice(x) for x in bands.shape])
     exper_energy_array = analysis_results[0][selected_indices]
@@ -2157,7 +1246,6 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
         shape = angle.shape
         if len(shape) == 4:
             angle = remove_outliers(angle, (0, 2, 3))
-            # mask = np.abs(angle > )
             angle = np.nanmean(angle, (0, 2, 3))
             angle = np.repeat(angle[np.newaxis, :], shape[0], 0)
             angle = np.repeat(angle[..., np.newaxis], shape[2], 2)
@@ -2170,25 +1258,19 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
     # Theory
     if run_sims:
         results = run_simulations_dataset(dataset_index)
-        np.save(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_simulations' % dataset_index), results)
+        np.save(get_data_path('%s/simulations/dataset%d_simulations' % (folder_name, dataset_index)), results)
     else:
-        results = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_simulations.npy' % dataset_index),
+        results = np.load(get_data_path('%s/simulations/dataset%d_simulations.npy' % (folder_name, dataset_index)),
                           allow_pickle=True).take(0)
     theory_depths = results['depths']
-    # theory_centers = results['centers']
     theory_bands = results['bands']
-    # theory_centers = np.mean(theory_bands, 1)
-    # theory_centers = np.percentile(theory_bands, 20, 1)
-    theory_centers = np.amin(theory_bands, 1) #+ 0.2 * (np.amax(theory_bands, 1) - np.amin(theory_bands, 1))
+    theory_centers = np.amin(theory_bands, 1)
 
     all_splittings = np.diff(theory_centers, axis=-1)
     first_splitting = all_splittings[..., 0]
     theory_depth_vs_splitting = interp1d(first_splitting, theory_depths, bounds_error=False, fill_value=np.nan)
 
     # Fitting
-    # fig, ax = plt.subplots(1, 1)
-    # ax.plot(theory_bands[0])
-    # print(exper_split, theory_bands.shape, theory_centers.shape, theory_depths)
     fitted_depths = theory_depth_vs_splitting(exper_split)
 
     # Re-running simulations for the fitted values
@@ -2198,7 +1280,6 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
         if np.isnan(depth):
             bands = np.full((301, 82), np.nan)
             k_axis = np.full((301, ), np.nan)
-            # edges = np.full((n_bands, 2), np.nan)
         else:
             bands, k_axis = run_simulations([depth], [period], 0, MASS, n_bands=n_bands, disable_output=True)
         fitted_results['depths'] += [depth]
@@ -2230,7 +1311,7 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
         fitted_results = fit_theory(dataset_index, selected_indices, run_sims)
         theory_bands, theory_kaxis, depths = [fitted_results[x] for x in ['bands', 'k_axis', 'depths']]
     else:
-        fitted_results = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_fits.npy' % dataset_index), allow_pickle=True).take(0)
+        fitted_results = np.load(get_data_path('%s/simulations/dataset%d_fits.npy' % (folder_name, dataset_index)), allow_pickle=True).take(0)
         theory_bands, theory_kaxis, depths = [fitted_results[x][selected_indices] for x in ['bands', 'k_axis', 'depths']]
         if len(theory_kaxis.shape) == 1:
             depths = [depths]
@@ -2290,33 +1371,19 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
                     if 'k_filtering' in plotting_kw:
                         mask = np.abs(_band[:, 0]-axis_offsets[0]) < plotting_kw['k_filtering']
                         _band = _band[mask]
-                    # print('_band%d: ' % idx, np.mean(_band[:, 1]))
                     ax.plot(_band[:, 0]-axis_offsets[0], _band[:, 1]*1e3, **plot_kw)
         if plotting_kw['show_theory']:
             if not np.isnan(depth):
                 theory_bands = theory_bands.real
-                # print('theory_bands: ', np.mean(theory_bands[:, :plotting_kw['n_bands']]))
-                # theory_bands *= 1e3
                 theory_bands -= np.min(theory_bands)
-                # e_offset = np.nanmean(bnd[0][:, 1] + axis_offsets[1])*1e3 - np.nanmin(theory_bands)
-                # print(e_offset)
                 theory_bands += axis_offsets[1]
-                # fig, ax = plt.subplots(1, 1)
                 min_idx, max_idx = [np.argmin(np.abs(theory_kaxis-x)) for x in [xaxis.min(), xaxis.max()]]
-                # fig, ax2 = plt.subplots(1, 1)
                 if 'n_bands' in plotting_kw:
                     ax.plot(theory_kaxis[min_idx:max_idx], theory_bands[min_idx:max_idx, :plotting_kw['n_bands']], **fill_kw)
                 else:
                     print(theory_kaxis.shape, theory_bands.shape)
                     ax.plot(np.squeeze(theory_kaxis)[min_idx:max_idx],
                             np.squeeze(theory_bands)[min_idx:max_idx], **fill_kw)
-
-                # xaxis = np.array(config['k_axis'])-axis_offsets[0]
-                # ax.set_xlim(xaxis.min(), xaxis.max())
-                # yaxis = np.array(config['energy_axis'])
-                # ax.set_ylim(yaxis.min(), yaxis.max())
-                # fig2, ax2 = plt.subplots(1, 1)
-                # ax2.plot(theory_kaxis, theory_bands)
             else:
                 print('Depth is NaN')
         if plotting_kw['show_label']:
@@ -2325,7 +1392,6 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
             else:
                 label = '%s$k_{laser}$=%.2g%sm$^{-1}$\n' % (delta, config['laser_angle'], mu)
                 try:
-                    # power_label = power_axis[selected_indices[-1]]
                     power_label = variables['normalised_power_axis'][selected_indices[-1]] * 1e3
                     label += '$P_s$=%.1fmW%sm$^{-2}$\n' % (power_label, mu)
                 except:
@@ -2344,13 +1410,12 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     if imshow_kwargs is None: imshow_kwargs = dict()
 
     data, variables, config = get_experimental_data_base(dataset_index)
-    simulations = np.load(get_data_path('2021_07_conveyorbelt/simulations/dataset%d_fits.npy' % dataset_index),
+    simulations = np.load(get_data_path('%s/simulations/dataset%d_fits.npy' % (folder_name, dataset_index)),
                           allow_pickle=True).take(0)
     depths = simulations['depths']
 
     if len(data.shape) < 5:
         # ensures that the first axis is always cw power, even if the dataset doesn't have that variable
-        # data = np.array([data])
         selected_indices = (0,) + selected_indices
         depths = np.array([depths])
         cw = None
@@ -2367,9 +1432,9 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
         h5pylabel += 'cw={cw}/'
     h5pylabel += 'power={power}/f={f}'
     h5pylabel = h5pylabel.format(deltak=config['laser_angle'], cw=cw, power=power, f=freq)
-    print('Daset details: ', h5pylabel, ' Veff=%g' % fit_veff)
+    print('Dataset details: ', h5pylabel, ' Veff=%g' % fit_veff)
 
-    path = get_data_path('2021_07_conveyorbelt/simulations/pl_density.h5')
+    path = get_data_path('%s/simulations/pl_density.h5' % folder_name)
 
     # Getting (or simulating, if not available) all the data
     with h5py.File(path, 'a') as dfile:
@@ -2395,8 +1460,6 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
         # of the Floquet Hamiltonian
         static_hamiltonian = Hamiltonian_x(0, frequency=0, **kwargs)
         values, vectors = np.linalg.eig(static_hamiltonian)
-        # _fig, _ax = plt.subplots(1, 1)
-        # _ax.plot(np.diag(static_hamiltonian))
 
         if rerun or (h5pylabel not in dfile):
             floquet_hamiltonian = partial(Hamiltonian_x, frequency=freq * 1e-3, **kwargs)
@@ -2437,10 +1500,7 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     max_idx = np.argmin(np.abs(theory_eax - bottom_lim))
     min_idx = np.argmin(np.abs(theory_eax - top_lim))
 
-    # imshow(np.fliplr(theory_density.transpose()),
-    #        cbar=False, diverging=False, cmap='Greys')
-    # print(theory_density)
-    fig, ax = _make_axes(fig_ax)
+    fig, ax = create_axes(fig_ax)
     _kwargs = dict(cbar=False, diverging=False, norm=LogNorm(1e-5, 1), cmap='Greys')
     imshow_kwargs = {**_kwargs, **imshow_kwargs}
     imshow(normalize(np.fliplr(theory_density.transpose()[min_idx:max_idx])), ax,
@@ -2469,140 +1529,152 @@ def compare_to_experiment(dataset_index, selected_indices, ground_state_energy=0
     return fig, axs
 
 
-def figsize_(aspect_ratio, columns='double', margins=5, column_separation=5):
-    a4_width = 210
-    if columns == 'double':
-        width = (a4_width-2*margins) * (1 / 25.4)  # in inches
-    elif columns == 'single':
-        width = ((a4_width - 2*margins - column_separation)/2) * (1 / 25.4)  # in inches
-    else:
-        raise ValueError('Unrecognised columns: %s' % columns)
-    return width, aspect_ratio*width
-
-
-class dummy_formatter(ScalarFormatter):
-    def __init__(self, offset, *args, **kwargs):
-        super(dummy_formatter, self).__init__(*args, **kwargs)
-        self.set_useOffset(offset)
-        self.format = '%g'
-
-    def format_data(self, value):
-        return '%g' % value
-
-
-with h5py.File(collated_data_path, 'r') as dfile:
-    laser_separations = dfile['laser_separations'][...]
-dataset_order = np.argsort(np.abs(laser_separations))
-normalized_laser_separations = normalize(np.abs(laser_separations))
-colormap_laser_separation = cm.get_cmap('Greens')((normalized_laser_separations + 0.2)/1.2)
-
-
-# def find_two_parameters(ground_state, splitting, xaxis, yaxis, plot=False, colours=None):
-#     if isinstance(plot, plt.Axes):
-#         arg = plot
-#     elif not plot:
-#         plt.close('all')
-#         arg = None
-#     else:
-#         fig, axs = plt.subplots(1, 3, sharex=True, sharey=True)
-#         imshow(theory_groundstate, axs[0], xaxis=xaxis, yaxis=yaxis, diverging=False)
-#         imshow(theory_splitting, axs[1], xaxis=xaxis, yaxis=yaxis, diverging=False)
-#         X, Y = np.meshgrid(xaxis, yaxis)
-#         axs[0].contour(X, Y, theory_groundstate, [ground_state], colors='w')
-#         axs[1].contour(X, Y, theory_splitting, [splitting], colors='w')
-#         arg = axs[2]
-#     _, _, intersection_points, lines = contour_intersections([theory_groundstate, theory_splitting],
-#                                                          [[ground_state], [splitting]], arg,
-#                                                          [xaxis] * 2, [yaxis] * 2, colours)
-#     if arg is None:
-#         plt.close('all')
-#     return intersection_points, lines
-
-
 if __name__ == '__main__':
-    TOGGLE = 'sinusoidal schrodinger'
-    LOGGER.setLevel('INFO')
+    def sinusoidal_k(k, potential, delta_k=10., mass=MASS, n_bands=6):
+        G = delta_k
 
-    if TOGGLE == 'cluster analysis':
-        import h5py
-        from microcavities.utils import random_choice
-        collated_data_path = get_data_path('2021_07_conveyorbelt/collated_data.h5')
-        collated_analysis_path = get_data_path('2021_07_conveyorbelt/collated_analysis.h5')
+        # TODO  compare to a model where the photon and the exciton are fully separated (mass)
+        space_size = 2 * n_bands + 1
 
-        example_config = dict(
-            plotting=False, #['make_bands'],  #True,  # ['image_preprocessing', 'peak_finding']
-            image_preprocessing=dict(
-                # normalization_percentiles=[0, 100],
-                # low_pass_threshold=0.4
-            ),
-            peak_finding=dict(peak_width=3, savgol_filter=dict(), find_peaks=dict(height=0.01, prominence=0.01)),
-            clustering=dict(#shear=-0.03, #scale=0.01,
-                            # AgglomerativeClustering=dict(n_clusters=15,
-                            #                              # distance_threshold=None,
-                            #                              # compute_distances=True
-                            #                              ),
-                            energy_limit=30,
-                            min_cluster_size=10, min_cluster_distance=3),
-            make_bands=dict(k0=-0.1,
-                            k_acceptance=0.5,
-                            # k_acceptance=1,
-                            bandwidth=0.3),
-            analyse_bands=dict(k_range_fit=1.5)
-        )
+        # Kinetic energy
+        Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
 
-        with h5py.File(collated_analysis_path, 'r') as dfile:
-            laser_separations = dfile['laser_separations'][...]
+        # Potential energy
+        pot = [potential / 2] * (space_size - 1)
+        Hv = np.diag(pot, -1) + np.diag(pot, 1)
 
-        dataset_index = 3
-        with h5py.File(collated_data_path, 'r') as dfile:
-            dset = dfile['alignment%d/scan' % dataset_index]
-            data = dset[...]
-            _v = dset.attrs['variables']
-            variables = eval(_v)
-            eax = dset.attrs['eaxis']
-            kax = dset.attrs['kaxis']
-        example_config['k_axis'] = kax
-        example_config['energy_axis'] = eax
-        example_config['laser_angle'] = laser_separations[dataset_index]
+        return Hk0 + Hv
 
-        # for example_image in [data[-1, 5, -1], data[-1, 6, -3]]:  #data[1, 9, 8], data[2, 7, -4], data[0, 2, 5], data[1, 3, 5], data[2, 10, 9], data[1, 2, 1]]:
-        #     example_config['plotting'] = ['make_bands']
-        #     tst = SingleImageModeDetection(example_image, example_config)
-        #     # labels, mask = tst.cluster()
-        #     tst.make_bands()
-        #     del example_config['clustering']['shear']
 
-        # example_image, _indices = random_choice(data, (0, 1, 2), True)
-        # print(_indices)
-        # example_image = data[-1, -5, 5]
-        # example_image = data[-1, 2, -2]
-        # tst = SingleImageModeDetection(example_image, example_config)
-        # tst.analyse_bands()
+    def Hamiltonian_delta_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
+        G = delta_k
 
-        example_config['plotting'] = True
-        example_full_config = dict(# shear_slope=0.01, period=1,
-                                   example_config)
-        full_fit = FullDatasetModeDetection(data, example_full_config)
-        # full_fit._analyse_bands_single_image(data[3, 1, 1])
-        # full_fit._analyse_bands_single_image()
-        full_fit.analyse_bands()
-        # # print(full_fit._calculate_single_shear(data[-1, 0, 0]))
-        # # shear = full_fit.calculate_shear()[0]
-        # full_fit.cluster()
-        # full_fit.analyse_bands(n_bands=5)
-        # print(shear.shape)
-        # imshow(shear)
+        # TODO  compare to a model where the photon and the exciton are fully separated (mass)
+        space_size = 2 * n_bands + 1
 
-        plt.show()
-    elif TOGGLE == 'sinusoidal schrodinger':
-        depth = 100
-        period = 15
-        mass = 3e-5
-        eigenvalues = run_simulations([depth], [period], masses=mass)
-        centers, widths, _ = analyse_modes(eigenvalues, 10)
+        # Kinetic energy
+        Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
+        Hk0 -= np.eye(space_size) * detuning / 2
 
-        def taylor_expansion_splitting(depth, period, mass):
-            return hbar * np.sqrt(2 * depth / (electron_mass * mass * period**2))
-        print(centers)
-        print(np.diff(centers)[0])
-        print(taylor_expansion_splitting(depth, period, mass))
+        # Potential energy
+        Hv = potential * np.ones((space_size, space_size))
+        Hv += np.eye(space_size) * detuning / 2
+
+        # Coupling to exciton
+        H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
+        H2row = np.hstack([rabi * np.eye(space_size), Hv])
+        return np.vstack([H1row, H2row])
+
+
+    def test_hamiltonians():
+        potential = 0
+        deltak = 0.43
+        vals = []
+
+        for period in [3, 5, 7]:
+            hx = Hamiltonian_x(0, potential, deltak, 0, period, n_points=101)
+            val1, vec1 = np.linalg.eig(hx)
+            _sort_idx = np.argsort(val1)
+            val1 = val1[_sort_idx]
+            vec1 = vec1[:, _sort_idx]
+            vals += [val1]
+
+        ks = np.linspace(-2, 2, 101)
+        hk = partial(Hamiltonian_k, potential=potential, delta_k=deltak, n_bands=6)
+        bands, modes = solve_for_krange(ks, hk)
+
+        fig, ax = plt.subplots(1, 1)
+        ax.plot(ks, bands[:, :])
+        [ax.plot(val[:100], '--') for val in vals]
+        ax2 = ax.twiny()
+        ax2.plot(bands[:, :])
+
+
+    def testing_nonhermitian():
+        gs_widths = []
+        gaps = []
+        ampl = 1
+        k = np.linspace(-2, 2, 501)
+        thetas = np.linspace(-np.pi / 2, np.pi / 2, 51)
+        for theta in thetas:
+            p = ampl * np.exp(1j * theta)
+            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+            bands, modes = solve_for_krange(k, hk)
+            gs_widths += [np.max(bands[:, 0]) - np.min(bands[:, 0])]
+            gaps += [np.min(bands[:, 1]) - np.max(bands[:, 0])]
+        gs_widths = np.array(gs_widths)
+        gaps = np.array(gaps)
+
+        fig = plt.figure()
+        gs = gridspec.GridSpec(1, 3, fig)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+        ax = plt.subplot(_gs[0])
+        ax.plot(thetas, gs_widths.real, '.-')
+        ax2 = ax.twinx()
+        ax2.plot(thetas, gs_widths.imag, '.-', color='C1')
+        ax = plt.subplot(_gs[1])
+        ax.plot(thetas, gaps.real)
+
+        p = ampl * np.exp(1j * 0)
+        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+        bands, modes = solve_for_krange(k, hk)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1])
+        axs = _gs.subplots()
+        axs[0].plot(k, bands[:, :2].real)
+        axs[1].plot(k, bands[:, :2].imag)
+
+        p = ampl * np.exp(1j * np.pi / 2)
+        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+        bands, modes = solve_for_krange(k, hk)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[2])
+        axs = _gs.subplots()
+        axs[0].plot(k, bands[:, :2].real)
+        axs[1].plot(k, bands[:, :2].imag)
+
+        fig, axs = plt.subplots(2, 4, sharex=True)
+        k = np.linspace(-2, 2, 501)
+        for p, ax in zip([np.sqrt(5) * 1j, 1 + 2j, 2 + 1j, np.sqrt(5)], axs.transpose()):
+            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+            bands, modes = solve_for_krange(k, hk)
+            ax[0].plot(k, bands[:, :3].real)
+            _bands = bands[:, :3]
+            if p.real < 1e-5:
+                _b2 = _bands[:, -1]
+                _b01 = _bands[:, :-1]
+                mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
+                for idx, msk in enumerate(mask):
+                    if msk:
+                        indxs = np.argsort(_b01[idx].imag)
+                        _b01[idx] = _b01[idx][indxs]
+                # indxs = np.argsort(_b01.imag, axis=-1)
+                # _b01[mask] = _b01[mask][indxs[mask]]
+
+                _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
+            ax[1].plot(k, _bands.imag)
+        for idx in range(len(axs[0]) - 1):
+            axs[0, idx].sharey(axs[0, idx + 1])
+            axs[1, idx].sharey(axs[1, idx + 1])
+
+        fig, axs = plt.subplots(2, 3, sharex=True)
+        k = np.linspace(-2, 2, 501)
+        for p, ax in zip([2, 2 + 1j, 2 + 2j], axs.transpose()):
+            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
+            bands, modes = solve_for_krange(k, hk)
+            ax[0].plot(k, bands[:, :3].real)
+            _bands = bands[:, :3]
+            if p.real < 1e-5:
+                _b2 = _bands[:, -1]
+                _b01 = _bands[:, :-1]
+                mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
+                for idx, msk in enumerate(mask):
+                    if msk:
+                        indxs = np.argsort(_b01[idx].imag)
+                        _b01[idx] = _b01[idx][indxs]
+                # indxs = np.argsort(_b01.imag, axis=-1)
+                # _b01[mask] = _b01[mask][indxs[mask]]
+
+                _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
+            ax[1].plot(k, _bands.imag)
+        for idx in range(len(axs[0]) - 1):
+            axs[0, idx].sharey(axs[0, idx + 1])
+            axs[1, idx].sharey(axs[1, idx + 1])
