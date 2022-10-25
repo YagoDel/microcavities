@@ -735,8 +735,8 @@ def imshow(img, ax=None, diverging=True, scaling=None, xaxis=None, yaxis=None,
             yaxis -= np.mean(yaxis)
 
         # Create an "extent" to be passed to plt.imshow so that each value in xaxis/yaxis is at the center of each pixel
-        xdiff = np.abs(np.mean(np.diff(xaxis)))
-        ydiff = np.abs(np.mean(np.diff(yaxis)))
+        xdiff = np.mean(np.diff(xaxis))
+        ydiff = np.mean(np.diff(yaxis))
         kwargs['extent'] = [xaxis[0] - xdiff/2, xaxis[-1] + xdiff/2,
                             yaxis[-1] + ydiff/2, yaxis[0] - ydiff/2]
 
