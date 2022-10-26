@@ -33,57 +33,127 @@ n_cmap = viscm #'viscm'
 delta_n_cmap = 'RdBu_r'
 lz_cmap = 'PuOr'
 
-pixels_per_step = 2 * 150 / 300000
+# pixels_per_step = 2 * 150 / 300000
+pixels_per_step = (134-26) / 70000
 
-data_path = get_data_path('2022_01_26/raw_data.h5')
-figure_data_path = get_data_path('2022_01_26/figure_data.h5')
-rotation_path = '/Users/yago/Desktop/DDrive/Papers/Rotation/'
+# data_path = get_data_path('2022_01_26/raw_data.h5')
+# data_path = get_data_path('2022_10_25/scan1.h5')
+
+# figure_data_path = get_data_path('2022_01_26/figure_data.h5')
+# rotation_path = '/Users/yago/Desktop/DDrive/Papers/Rotation/'
 mu = '\u03BC'
 Delta = '\u0394'
 hbar_u = '\u0127'
-momentum_scale = 0.019634954084936207
-spatial_scale = 0.4
+# momentum_scale = 0.019634954084936207
+# spatial_scale = 0.4
+momentum_scale = 0.01325359400733194  # magnification('rotation_acton', 'k_space')[0] * 1e-6
+spatial_scale = 0.27  # magnification('rotation_acton', 'real_space')[0] * 1e6
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 
 
 """# Defining spatial axis"""
-x_axis = np.linspace(2020000.0, 2060000.0, 11)
-y_axis = np.linspace(6155000.0, 6195000.0, 11)
-x_axis -= np.mean(x_axis)
-x_axis *= pixels_per_step
-x_axis *= spatial_scale
-y_axis -= np.mean(y_axis)
-y_axis *= pixels_per_step
-y_axis *= spatial_scale
-y_axis = y_axis[::-1]
-frequencies = [-7.5, -5, -3, -2, -1, -0.5, -0.1, 0.1, 0.5, 1, 2, 3, 5, 7.5]
+def make_xaxis(xlims, ylims, xscale=None, centers=(0, 0)):
+    if xscale is None:
+        xscale = spatial_scale * pixels_per_step
+    x = np.linspace(*xlims)
+    y = np.linspace(*ylims)
+    x -= np.mean(x)
+    # x *= pixels_per_step
+    x *= xscale
+    x -= centers[0]
+
+    y -= np.mean(y)
+    # y *= pixels_per_step
+    y *= xscale
+    y = y[::-1]
+    y -= centers[1]
+    return x, y
+
+# x_axis, y_axis = make_xaxis((2020000.0, 2060000.0, 11), (6155000.0, 6195000.0, 11))
+# x_axis, y_axis = make_xaxis((2037000.0, 2107000.0, 22), (6463000.0, 6533000.0, 21))
+# x_axis, y_axis = make_xaxis((2054500.0, 2096500.0, 13), (6470000.0, 6515500.0, 14))
+# x_axis, y_axis = make_xaxis((2137000.0, 2179000.0, 13), (6480000.0, 6525500.0, 14), (2, 1))
+x_axis, y_axis = make_xaxis((2137000.0, 2186000.0, 15), (6473000.0, 6525500.0, 16), (2, 1))
+
+# # x_axis = np.linspace(2020000.0, 2060000.0, 11)
+# # y_axis = np.linspace(6155000.0, 6195000.0, 11)
+# # x_axis = np.linspace(2037000.0, 2107000.0, 22)
+# # y_axis = np.linspace(6463000.0, 6533000.0, 21)
+# # x_axis = np.linspace(2054500.0, 2096500.0, 13)
+# # y_axis = np.linspace(6470000.0, 6515500.0, 14)
+# x_axis = np.linspace(2137000.0, 2179000.0, 13)
+# y_axis = np.linspace(6480000.0, 6525500.0, 14)
+# x_axis -= np.mean(x_axis)
+# x_axis *= pixels_per_step
+# x_axis *= spatial_scale
+# y_axis -= np.mean(y_axis)
+# y_axis *= pixels_per_step
+# y_axis *= spatial_scale
+# y_axis = y_axis[::-1]
+# frequencies = [-7.5, -5, -3, -2, -1, -0.5, -0.1, 0.1, 0.5, 1, 2, 3, 5, 7.5]
+frequencies = [-7, -5, -3, -1, -0.1, 0.1, 1, 3, 5, 7]
 # x_axis -= 0.8
 # y_axis += 2.5
 
 """Definining k axis"""
-#  Finding k=0
-with h5py.File(data_path, 'r') as dfile:
-    below_threshold = np.array([(dfile['full_scan1/below_threshold/%s' % name][...]-110) for name in ['matisse', 'toptica']])
-lp = np.array([low_pass(x, 0.05) for x in below_threshold])
-k0_CoM = np.array([center_of_mass(x) for x in lp])
-k0_argmax = np.array([np.argmax(np.mean(lp, ax), axis=1) for ax in [-1, -2]])
-k0_eye = [155, 169]
-# k0_eye = [145, 179]
-# k0_eye = [165, 159]
+# Finding k=0
+# with h5py.File(data_path, 'r') as dfile:
+#     below_threshold = np.array([(dfile['full_scan1/below_threshold/%s' % name][...]-110) for name in ['matisse', 'toptica']])
+# lp = np.array([low_pass(x, 0.05) for x in below_threshold])
+# k0_CoM = np.array([center_of_mass(x) for x in lp])
+# k0_argmax = np.array([np.argmax(np.mean(lp, ax), axis=1) for ax in [-1, -2]])
+# # # k0_eye = [155, 169]
+# # # k0_eye = [241, 281]  # [281, 241]
+# # # k0_eye = [240, 330]  # [281, 241]
+# # # k0_eye = [242, 285]  # [281, 241]
+# # # k0_eye = [250, 295]  # [281, 241]
+# # #
+# # # # k0_eye = [145, 179]
+# # # # k0_eye = [165, 159]
+# # #
+# # # with h5py.File(data_path, 'r') as dfile:
+# # #     bkg = dfile['full_scan1/just_toptica_bkg'][...]
+# # #     static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
+# # #     static_condensate = static_condensate[..., ::-1, ::-1]  # inverting the k-plane (from the k-lens)
+# # #
+# # # ky = ((np.arange(static_condensate.shape[-2]) - k0_eye[0]) * momentum_scale)[::-1]
+# # # kx = ((np.arange(static_condensate.shape[-1]) - k0_eye[1]) * momentum_scale)
+# # # kx_func = partial(np.interp, xp=np.arange(static_condensate.shape[-1]), fp=kx)
+# # # ky_func = partial(np.interp, xp=np.arange(static_condensate.shape[-2]), fp=ky)
+
+
+def create_kaxis(dataset, kscale, k0=None, method='CoM'):
+    if k0 is None:
+        if method == 'CoM':
+            k0 = np.array([center_of_mass(x) for x in lp])
+        elif method == 'max':
+            k0 = np.array([np.argmax(np.mean(lp, ax), axis=1) for ax in [-1, -2]])
+        else:
+            raise ValueError('k0=None and unrecognised method %s' % method)
+    _ky = ((np.arange(dataset.shape[-2]) - k0[0]) * kscale)[::-1]
+    _kx = ((np.arange(dataset.shape[-1]) - k0[1]) * kscale)
+    _kx_func = partial(np.interp, xp=np.arange(dataset.shape[-1]), fp=_kx)
+    _ky_func = partial(np.interp, xp=np.arange(dataset.shape[-2]), fp=_ky)
+
+    return _kx_func, _ky_func, _kx, _ky
+
 
 with h5py.File(data_path, 'r') as dfile:
-    bkg = dfile['full_scan1/just_toptica_bkg'][...]
-    static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
-    static_condensate = static_condensate[..., ::-1, ::-1]  # inverting the k-plane (from the k-lens)
+    tst = dfile['kspace/f=1GHz'][...]
 
-ky = ((np.arange(static_condensate.shape[-2]) - k0_eye[0]) * momentum_scale)[::-1]
-kx = ((np.arange(static_condensate.shape[-1]) - k0_eye[1]) * momentum_scale)
-kx_func = partial(np.interp, xp=np.arange(static_condensate.shape[-1]), fp=kx)
-ky_func = partial(np.interp, xp=np.arange(static_condensate.shape[-2]), fp=ky)
+    # bkg = dfile['full_scan1/just_toptica_bkg'][...]
+    # static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
+    # static_condensate = static_condensate[..., ::-1, ::-1]  # inverting the k-plane (from the k-lens)
+# kx_func, ky_func, kx, ky = create_kaxis(static_condensate, [155, 169])
+# kx_func, ky_func, kx, ky = create_kaxis(tst, [250, 258])
+# kx_func, ky_func, kx, ky = create_kaxis(tst, [245, 260])
+kx_func, ky_func, kx, ky = create_kaxis(tst, [260, 290])
 
 
 """Utility functions"""
+
+
 def jacobian(vector_field, axes=None):
     """Numerical Jacobian of an ND vector field
 
@@ -165,16 +235,18 @@ def photon_density(camera_count):
     # optical_losses *= (0.95**4)  # estimated transmission through 4 lenses
     # optical_losses *= 0.1  # estimated spectrometer grating
     optical_losses *= 0.026  # directly measured
-    nd_filter = 1.5e-6  # we used ND6
-    quantum_efficiency = 0.4  # 75  # camera QE
+    # nd_filter = 1.5e-6  # we used ND6
+    nd_filter = 1  # we used ND0
+    quantum_efficiency = 0.4  # 0.75  # camera QE
     efficiency = nd_filter * quantum_efficiency * optical_losses / 2  # factor of two from both directions in the mcav
 
-    exposure_time = 2  # in seconds
+    # exposure_time = 2  # in seconds
+    exposure_time = 1e-4  # in seconds
     alpha = 2  # CCD
     photon_flux = camera_count * alpha / (efficiency * exposure_time)
 
-    lifetime = 14e-12  #2.1e-12  # 2.5e-12
-    hopfield = 0.09  # 0.025
+    lifetime = 23e-12  #14e-12  #2.1e-12  # 2.5e-12
+    hopfield = 0.23  #0.09  # 0.025
     polariton = photon_flux * lifetime / hopfield
 
     # Spatial filtering with a 50um pinhole
@@ -238,15 +310,19 @@ def get_data(frequency, norm=False):
     return data
 
 
-def measure_momenta(image, plott=True, ax=None):
+def measure_momenta(image, k_functions=None, k_axes=None, plott=True, ax=None):
+    if k_functions is None:
+        k_functions = (kx_func, ky_func)
+    if k_axes is None:
+        k_axes = (kx, ky)
     image = normalize(image)
     mask = image > 0.5
     CoM = np.squeeze(np.array(center_of_mass(image, mask, 1)))
     if plott:
         fig, ax = create_axes(ax)
-        imshow(image, ax, cbar=False, xaxis=kx, yaxis=ky)
-        ax.plot([0, kx_func(CoM[1])], [0, ky_func(CoM[0])], 'k')
-    return kx_func(CoM[1]), ky_func(CoM[0])
+        imshow(image, ax, cbar=False, xaxis=k_axes[0], yaxis=k_axes[1])
+        ax.plot([0, k_functions[0](CoM[1])], [0, k_functions[1](CoM[0])], 'k')
+    return k_functions[0](CoM[1]), k_functions[1](CoM[0])
 
 
 def get_field(data):
@@ -255,12 +331,14 @@ def get_field(data):
     return spatial_image, momenta
 
 
-def plot_quiver(data, ax=None, **kwargs):
+def plot_quiver(data, ax=None, axes=None, **kwargs):
+    if axes is None:
+        axes = (x_axis, y_axis)
     fig, ax = create_axes(ax)
     spatial_image, momenta = get_field(data)
-    imshow(spatial_image, ax, cbar=False, xaxis=x_axis, yaxis=y_axis, aspect='equal')
-    ax.quiver(x_axis, y_axis, momenta[0], momenta[1], **kwargs)
-    ax.quiver(x_axis, y_axis, momenta[0], momenta[1], **kwargs)
+    imshow(spatial_image, ax, cbar=False, xaxis=axes[0], yaxis=axes[1], aspect='equal')
+    ax.quiver(axes[0], axes[1], momenta[0], momenta[1], **kwargs)
+    ax.quiver(axes[0], axes[1], momenta[0], momenta[1], **kwargs)
     return fig, ax, momenta
 
 
@@ -271,7 +349,9 @@ def get_differential_field(frequency):
     return np.mean([img_p, img_m], 0), k_p - k_m
 
 
-def plot_differential(frequency, **kwargs):
+def plot_differential(frequency, axes=None, **kwargs):
+    if axes is None:
+        axes = (x_axis, y_axis)
     img, field = get_differential_field(frequency)
-    _, ax = imshow(img, xaxis=x_axis, yaxis=y_axis, cbar=False)
-    ax.quiver(x_axis, y_axis, field[0], field[1], **kwargs)
+    _, ax = imshow(img, xaxis=axes[0], yaxis=axes[1], cbar=False)
+    ax.quiver(axes[0], axes[1], field[0], field[1], **kwargs)
