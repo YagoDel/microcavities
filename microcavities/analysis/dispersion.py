@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-"""
-Utility functions to analyse low power dispersion images
+"""Utility functions to analyse low power dispersion images"""
 
-
-
-"""
-
+from microcavities.analysis import *
 from microcavities.utils.plotting import *
 from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
@@ -49,11 +45,8 @@ def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=Non
 
 def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass,
                                k_offset=0, for_fit=True):
-    hbar = 0.658  # in meV*ps
-    c = 300  # in um/ps
-
-    exciton_mass *= (0.511 * 1e9) / c**2
-    photon_mass *= (0.511 * 1e9) / c**2
+    exciton_mass *= m_e
+    photon_mass *= m_e
 
     exciton_dispersion = exciton_energy + (hbar * (k_axis+k_offset))**2 / (2*exciton_mass)
     photon_dispersion = photon_energy + (hbar * (k_axis+k_offset))**2 / (2*photon_mass)
@@ -217,16 +210,11 @@ def find_mass(image, energy_axis=('rotation_acton', 780, '2'), wavevector_axis=(
     :return:
     """
 
-    hbar = 0.658  # in meV*ps
-    c = 300  # in um/ps
-
     quad_fit = fit_quadratic_dispersion(image, energy_axis, wavevector_axis, plotting)
 
     a = np.abs(quad_fit[0])  # meV * um**2
     mass = hbar**2 / (2 * a)  # (meV*ps)**2 / meV * um**2  = meV*ps**2 / um**2
-    mass *= c**2  # for meV / c**2 units
-    mass /= 10**9  # for MeV / c**2
-    mass /= 0.511  # for ratio with free electron mass
+    mass /= m_e  # for ratio with free electron mass
 
     return mass
 
@@ -297,12 +285,13 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=N
                     )
     fit_kwargs = {**defaults, **fit_kwargs}
     final_params, parameter_errors, res = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
+    LOGGER.debug('Final fit parameters: %s' % final_params)
+
     exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
                                                 final_params['photon_energy'] - final_params['exciton_energy'])
 
     # Getting return values in physically useful units
     energy = result.best_values['center']
-    hbar = 0.658  # in meV*ps
     lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
 
     final_params['polariton_energy'] = energy
@@ -339,6 +328,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     if find_bands_kwargs is None: find_bands_kwargs = dict()
     if least_squares_kw is None: least_squares_kw = dict()
     if known_sample_parameters is None: known_sample_parameters = dict()
+    if starting_fit_parameters is None: starting_fit_parameters = dict()
 
     n_clusters = 2   # by default try to fit both upper and lower polariton
     if mode == 'lp': n_clusters = 1
@@ -352,13 +342,14 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     find_bands_kwargs = {**defaults, **find_bands_kwargs}
     bands = find_bands(image, **find_bands_kwargs)
 
-    if starting_fit_parameters is None:
-        lp_energy = np.percentile(bands[0][:, 1], 5)
-        if len(bands) > 1:
-            up_energy = np.percentile(bands[1][:, 1], 5)
-        else:
-            up_energy = lp_energy + 10
-        starting_fit_parameters = (lp_energy, 10, 2e-5, up_energy, 0.35, 0)
+    lp_energy_guess = np.percentile(bands[0][:, 1], 5)
+    if len(bands) > 1:
+        up_energy_guess = np.percentile(bands[1][:, 1], 5)
+    else:
+        up_energy_guess = lp_energy_guess + 10
+    default_start_values = dict(photon_energy=lp_energy_guess, exciton_energy=up_energy_guess,
+                                rabi_splitting=10, photon_mass=2e-5, exciton_mass=0.35, k_offset=0)
+    starting_fit_parameters = {**default_start_values, **starting_fit_parameters}
 
     # Handling known parameters
     parameter_names = ['photon_energy', 'rabi_splitting', 'photon_mass', 'exciton_energy', 'exciton_mass', 'k_offset']
@@ -368,7 +359,8 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     unknown_parameters = []
     least_square_scale = []
     least_square_start = []
-    for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
+    for key, sc in zip(parameter_names, scales):
+        st = starting_fit_parameters[key]
         if key in known_sample_parameters:
             exec('%s=%g' % (key, known_sample_parameters[key]), dispersion_parameters)
         else:
@@ -408,6 +400,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     if res.success:
         final_params = [dispersion_parameters[key] for key in parameter_names]
     else:
+        print('Failed fit')
         final_params = []
         for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
             if key in known_sample_parameters:

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from microcavities.analysis import *
 from microcavities.utils.plotting import *
 from nplab.utils.log import create_logger
 import h5py
@@ -9,39 +10,14 @@ from functools import partial
 from scipy.signal import fftconvolve
 from microcavities.experiment.utils import magnification_function, spectrometer_calibration
 from microcavities.experiment.utils import magnification
-plt.rcParams['pdf.fonttype'] = 'truetype'
-plt.rcParams['svg.fonttype'] = 'none'
 
 LOGGER = create_logger('Rotation')
 
-cdict = {'red': [(0.0, 0.0, 1.0),
-                 (0.25, 0.0, 0.0),
-                 (0.5, 1.0, 1.0),
-                 (0.75, 1.0, 1.0),
-                 (1.0, 0.0, 0.0)],
-         'green': [(0.0, 0.0, 1.0),
-                   (0.25, 0.4, 0.4),
-                   (0.5, 1.0, 1.0),
-                   (0.75, 0.0, 0.0),
-                   (1.0, 0.0, 0.0)],
-         'blue': [(0.0, 1.0, 1.0),
-                  (0.25, 0.0, 0.0),
-                  (0.5, 0.0, 0.0),
-                  (0.75, 0.0, 0.0),
-                  (1.0, 0.0, 0.0)]}
-
-viscm = colors.LinearSegmentedColormap('viscm', cdict, 256)
-n_cmap = viscm
+n_cmap = mycmap
 delta_n_cmap = 'RdBu_r'
 lz_cmap = 'PuOr'
 
 rotation_path = '/Users/yago/Desktop/DDrive/Papers/Rotation/'
-mu = '\u03BC'
-Delta = '\u0394'
-hbar_u = '\u0127'
-hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
-c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
-
 
 """Defining axis"""
 
@@ -128,34 +104,6 @@ def corrected_sum(array, radius, distance):
 
 
 """Utility functions"""
-
-
-def photon_density(camera_count, nd_filter=1, exposure_time=1e-4, lifetime=15e-12, hopfield=0.23, alpha=4,
-                   camera_qe=0.4, optical_losses=None):
-    """Converting camera counts into photon density
-
-    :param camera_count: float. # of photon counts
-    :param nd_filter: float. ND filter losses
-    :param exposure_time: float. Camera exposure time in s
-    :param lifetime: float. Polariton lifetime in s
-    :param hopfield: float. Photon hopfield coefficient
-    :param alpha: float. Electrons per count (from the manual)
-    :param camera_qe: float. Quantum efficiency of the camera
-    :param optical_losses: float. Loss from reflections at the optical elements from the microcavity to the camera
-    :return: float
-    """
-    if optical_losses is None:
-        optical_losses = 0.97  # at the objective
-        optical_losses *= 0.97  # at the dichroic
-        optical_losses *= 0.99  # at the bandpass filter
-        optical_losses *= (0.97**2)  # estimated reflection from 2 mirrors
-        optical_losses *= 0.3125  # directly measured up to the camera
-
-    efficiency = nd_filter * camera_qe * optical_losses / 2  # factor of two from both directions in the mcav
-    photon_flux = camera_count * alpha / (efficiency * exposure_time)
-    polariton = photon_flux * lifetime / hopfield
-
-    return polariton
 
 
 def angular_momentum_array(vector_field, axes=None):
