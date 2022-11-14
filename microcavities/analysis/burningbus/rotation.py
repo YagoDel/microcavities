@@ -7,7 +7,11 @@ from scipy.ndimage.measurements import center_of_mass
 from microcavities.analysis.phase_maps import low_pass
 from microcavities.utils import apply_along_axes
 from functools import partial
+from scipy.signal import fftconvolve
 from microcavities.experiment.utils import magnification_function, spectrometer_calibration
+from microcavities.experiment.utils import magnification
+plt.rcParams['pdf.fonttype'] = 'truetype'
+plt.rcParams['svg.fonttype'] = 'none'
 
 LOGGER = create_logger('Rotation')
 
@@ -34,20 +38,20 @@ delta_n_cmap = 'RdBu_r'
 lz_cmap = 'PuOr'
 
 # pixels_per_step = 2 * 150 / 300000
-pixels_per_step = (134-26) / 70000
+# pixels_per_step = (134-26) / 70000
 
 # data_path = get_data_path('2022_01_26/raw_data.h5')
 # data_path = get_data_path('2022_10_25/scan1.h5')
 
 # figure_data_path = get_data_path('2022_01_26/figure_data.h5')
-# rotation_path = '/Users/yago/Desktop/DDrive/Papers/Rotation/'
+rotation_path = '/Users/yago/Desktop/DDrive/Papers/Rotation/'
 mu = '\u03BC'
 Delta = '\u0394'
 hbar_u = '\u0127'
 # momentum_scale = 0.019634954084936207
 # spatial_scale = 0.4
-momentum_scale = 0.01325359400733194  # magnification('rotation_acton', 'k_space')[0] * 1e-6
-spatial_scale = 0.27  # magnification('rotation_acton', 'real_space')[0] * 1e6
+# momentum_scale = 0.01325359400733194  # magnification('rotation_acton', 'k_space')[0] * 1e-6
+# spatial_scale = 0.27  # magnification('rotation_acton', 'real_space')[0] * 1e6
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 
@@ -74,7 +78,7 @@ def make_xaxis(xlims, ylims, xscale=None, centers=(0, 0)):
 # x_axis, y_axis = make_xaxis((2037000.0, 2107000.0, 22), (6463000.0, 6533000.0, 21))
 # x_axis, y_axis = make_xaxis((2054500.0, 2096500.0, 13), (6470000.0, 6515500.0, 14))
 # x_axis, y_axis = make_xaxis((2137000.0, 2179000.0, 13), (6480000.0, 6525500.0, 14), (2, 1))
-x_axis, y_axis = make_xaxis((2137000.0, 2186000.0, 15), (6473000.0, 6525500.0, 16), (2, 1))
+# x_axis, y_axis = make_xaxis((2137000.0, 2186000.0, 15), (6473000.0, 6525500.0, 16), centers=(2, 1))
 
 # # x_axis = np.linspace(2020000.0, 2060000.0, 11)
 # # y_axis = np.linspace(6155000.0, 6195000.0, 11)
@@ -92,7 +96,7 @@ x_axis, y_axis = make_xaxis((2137000.0, 2186000.0, 15), (6473000.0, 6525500.0, 1
 # y_axis *= spatial_scale
 # y_axis = y_axis[::-1]
 # frequencies = [-7.5, -5, -3, -2, -1, -0.5, -0.1, 0.1, 0.5, 1, 2, 3, 5, 7.5]
-frequencies = [-7, -5, -3, -1, -0.1, 0.1, 1, 3, 5, 7]
+# frequencies = [-7, -5, -3, -1, -0.1, 0.1, 1, 3, 5, 7]
 # x_axis -= 0.8
 # y_axis += 2.5
 
@@ -139,16 +143,16 @@ def create_kaxis(dataset, kscale, k0=None, method='CoM'):
     return _kx_func, _ky_func, _kx, _ky
 
 
-with h5py.File(data_path, 'r') as dfile:
-    tst = dfile['kspace/f=1GHz'][...]
-
-    # bkg = dfile['full_scan1/just_toptica_bkg'][...]
-    # static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
-    # static_condensate = static_condensate[..., ::-1, ::-1]  # inverting the k-plane (from the k-lens)
-# kx_func, ky_func, kx, ky = create_kaxis(static_condensate, [155, 169])
-# kx_func, ky_func, kx, ky = create_kaxis(tst, [250, 258])
-# kx_func, ky_func, kx, ky = create_kaxis(tst, [245, 260])
-kx_func, ky_func, kx, ky = create_kaxis(tst, [260, 290])
+# with h5py.File(data_path, 'r') as dfile:
+#     tst = dfile['kspace/f=1GHz'][...]
+#
+#     # bkg = dfile['full_scan1/just_toptica_bkg'][...]
+#     # static_condensate = np.asarray(dfile['full_scan1/just_toptica'][...], float) - bkg
+#     # static_condensate = static_condensate[..., ::-1, ::-1]  # inverting the k-plane (from the k-lens)
+# # kx_func, ky_func, kx, ky = create_kaxis(static_condensate, [155, 169])
+# # kx_func, ky_func, kx, ky = create_kaxis(tst, [250, 258])
+# # kx_func, ky_func, kx, ky = create_kaxis(tst, [245, 260])
+# kx_func, ky_func, kx, ky = create_kaxis(tst, [260, 290])
 
 
 """Utility functions"""
@@ -229,24 +233,28 @@ def saddle_field(x, y, scale=1):
     return scale*r * np.cos(theta), scale * r * np.sin(theta)
 
 
-def photon_density(camera_count):
-    optical_losses = 0.97  # at the dichroic
+def photon_density(camera_count, nd_filter=1, exposure_time=1e-4, lifetime=20e-12, hopfield=0.23, alpha=0.25):
+    optical_losses = 0.97  # at the objective
+    optical_losses *= 0.97  # at the dichroic
+    optical_losses *= 0.99  # at the bandpass filter
     optical_losses *= (0.97**2)  # estimated reflection from 2 mirrors
     # optical_losses *= (0.95**4)  # estimated transmission through 4 lenses
     # optical_losses *= 0.1  # estimated spectrometer grating
-    optical_losses *= 0.026  # directly measured
+    # optical_losses *= 0.026  # directly measured
+    optical_losses *= 0.3125  # directly measured
+
     # nd_filter = 1.5e-6  # we used ND6
-    nd_filter = 1  # we used ND0
+    # nd_filter = 1  # we used ND0
     quantum_efficiency = 0.4  # 0.75  # camera QE
     efficiency = nd_filter * quantum_efficiency * optical_losses / 2  # factor of two from both directions in the mcav
 
     # exposure_time = 2  # in seconds
-    exposure_time = 1e-4  # in seconds
-    alpha = 2  # CCD
+    # exposure_time = 1e-4  # in seconds
+    # alpha = 1/4  #0.25  # CCD
     photon_flux = camera_count * alpha / (efficiency * exposure_time)
 
-    lifetime = 23e-12  #14e-12  #2.1e-12  # 2.5e-12
-    hopfield = 0.23  #0.09  # 0.025
+    # lifetime = 23e-12  #14e-12  #2.1e-12  # 2.5e-12
+    # hopfield = 0.23  #0.09  # 0.025
     polariton = photon_flux * lifetime / hopfield
 
     # Spatial filtering with a 50um pinhole
@@ -254,6 +262,43 @@ def photon_density(camera_count):
     # area = (np.pi * radius**2)
 
     return polariton   # , polariton / area
+
+
+def overlap_between_circles(radius, distance):
+    """
+    Following https://mathworld.wolfram.com/Circle-CircleIntersection.html#:~:text=Two%20circles%20may%20intersect%20in,known%20as%20the%20radical%20line.
+
+    :param radius:
+    :param distance:
+    :return:
+    """
+    return 2 * (radius ** 2) * np.arccos(distance/(2*radius)) - distance * np.sqrt(4 * radius**2 - distance**2) / 2
+
+
+def missing_overlap(radius, distance):
+    total_square = distance ** 2
+    total_circle = np.pi * radius ** 2
+    return total_square - total_circle + 2 * overlap_between_circles(radius, distance)
+
+
+def corrected_sum(array, radius, distance):
+    """
+
+    :param array:
+    :param radius:
+    :param distance:
+    :return:
+    """
+    pinhole_area = np.pi * radius ** 2
+    overlap_factor = overlap_between_circles(radius, distance) / pinhole_area
+    missing_factor = missing_overlap(radius, distance) / pinhole_area
+
+    overlap1 = (array[1:] + array[:-1]) / 2
+    overlap2 = (array[:, 1:] + array[:, :-1]) / 2
+    missing = fftconvolve(array, [[1, 1], [1, 1]], 'valid') / 4
+    correction = np.sum(missing * missing_factor) - np.sum(overlap_factor * overlap1) - np.sum(overlap_factor * overlap2)
+
+    return np.sum(array) + correction
 
 
 def angular_momentum_array(vector_field, axes=None):
@@ -300,53 +345,36 @@ def momentum_quantum(wavefunction, axes=None):
     return np.imag(np.conj(wavefunction) * vector_field)[::-1]
 
 
-def get_data(frequency, norm=False):
-    with h5py.File(data_path, 'r') as dfile:
-        bkg = np.array(dfile['full_scan1/bkg'])
-        data = np.array(dfile['full_scan1/f=%gGHz' % frequency][...]) - bkg
-    data = data[..., ::-1, ::-1]
-    if norm:
-        data = normalize(data, axis=(-2, -1))
-    return data
-
-
-def measure_momenta(image, k_functions=None, k_axes=None, plott=True, ax=None):
-    if k_functions is None:
-        k_functions = (kx_func, ky_func)
-    if k_axes is None:
-        k_axes = (kx, ky)
+def measure_momenta(image, k_funcs=None, k_axes=None, plott=True, ax=None):
+    # if k_functions is None:
+    #     k_functions = (kx_func, ky_func)
+    # if k_axes is None:
+    #     k_axes = (kx, ky)
     image = normalize(image)
     mask = image > 0.5
     CoM = np.squeeze(np.array(center_of_mass(image, mask, 1)))
     if plott:
         fig, ax = create_axes(ax)
         imshow(image, ax, cbar=False, xaxis=k_axes[0], yaxis=k_axes[1])
-        ax.plot([0, k_functions[0](CoM[1])], [0, k_functions[1](CoM[0])], 'k')
-    return k_functions[0](CoM[1]), k_functions[1](CoM[0])
+        ax.plot([0, k_funcs[0](CoM[1])], [0, k_funcs[1](CoM[0])], 'k')
+    return k_funcs[0](CoM[1]), k_funcs[1](CoM[0])
 
 
-def get_field(data):
-    spatial_image = np.mean(data, (-2, -1))
-    momenta = np.array(apply_along_axes(partial(measure_momenta, plott=False), (2, 3), data, 2))
+def get_field(data, k_funcs, k_axes):
+    spatial_image = np.sum(data, (-2, -1))
+    momenta = np.array(apply_along_axes(partial(measure_momenta, k_funcs=k_funcs, k_axes=k_axes, plott=False), (2, 3), data, 2))
     return spatial_image, momenta
 
 
-def plot_quiver(data, ax=None, axes=None, **kwargs):
-    if axes is None:
-        axes = (x_axis, y_axis)
+def plot_quiver(data, x_axes, k_funcs, k_axes, ax=None, **kwargs):
+    # if axes is None:
+    #     axes = (x_axis, y_axis)
     fig, ax = create_axes(ax)
-    spatial_image, momenta = get_field(data)
-    imshow(spatial_image, ax, cbar=False, xaxis=axes[0], yaxis=axes[1], aspect='equal')
-    ax.quiver(axes[0], axes[1], momenta[0], momenta[1], **kwargs)
-    ax.quiver(axes[0], axes[1], momenta[0], momenta[1], **kwargs)
+    spatial_image, momenta = get_field(data, k_funcs, k_axes)
+    imshow(spatial_image, ax, cbar=False, xaxis=x_axes[0], yaxis=x_axes[1], aspect='equal')
+    ax.quiver(x_axes[0], x_axes[1], momenta[0], momenta[1], **kwargs)
+    ax.quiver(x_axes[0], x_axes[1], momenta[0], momenta[1], **kwargs)
     return fig, ax, momenta
-
-
-def get_differential_field(frequency):
-    img_p, k_p = get_field(get_data(frequency))
-    img_m, k_m = get_field(get_data(-frequency))
-
-    return np.mean([img_p, img_m], 0), k_p - k_m
 
 
 def plot_differential(frequency, axes=None, **kwargs):
