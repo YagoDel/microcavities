@@ -1,26 +1,22 @@
 # -*- coding: utf-8 -*-
 
-import warnings
-import matplotlib.pyplot as plt
-from matplotlib import gridspec
-from matplotlib import colors, cm, collections
-from matplotlib.colors import LogNorm
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.legend_handler import HandlerTuple
-from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
-from matplotlib import transforms
-import matplotlib.patches as mpatches
+import warnings, os, re, imageio
 import numpy as np
-from microcavities.utils import square, get_data_path, normalize, run_once
-import os
-from collections import OrderedDict
-from shapely.geometry import MultiLineString
 from scipy.interpolate import interp1d
+from microcavities.utils import square, get_data_path, normalize, run_once
 from itertools import cycle
 
-import re
-import imageio
+import matplotlib.pyplot as plt
+from matplotlib import gridspec, colors, cm, collections, transforms
+from matplotlib.colors import LogNorm, LinearSegmentedColormap
+from matplotlib.legend_handler import HandlerTuple
+from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
+import matplotlib.patches as mpatches
+from shapely.geometry import MultiLineString
+
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
+plt.rcParams['pdf.fonttype'] = 'truetype'
+plt.rcParams['svg.fonttype'] = 'none'
 
 
 cdict = {'red': [(0.0, 0.0, 1.0),
@@ -40,6 +36,9 @@ cdict = {'red': [(0.0, 0.0, 1.0),
                   (1.0, 0.0, 0.0)]}
 mycmap = LinearSegmentedColormap('Michael', cdict, 256)
 run_once(lambda: plt.register_cmap(cmap=mycmap))()  # only register the colormap once
+mu = '\u03BC'
+Delta = '\u0394'
+hbar_u = '\u0127'
 
 
 def default_extension(path, default):
