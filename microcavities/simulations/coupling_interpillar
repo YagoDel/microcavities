@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov  8 14:09:24 2022
+
+@author: user
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+from scipy.sparse.linalg import eigsh
+from scipy.sparse.linalg import eigs
+from matplotlib import animation
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.animation import PillowWriter
+from scipy import sparse
+hbar = 0.658  # in meV ps
+electron_mass = 5.68e3  # in meV ps2 um-2
+size = 50
+
+def kinetic_matrix(size, mass=1e-3, x_spacing=1.0):
+    """
+    :param size: int. Size of the square array to be returned
+    :param mass: ratio to free electron mass
+    :param x_spacing: in microns
+    :return:
+    """
+    try:
+        assert len(mass) == size
+    except TypeError:
+        mass = np.ones(size) * mass
+    mass = np.pad(mass, (1, 1), 'edge')
+    mass_forward = np.mean([np.roll(mass, -1), mass], 0)
+    mass_backward = np.mean([np.roll(mass, 1), mass], 0)
+    diag = -(1/mass_forward + 1/mass_backward)[1:-1]  #np.mean([mass_forward, mass_backward], 0)[1:-1]  # - 1/(np.roll(mass, 1) + mass) - 1/(mass + np.roll(mass, -1))
+    up = 1/mass_forward[1:-2]  # 1 / (mass + np.roll(mass, 1))
+    down = 1/mass_backward[2:-1]  # 1 / (mass + np.roll(mass, -1))
+    # print(mass, mass_forward, mass_backward, np.mean([mass_forward, mass_backward], 0))
+    matrix = np.diag(diag) + np.diag(up, 1) + np.diag(down, -1)
+    diff = matrix / (x_spacing**2)
+    return - hbar**2 * diff / (2 * electron_mass)
+
+
+def single_trap(depth, width, size, bkg_value=0, mass=1e-3, mass_landscape=False):
+    x = np.linspace(-5*width, 5*width, size)
+    potential = np.zeros(size, np.complex) + bkg_value
+    potential[np.abs(x) < width / 2] += depth
+    if mass_landscape:
+        mass_array = np.ones(size) * mass[0]
+        mass_array[np.abs(x) < width / 2] = mass[1]
+    else:
+        try:
+            mass_array = np.ones(size) * mass[0]
+        except TypeError:
+            mass_array = np.ones(size) * mass
+        return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0]), x
+    
+    
+def double_trap(depth, barrier, width, separation=None, size=101, bkg_value=0.0, mass=1e-3, mass_landscape=False):
+    if separation is None:
+        separation = 3 * width
+    region = np.max([5*separation, 20*width])  # np.max([3*separation, 10*width])
+    x = np.linspace(-region, region, size)
+    potential = np.zeros(size, np.complex) + bkg_value
+    potential[np.abs(x) < separation/2 + width] = depth + bkg_value
+    potential[np.abs(x) < separation/2] = barrier + bkg_value
+    if mass_landscape:
+        mass_array = np.zeros(size) + mass[0]
+        mass_array[np.abs(x) < separation / 2 + width] = mass[1]
+        if len(mass) == 2:
+            mass_array[np.abs(x) < separation / 2] = mass[0]
+        if len(mass) == 3:
+            mass_array[np.abs(x) < separation/2] = mass[2]
+        # fig, ax = plt.subplots(1, 1)
+        # ax.plot(x, mass_array)
+    else:
+        try:
+            mass_array = mass[0]
+        except TypeError:
+            mass_array = mass
+    return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0]), x
+
+    
+def double_2Dtrap(depth, barrier, width, separation=None, size=101, bkg_value=0.0, mass=1e-3, mass_landscape=False):
+    if separation is None:
+        separation = 3 * width
+    region = np.max([5*separation, 20*width])  # np.max([3*separation, 10*width])
+    x = np.linspace(-region, region, size)
+    y = np.linspace(-region, region, size)
+    potential = np.zeros(size, np.complex) + bkg_value
+    potential[np.abs(x,y) < separation/2 + width] = depth + bkg_value
+    potential[np.abs(x,y) < separation/2] = barrier + bkg_value
+    if mass_landscape:
+        mass_array = np.zeros(size) + mass[0]
+        mass_array[np.abs(x,y) < separation / 2 + width] = mass[1]
+        if len(mass) == 2:
+            mass_array[np.abs(x,y) < separation / 2] = mass[0]
+        if len(mass) == 3:
+            mass_array[np.abs(x,y) < separation/2] = mass[2]
+        # fig, ax = plt.subplots(1, 1)
+        # ax.plot(x, mass_array)
+    else:
+        try:
+            mass_array = mass[0]
+        except TypeError:
+            mass_array = mass
+    return np.diag(potential), kinetic_matrix(size, mass_array, np.diff(x)[0],np.diff(y)[0]), x, y
+
+
+def solve(matrix, sort=True, lifetime=False):
+    size = matrix.shape[0]
+    vals, vecs = np.linalg.eig(matrix)   #compute eigenvalues ansd eigenvectors
+    vecs = vecs.T
+    if sort:
+        idxs = np.argsort(vals.real)
+        vals = vals[idxs][:int(size/2)]
+        vecs = vecs[idxs][:int(size/2)]
+        if lifetime:
+            if not any(vals.real < 0):
+                print('No bound states. Sorting by lifetime')
+                idxs = np.argsort(vals.imag)[::-1]
+                vals = vals[idxs]
+                vecs = vecs[idxs]
+            # return np.full(vals.shape, np.nan), np.full(vecs.shape, np.nan)
+    return vals, vecs #np.sign(np.real(vals)) * np.sqrt(np.abs(vals)), vecs
+
+
+def test_infinite_potential_well():
+    N = 101
+    MASS = 3e-5
+    WIDTH = 20
+    DEPTH = -10
+
+    def infinite_potential_well(mass, width):
+        return np.array([n**2 * np.pi**2 * hbar**2 / (2*mass*width**2) for n in range(1, 11)])
+
+    pot, kin, x = single_trap(DEPTH, WIDTH, N, 0, MASS)
+    vals, vecs = solve(pot + kin)
+    #vals2, _ = solve(transform_fourier(pot + kin))
+    analytical = infinite_potential_well(MASS*electron_mass, WIDTH)+DEPTH
+
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].plot(x, np.diag(pot).real)
+    axs[0].hlines(analytical, WIDTH/2, 3*WIDTH/2, colors='k', label='analytical')
+    axs[0].hlines(vals[:10], -3*WIDTH/2, -WIDTH/2, colors='r', label='numerical')
+    #axs[0].hlines(vals[:10], -2*WIDTH/2, -2*WIDTH/2, colors='b', label='numerical')
+    axs[0].legend(loc='upper right')
+    axs[1].plot(analytical, vals[:10], '.')
+    axs[1].plot(analytical, analytical, '--', alpha=0.5)
+  
+
+def test_double_infinite_potential_well():
+    N = 501
+    MASS = 3e-5
+    WIDTH = 20
+    DEPTH = -20
+    
+
+    def infinite_double_potential_well(mass, width):
+        return np.array([n**2 * np.pi**2 * hbar**2 / (2*mass*width**2) for n in range(1, 11)])
+
+    pot, kin, x = double_trap(DEPTH, WIDTH, N, 0, MASS)
+    vals, vecs = solve(pot + kin)
+    #vals2, _ = solve(transform_fourier(pot + kin))
+    analytical = infinite_double_potential_well(MASS*electron_mass, WIDTH)+DEPTH
+
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].plot(x, np.diag(pot).real)
+    axs[0].hlines(analytical, WIDTH/2, 3*WIDTH/2, colors='k', label='analytical')
+    axs[0].hlines(vals[:10], -3*WIDTH/2, -WIDTH/2, colors='r', label='numerical')
+    #axs[0].hlines(vals2[:10], -5*WIDTH/2, -3*WIDTH/2, colors='b', label='numerical')
+    axs[0].legend(loc='upper right')
+    axs[1].plot(analytical, vals[:10], '.')
+    axs[1].plot(analytical, analytical, '--', alpha=0.5)
+
+
+def plot(pot, kin, x, bound_modes=True, couplings=True):
+    vals, vecs = solve(pot+kin)
+    if bound_modes:
+        n_bound_modes = int(np.sum(vals.real < 0))
+        print("Bound modes: %d" % n_bound_modes)
+        fig = plt.figure(figsize=(12, 6))
+        gs = gridspec.GridSpec(1, 3, wspace=0.35)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+        gs00 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[0], hspace=0.01)
+        gs01 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[1], hspace=0.01)
+        gs1 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1], hspace=0.02)
+        gs2 = gridspec.GridSpecFromSubplotSpec(2, 2, gs[2], hspace=0.01, wspace=0.01)
+        _poss = gs.get_grid_positions(fig)
+        fig.text(np.mean([_poss[2][-1], _poss[3][-1]]), _poss[1], 'Mode profiles', ha='center')
+    else:
+        n_bound_modes = int(np.sum(vals.real < 0))
+        fig = plt.figure(figsize=(8, 6))
+        gs = gridspec.GridSpec(1, 2)
+        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
+        gs00 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[0], hspace=0.01)
+        gs01 = gridspec.GridSpecFromSubplotSpec(2, 1, _gs[1], hspace=0.01)
+        # gs1 = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1], hspace=0.02)
+        gs2 = gridspec.GridSpecFromSubplotSpec(2, 2, gs[1], hspace=0.01, wspace=0.01)
+
+    ax0 = plt.subplot(gs00[0])
+    ax0.plot(vals.real, '.-')
+    ax0.set_xticklabels([])
+    ax0.set_ylabel('Eigen energy')
+    ax1 = plt.subplot(gs00[1], sharex=ax0)
+    ax1.plot(vals.imag, '.-')
+    ax1.set_xlabel('Eigen index')
+    ax1.set_ylabel('Eigen lifetime')
+
+    ax2 = plt.subplot(gs01[0])
+    ax2.plot(x, np.real(np.diag(pot)), 'b')
+    ax2.set_xticklabels([])
+    ax2.set_ylabel('Energy')
+    ax3 = plt.subplot(gs01[1], sharex=ax2)
+    ax3.plot(x, np.imag(np.diag(pot)), 'r')
+    ax3.set_xlabel('Position / um')
+    ax3.set_ylabel('Lifetime')
+
+    if bound_modes:
+        ax01 = plt.subplot(gs1[0])
+        ax01.plot(vals.real[:n_bound_modes+2], '.-')
+        ax01.set_xticklabels([])
+        ax01.set_ylabel('Eigen energy')
+        ax01.set_title("%d bound modes" % n_bound_modes)
+        ax11 = plt.subplot(gs1[1])
+        ax11.plot(vals.imag[:n_bound_modes+2], '.-')
+        ax11.set_xlabel('Eigen index')
+        ax11.set_ylabel('Eigen energy')
+    for idx in range(4):
+        ax = plt.subplot(gs2[idx])
+        ax.plot(x, vecs[idx])
+        ax.set_yticklabels([])
+        ax.set_xticklabels([])
+        if idx % 2 == 0:
+            ax.set_ylabel('Field')
+        if idx >= 2:
+            ax.set_xlabel('Position')
+    if couplings:
+        coupling = vals[1] - vals[0]
+        fig.suptitle("Coupling: %g + 1j * %g meV (%g%%)" % (coupling.real, coupling.imag, 100*coupling.imag/coupling.real))
+        # on_site = vals[1] + vals[0]
+    return fig
+
+pot, kin, x = double_trap(-10, 0, 2.7, 3.5, 1500, mass = 1e-5)
+val, vec = solve(pot + kin)
+print(vec) #list of vectors
+plot(pot, kin, x)   #potential matrix in 2D
+
+
+# 2D Schredinger Equation
+# create a meshgrid of x and y coordinates
+N = 150
+X, Y = np.meshgrid(np.linspace(0,10,N, dtype=float),
+                   np.linspace(0,10,N, dtype=float))
+
+
+def get_potential(x,y):
+    return 0*x
+def get_potential(x, y):
+    return np.exp(-(x-0.3)**2/(2*0.1**2))*np.exp(-(y-0.3)**2/(2*0.1**2))
+V = get_potential(X,Y)
+
+def test_2Dharmonic_potential():
+    MASS = 3e-5
+    OMEGA0 = 4
+    XRANGE = 5e1
+
+    def harmonic_2Dpotential(omega0, mass, size, X,Y):
+        return np.diag(mass * electron_mass * (omega0 * X)**2 / 2)*np.diag(mass * electron_mass * (omega0 * Y)**2 / 2), X, Y
+V = test_2Dharmonic_potential()
+
+V = double_2Dtrap()
+
+diag = np.ones([N])
+diags = np.array([diag, -2*diag, diag])
+D = sparse.spdiags(diags, np.array([-1,0,1]), N, N) #D is a sparse matrix which has -2 on the main diagonal and 1 on the two neighbouring diagonals
+T = -1/2 * sparse.kronsum(D,D)
+U = sparse.diags(V.reshape(N**2), (0))  #V is a 2D grid reshaped into N**2 vector to be stretched along main diagonal
+H = T+U   #N**2 x N**2 dimension
+vals, vecs = eigsh(H, k=10, which='SM')  #SM means we are looking for only the smallest eigenvalues
+
+def get_e(n):
+    return vecs.T[n].reshape((N,N))
+
+plt.figure(figsize=(9,9))
+plt.contourf(X, Y, get_e(0), 20)   #plot PDF with 20 countour levels by e()**2 with 20 countor levels
+
+
+
