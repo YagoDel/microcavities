@@ -4,7 +4,7 @@ from nplab.utils.gui import get_qt_app, QtWidgets, QtCore, uic
 from nplab.utils.log import create_logger
 import nplab.utils.send_mail as email
 import nplab.datafile as df
-from nplab.experiment.gui import ExperimentWithProgressBar
+from nplab.experiment.gui import ExperimentWithProgressBar, ExperimentStopped
 from microcavities.utils.HierarchicalDatastructure import SortingKey
 from microcavities.analysis.streak import open_image
 from microcavities.utils import string_to_number, yaml_loader, get_data_path, get_data_directory
@@ -87,6 +87,19 @@ class HierarchicalScan(ExperimentWithProgressBar):
                 self.email_address = pymsgbox.prompt('What email do you want to notify?', 'Email')
                 if self.email_address is None:
                     self.email_when_done = False
+
+    def update_progress(self, progress):
+        """Update the progress bar (NB should only be called from within run()"""
+        if not self.running:
+            # if run was called directly, fail gracefully
+            self._logger.debug("Progress: {}".format(progress))
+            return
+        try:
+            self._progress_bar.setValueLater(progress)
+        except AttributeError:
+            self._logger.warn("Error setting progress bar to {} (are you running via run_modally()?)".format(progress))
+        if self._stop_event.is_set():
+            raise ExperimentStopped()
 
     def make_variables(self, yaml_file):
         for variable in yaml_file['variables']:
