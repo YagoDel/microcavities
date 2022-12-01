@@ -74,14 +74,14 @@ def figure(aspect_ratio=1.5, columns='double', margins=5, column_separation=5, *
     return plt.figure(*args, **kwargs)
 
 
-def default_save(figure, name, base_path=None, dpi=1200):
+def default_save(figure, name, base_path=None, dpi=1200, **kwargs):
     if base_path is None:
         base_path = os.path.dirname(get_data_path(None, False))
         assert os.path.exists(base_path)
     if not os.path.exists(os.path.join(base_path, 'figures')):
         os.makedirs(os.path.join(base_path, 'figures'))
     name = default_extension(name, '.png')
-    figure.savefig(os.path.join(base_path, 'figures', name), dpi=dpi, bbox_inches='tight')
+    figure.savefig(os.path.join(base_path, 'figures', name), dpi=dpi, bbox_inches='tight', **kwargs)
 
 
 def create_axes(ax=None, subplots_shape=(1, 1), fig_kw=None):
