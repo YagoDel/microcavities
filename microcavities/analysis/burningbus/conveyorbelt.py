@@ -29,6 +29,13 @@ from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormat
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import math
 import pythtb
+plt.style.use(os.path.join(os.path.dirname(get_data_path('')), 'Papers/Conveyor/python/paper_style.mplstyle'))
+# density_cmap = 'cubehelix_r'
+# density_cmap = 'Michael'
+# density_cmap = 'viridis'
+# density_cmap = 'inferno'
+density_cmap = 'magma_r'
+
 
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
@@ -166,6 +173,29 @@ class dummy_formatter(ScalarFormatter):
         return '%g' % value
 
 
+def power_density_angled(power, angle, area=None):
+    """Microcavity surface power density of a laser at an angle
+
+    Basically simply projects the area of the laser (which is the cross-sectional area of the beam) on to the plane of
+    the microcavity
+
+    :param power:
+    :param angle:
+    :param area:
+    :return:
+    """
+    area_angled = area / np.cos(angle)
+    return power / area_angled
+
+def area_of_ellipse(major_axis, minor_axis):
+    return np.pi * major_axis * minor_axis
+
+def power_density(power, wavevector):
+    """Utility function just for this project"""
+    _mom = 2*np.pi / 0.805
+    angle_of_incidence = np.abs(wavevector) / _mom  # approximately true for small angles
+    return power_density_angled(power, angle_of_incidence, area_of_ellipse(40, 20),)
+
 def get_experimental_data_base(dataset_index):
     with h5py.File(collated_analysis, 'r') as dfile:
         laser_separations = dfile['laser_separations'][...]
@@ -180,12 +210,13 @@ def get_experimental_data_base(dataset_index):
     config = configurations[dataset_index]
     if config is None:
         config = dict()
-    ellipse_a = 20
-    ellipse_b = 40
-    _mom = 2*np.pi / 0.805
-    angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom  # approximately true for small angles
-    laser_size = np.pi * ellipse_a * ellipse_b / np.sin(np.pi/2-angle_of_incidence)
-    norm_ax = variables['vwp'] / laser_size
+    # ellipse_a = 20
+    # ellipse_b = 40
+    # _mom = 2*np.pi / 0.805
+    # angle_of_incidence = np.abs(laser_separations[dataset_index]) / _mom  # approximately true for small angles
+    # laser_size = np.pi * ellipse_a * ellipse_b / np.sin(np.pi/2-angle_of_incidence)
+    # norm_ax = variables['vwp'] / laser_size
+    norm_ax = power_density(variables['vwp'], laser_separations[dataset_index])
 
     variables['normalised_power_axis'] = norm_ax
     if 'data_axes_order' in config:
@@ -195,6 +226,17 @@ def get_experimental_data_base(dataset_index):
     config['laser_angle'] = laser_separations[dataset_index]
 
     return data, variables, config
+
+def photons_per_mw(power, wavelength=0.805):
+    """Returns the number of photons per picosecond, given a power and wavelength
+    :param power: in watts
+    :param wavelength: in micron
+    :return:
+    """
+    single_photon_energy = 2 * np.pi * hbar * c / wavelength  # in meV
+    power *= 6.242e21   # joules to meV
+    power /= single_photon_energy  # number of photons / s
+    return power * 1e-12  # number of photons / ps
 
 
 def get_experimental_data(dataset_index):
