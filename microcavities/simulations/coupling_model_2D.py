@@ -15,84 +15,142 @@ from dxf.lattices import *
 hbar = 0.658  # in meV ps
 electron_mass = 5.68e3  # in meV ps2 um-2
 mass = 1e-5
-size = 250
-region = 35
-x_spacing = 2*region/(size-1)
-
-_x = np.linspace(-region, region, size, dtype = float)
-_y = np.linspace(-region,region, size, dtype = float)
-x, y = np.meshgrid(_x, _y)
+# size = 250
+# region = 35
+# x_spacing = 2*region/(size-1)
 
 
-def harmonic_potential(x,y):
-    omega = 4
-    V = 0.5*omega**2*(x**2+y**2)
-    nx,ny = np.arange(0,4), np.arange(0,4)
-    ana_vals = hbar**2*(nx+ny+1)*omega**2/(2*mass)
-    return V
+def make_axes(region, n_points):
+    """
+    :param region: float or tuple. Size (in um) of the area. If tuple, you can give (size_x, size_y) independently.
+    :param n_points: integer
+    :return:
+    """
+    if type(region) not in [tuple, list]:  # if region is a number, make it a tuple with the same number twice
+        region = (region, region)
 
-
-def potential_circle(x,y,x1,y1,x2,y2,r):
-    #Create a x-y space
-    V = np.zeros(x.shape)
-    depth=-10
-    bkg_value=0
-    mask1 = (x-x1)**2+(y-y1)**2<r**2
-    mask2 = (x-x2)**2+(y-y2)**2<r**2
-    print(mask1)
-    V[mask1] = depth + bkg_value
-    V[mask2] = depth + bkg_value
-    return V
-
-
-def potential_lattice(x, y, centers, r, depth=-10, bkg_value=0):
-    V = np.zeros(x.shape) + bkg_value
-    for cx, cy in centers:
-        mask = (x-cx)**2+(y-cy)**2<r**2
-        V[mask] = depth + bkg_value  
-    return V
-
-
-def potential_square_latt(x,y,xc,yc,r):
-    
-    # for _x, _y in zip(xc, yc):
-    
-    V = np.zeros(x.shape)
-    depth=-10
-    bkg_value=0
-    xc = square_flaked[:,0]
-    yc = square_flaked[:,1]
-    mask = (x- xc)**2+(y-xy)**2<r**2
-    print(mask)
-    V[mask] = depth + bkg_value
-    return V
+    _x = np.linspace(-region[0]/2, region[0]/2, n_points, dtype=float)
+    _y = np.linspace(-region[1]/2, region[1]/2, n_points, dtype=float)
+    x, y = np.meshgrid(_x, _y)
+    return x, y, _x, _y
 
 
 def solve(size,mass,electron_mass,x_spacing,V):
     diag = np.ones([size])
     diags = np.array([diag, -2*diag, diag])
     #D is a sparse matrix which has -2 on the main diagonal and 1 on the two neighbouring diagonals
-    D = sparse.spdiags(diags, np.array([-1,0,1]), size, size)  
+    D = sparse.spdiags(diags, np.array([-1,0,1]), size, size)
     T = -1/2 * sparse.kronsum(D,D)
     T_dim = T*hbar**2/ (mass*electron_mass*x_spacing**2)
     #V is a 2D grid reshaped into N**2 vector to be stretched along main diagonal
     U = sparse.diags(V.reshape(size**2), (0))
-    H = T_dim+U   #N**2 x N**2 dimension   
+    H = T_dim+U   #N**2 x N**2 dimension
     #compute eigenvalues and eigenvectors
     vals, vecs = eigsh(H, k=250, which='SA')  #SM means we are looking for only the smallest eigenvalues
     return vals,vecs
 
 
-def get_e(n): 
+def get_eigenvector(n, vecs, size=None):
+    """
+
+    :param n: int. Index selection of eigenvector
+    :param vecs: array. List of eigenvectors
+    :param size: int. To determine how to reshape the eigenvector from a list to a matrix
+    :return:
+    """
+    if size is None: size = int(np.sqrt(len(vecs[0])))
     return vecs.T[n].reshape((size,size))
 
 
-def plot(x,y):
-   for n in range(0,4):
+def plot_eigenvectors(x, y, vecs):
+   for n in range(0, 4):
        fig = plt.figure(figsize=(6,6))
-       plt.contourf(x, y, get_e(n), 20) 
+       plt.contourf(x, y, get_eigenvector(n, vecs), 20)
        plt.colorbar(label = "psi")#plot PDF with 20 countour levels by e()**2 with 20 countor levels
        return fig
+
+
+"""POTENTIAL FUNCTIONS"""
+
+
+def harmonic_potential(omega, axes=None):
+    if axes is None:
+        axes = make_axes(30, 101)
+
+    return 0.5 * (omega**2) * (axes[0]**2 + axes[1]**2)
+    # nx,ny = np.arange(0,4), np.arange(0,4)
+    # ana_vals = hbar**2*(nx+ny+1)*omega**2/(2*mass)
+    # return V
+
+
+def single_circle(radius, depth, center=(0, 0), background=0, axes=None, potential=None):
+    """Creates a potential with a single, circular well
+
+    :param radius: float, in um. Radius of the well
+    :param depth: float, in meV. Depth of the well
+    :param center: tuple of floats, in um. Center point of the well
+    :param background: float, in meV. Background potential value.
+    :param axes: 4-tuple. See make_axes
+    :param potential: array. Potential onto which add this single circle. If not given, it's assumed to be uniform with
+    background value
+    :return:
+    """
+    if axes is None:
+        axes = make_axes(30, 101)
+    if potential is None:
+        potential = np.full(axes[0].shape, background)
+    mask = ((axes[0]-center[0])**2 + (axes[1]-center[1])**2) < radius**2
+    potential[mask] = depth + background
+    return potential, axes
+
+
+def double_circle(radius, depth, distance, center=(0, 0), background=0, axes=None):
+    """Creates a double well
+
+    :param radius:
+    :param depth:
+    :param distance:
+    :param center:
+    :param background:
+    :param axes:
+    :return:
+    """
+    if axes is None:
+        axes = make_axes(30, 101)
+    potential = np.full(axes[0].shape, background)
+    center1 = (center[0] - distance/2, center[1])
+    center2 = (center[0] + distance/2, center[1])
+
+    potential = single_circle(radius, depth, center1, background, axes, potential)[0]
+    potential = single_circle(radius, depth, center2, background, axes, potential)[0]
+    return potential, axes
+
+
+def potential_lattice(centers, radius, depth=-10, background=0, axes=None):
+    if axes is None:
+        axes = make_axes(30, 101)
+
+    potential = np.full(axes[0].shape, background)
+    for center in centers:
+        potential = single_circle(radius, depth, center, background, axes, potential)[0]
+    return potential, axes
+
+
+"""TEST FUNCTIONS"""
+
+
+def test_potential_circles():
+    """Simply tests that the potentials look like how we expect them to look"""
+    fig, axs = plt.subplots(1, 3)
+    V, axes = single_circle(5, -10)
+    imshow(V, axs[0], xaxis=axes[2], yaxis=axes[3], aspect='equal')
+
+    centers = np.reshape([[(x, y) for x in np.linspace(-10, 10, 3)] for y in np.linspace(-10, 10, 3)], (9, 2))
+    V, axes = potential_lattice(centers, 3, -10)
+    imshow(V, axs[1], xaxis=axes[2], yaxis=axes[3], aspect='equal')
+
+    V, axes = double_circle(3, -10, 4)
+    imshow(V, axs[2], xaxis=axes[2], yaxis=axes[3], aspect='equal')
 
 
 if __name__ == "__main__":
