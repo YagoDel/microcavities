@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+from microcavities.analysis.dispersion import *
+from microcavities.analysis.condensation import *
+
 
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # Planck constant   meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light    um/ps
@@ -32,3 +35,15 @@ def photon_density(camera_count, nd_filter=1, exposure_time=1e-4, lifetime=15e-1
     polariton = photon_flux * lifetime / hopfield
 
     return polariton
+
+
+def photons_per_mw(power, wavelength=0.805):
+    """Returns the number of photons per picosecond, given a power and wavelength
+    :param power: in watts
+    :param wavelength: in micron
+    :return:
+    """
+    single_photon_energy = 2 * np.pi * hbar * c / wavelength  # in meV
+    power *= 6.242e21   # joules to meV
+    power /= single_photon_energy  # number of photons / s
+    return power * 1e-12  # number of photons / ps
