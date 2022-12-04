@@ -5,7 +5,6 @@ import lmfit
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
 from microcavities.simulations.quantum_box import *
-from matplotlib.colors import LogNorm
 from microcavities.utils import apply_along_axes, random_choice
 from microcavities.analysis.dispersion import *
 from microcavities.analysis.condensation import *
@@ -29,12 +28,11 @@ from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormat
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import math
 import pythtb
+
 plt.style.use(os.path.join(os.path.dirname(get_data_path('')), 'Papers/Conveyor/python/paper_style.mplstyle'))
-# density_cmap = 'cubehelix_r'
-# density_cmap = 'Michael'
-# density_cmap = 'viridis'
-# density_cmap = 'inferno'
-density_cmap = 'magma_r'
+plt.rcParams["pgf.texsystem"] = "pdflatex"
+
+density_cmap = 'BlueYellowRed'
 
 
 LOGGER = create_logger('Fitting')
@@ -45,9 +43,7 @@ collated_data_path = get_data_path('%s/collated_data.h5' % folder_name)
 collated_analysis = get_data_path('%s/collated_analysis.h5' % folder_name)
 spatial_scale = magnification('rotation_pvcam', 'real_space')[0] * 1e6
 momentum_scale = magnification('rotation_pvcam', 'k_space')[0] * 1e-6
-mu = '\u03BC'
-delta = '\u0394'
-pi = '\u03C0'
+
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
@@ -61,7 +57,7 @@ with h5py.File(collated_analysis, 'r') as dfile:
 dataset_order = np.argsort(np.abs(laser_separations))
 normalized_laser_separations = normalize(np.abs(laser_separations))
 colormap_laser_separation = cm.get_cmap('Greens_r')((normalized_laser_separations - 0.24)/1.2)
-
+label_colour = (216 / 255., 220 / 255., 214 / 255., 0.9)
 
 # List of parameters required for different steps in the analysis for each of the 9 datasets
 configurations = [
@@ -1486,7 +1482,9 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
         # times = np.linspace(-100, 100, 4001)
         n_points = 101
         periods = 8
-        times = np.linspace(-50, 50, 2001)
+        # times = np.linspace(-50, 50, 2001)
+        # times = np.linspace(-75, 75, 2001)
+        times = np.linspace(-100, 100, 2001)
         kwargs = dict(potential=fit_veff, periods=periods, n_points=n_points, delta_k=config['laser_angle'])
 
         # Calculating momentum axis
