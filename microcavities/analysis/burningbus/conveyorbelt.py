@@ -1,33 +1,31 @@
 # -*- coding: utf-8 -*-
 from microcavities.utils.plotting import *
-from microcavities.utils.plotting import create_axes
 import lmfit
+from lmfit.models import LorentzianModel, ConstantModel, GaussianModel
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
 from microcavities.simulations.quantum_box import *
 from microcavities.utils import apply_along_axes, random_choice
-from microcavities.analysis.dispersion import *
-from microcavities.analysis.condensation import *
+from microcavities.analysis import *
 from microcavities.analysis.phase_maps import low_pass
 from microcavities.analysis.utils import remove_outliers
+from microcavities.analysis.interactive import InteractiveBase, InteractiveBaseUi
+from microcavities.experiment.utils import magnification
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 from sklearn.cluster import AgglomerativeClustering
 from scipy.linalg import expm
 import pyqtgraph as pg
+from pyqtgraph.parametertree import ParameterTree, Parameter
 from nplab.utils.log import create_logger
 from nplab.utils.gui import QtWidgets, get_qt_app
 from itertools import combinations
 from copy import deepcopy
 from functools import partial
 from tqdm import tqdm
-from microcavities.analysis.interactive import InteractiveBase, InteractiveBaseUi
-from pyqtgraph.parametertree import ParameterTree, Parameter
 import h5py
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator, FormatStrFormatter, ScalarFormatter, LogLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import math
-import pythtb
 
 plt.style.use(os.path.join(os.path.dirname(get_data_path('')), 'Papers/Conveyor/python/paper_style.mplstyle'))
 plt.rcParams["pgf.texsystem"] = "pdflatex"
@@ -192,6 +190,7 @@ def power_density(power, wavevector):
     angle_of_incidence = np.abs(wavevector) / _mom  # approximately true for small angles
     return power_density_angled(power, angle_of_incidence, area_of_ellipse(40, 20),)
 
+
 def get_experimental_data_base(dataset_index):
     with h5py.File(collated_analysis, 'r') as dfile:
         laser_separations = dfile['laser_separations'][...]
@@ -222,17 +221,6 @@ def get_experimental_data_base(dataset_index):
     config['laser_angle'] = laser_separations[dataset_index]
 
     return data, variables, config
-
-def photons_per_mw(power, wavelength=0.805):
-    """Returns the number of photons per picosecond, given a power and wavelength
-    :param power: in watts
-    :param wavelength: in micron
-    :return:
-    """
-    single_photon_energy = 2 * np.pi * hbar * c / wavelength  # in meV
-    power *= 6.242e21   # joules to meV
-    power /= single_photon_energy  # number of photons / s
-    return power * 1e-12  # number of photons / ps
 
 
 def get_experimental_data(dataset_index):
