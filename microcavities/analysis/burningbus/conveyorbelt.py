@@ -1124,6 +1124,94 @@ def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass
     return np.vstack([H1row, H2row])
 
 
+def Hamiltonian_kt(k, t, delta_k, frequency, potential, mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
+    """ Floquet-Bloch Hamiltonian
+
+    :param k: float. Momentum
+    :param t: float. Time
+    :param delta_k: float. Reciprocal vector
+    :param frequency: float
+    :param potential: float
+    :param mass: float
+    :param detuning: float
+    :param rabi: float
+    :param n_bands: int
+    :return:
+    """
+    G = delta_k
+    space_size = 2*n_bands + 1
+    omega = 2 * np.pi * frequency
+
+    # Kinetic energy
+    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)]) #, dtype=complex)
+    Hk0 -= np.eye(space_size) * detuning / 2
+
+    # Potential energy
+    pot = [potential / 2] * (space_size - 1)
+    Hv = np.diag(pot, -1) * np.exp(1j * omega * t) + \
+         np.diag(pot, 1) * np.exp(-1j * omega * t)
+    Hv += np.eye(space_size) * detuning / 2
+
+    # Coupling to exciton
+    H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
+    H2row = np.hstack([rabi * np.eye(space_size), Hv])
+    return np.vstack([H1row, H2row])
+
+
+def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=100, band_number=3, hamiltonian_kw=None):
+    """Calculates the Chern number
+
+    :param hamiltonian: function
+    :param momentum_range: float
+    :param time_period: float
+    :param n_points: int
+    :param band_number: int
+    :param hamiltonian_kw: dict or None
+    :return:
+    """
+    # Choosing a differential size that is smaller than the step size along the k and t dimensions
+    delta_k = momentum_range / (100*n_points)
+    delta_t = time_period / (100*n_points)
+
+    # Defining the Hamiltonian function to that it has only two parameters: k, t
+    f = np.abs(1/time_period)
+    if hamiltonian_kw is None: hamiltonian_kw = dict()
+    _hamiltonian = partial(hamiltonian, delta_k=momentum_range, frequency=f, **hamiltonian_kw)
+
+    # Looping over the Brillouin zones and one full time period
+    k_range = np.arange(-momentum_range / 2, momentum_range / 2, momentum_range / n_points)
+    t_range = np.arange(0, time_period, time_period / n_points)
+    chernnumber = 0
+    for kx in tqdm(k_range, 'Brillouin zone sum'):
+        for t in t_range:
+            # Band wavefunction evaluated at four points (k, t), (k+dk, t), (k, t+dt), (k+dk, k+dt)
+            vectors = []
+            for _t in [t, t + delta_t]:
+                for _k in [kx, kx + delta_k]:
+                    h = _hamiltonian(_k, _t)
+                    eigenvalue, eigenvector = np.linalg.eig(h)
+                    vector = eigenvector[:, np.argsort(np.real(eigenvalue))[band_number]]  #
+                    vectors += [vector]
+
+            # Fixing the gauge of the wavefunctions
+            index = np.argmax(np.abs(vectors[0]))
+            vectors = [v * np.exp(- 1j * np.angle(v[index])) for v in vectors]
+
+            # Berry connections
+            A_x = np.dot(vectors[0].transpose().conj(), (vectors[1] - vectors[0]) / delta_k)  # berry connection Ax（kx）
+            A_t = np.dot(vectors[0].transpose().conj(), (vectors[2] - vectors[0]) / delta_t)  # berry connetcion Ay（t分量）
+            A_x_delta_t = np.dot(vectors[2].transpose().conj(), (vectors[3] - vectors[2]) / delta_k)  # partial t of Akx
+            A_t_delta_kx = np.dot(vectors[1].transpose().conj(), (vectors[3] - vectors[1]) / delta_t)  # partial kx of Berry connection At
+
+            # Berry curvature
+            F = (A_t_delta_kx - A_t) / delta_k - (A_x_delta_t - A_x) / delta_t
+
+            # Chern number
+            chernnumber = chernnumber + F * (momentum_range / n_points) * (time_period / n_points)
+
+    return chernnumber / (2 * np.pi * 1j)
+
+
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
     K11 = -1j * np.matmul(hamiltonian(t), psi) / hbar
     K21 = -1j * np.matmul(hamiltonian(t + dt / 2), psi + K11 * dt / 2) / hbar
