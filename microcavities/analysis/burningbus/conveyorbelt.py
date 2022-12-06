@@ -1161,6 +1161,9 @@ def Hamiltonian_kt(k, t, delta_k, frequency, potential, mass=MASS, detuning=DETU
 def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=100, band_number=3, hamiltonian_kw=None):
     """Calculates the Chern number
 
+    Numerically evaluates band differentials in momentum and time to extract the Berry curvature and then sums over the
+    whole 2D Brillouin zone to get the Chern number
+
     :param hamiltonian: function
     :param momentum_range: float
     :param time_period: float
@@ -1181,8 +1184,10 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
     # Looping over the Brillouin zones and one full time period
     k_range = np.arange(-momentum_range / 2, momentum_range / 2, momentum_range / n_points)
     t_range = np.arange(0, time_period, time_period / n_points)
-    chernnumber = 0
+
+    berry_curvature = []
     for kx in tqdm(k_range, 'Brillouin zone sum'):
+        _berry_curvature = []
         for t in t_range:
             # Band wavefunction evaluated at four points (k, t), (k+dk, t), (k, t+dt), (k+dk, k+dt)
             vectors = []
@@ -1193,23 +1198,21 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
                     vector = eigenvector[:, np.argsort(np.real(eigenvalue))[band_number]]  #
                     vectors += [vector]
 
-            # Fixing the gauge of the wavefunctions
-            index = np.argmax(np.abs(vectors[0]))
+            # Fixing the gauge of the wavefunctions by making it real in the same BZ
+            index = np.argmax(np.abs(vectors[0]))  # BZ index
             vectors = [v * np.exp(- 1j * np.angle(v[index])) for v in vectors]
 
-            # Berry connections
-            A_x = np.dot(vectors[0].transpose().conj(), (vectors[1] - vectors[0]) / delta_k)  # berry connection Ax（kx）
-            A_t = np.dot(vectors[0].transpose().conj(), (vectors[2] - vectors[0]) / delta_t)  # berry connetcion Ay（t分量）
-            A_x_delta_t = np.dot(vectors[2].transpose().conj(), (vectors[3] - vectors[2]) / delta_k)  # partial t of Akx
-            A_t_delta_kx = np.dot(vectors[1].transpose().conj(), (vectors[3] - vectors[1]) / delta_t)  # partial kx of Berry connection At
+            # Berry connections as partial differentials wrt k and t
+            a_k = np.dot(vectors[0].transpose().conj(), (vectors[1] - vectors[0]) / delta_k)
+            a_t = np.dot(vectors[0].transpose().conj(), (vectors[2] - vectors[0]) / delta_t)
+            a_k_dt = np.dot(vectors[2].transpose().conj(), (vectors[3] - vectors[2]) / delta_k)
+            a_t_dk = np.dot(vectors[1].transpose().conj(), (vectors[3] - vectors[1]) / delta_t)
 
             # Berry curvature
-            F = (A_t_delta_kx - A_t) / delta_k - (A_x_delta_t - A_x) / delta_t
-
-            # Chern number
-            chernnumber = chernnumber + F * (momentum_range / n_points) * (time_period / n_points)
-
-    return chernnumber / (2 * np.pi * 1j)
+            _berry_curvature += [(a_t_dk - a_t) / delta_k - (a_k_dt - a_k) / delta_t]
+        berry_curvature += [_berry_curvature]
+    chern_number = np.sum(berry_curvature) * (momentum_range / n_points) * (time_period / n_points) / (2 * np.pi * 1j)
+    return chern_number, np.array(berry_curvature)
 
 
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
