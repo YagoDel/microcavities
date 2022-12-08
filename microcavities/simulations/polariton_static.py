@@ -5,10 +5,14 @@ from microcavities.utils.plotting import *
 from scipy.sparse.linalg import eigsh
 from scipy import sparse
 import logging
+from functools import partial
+from tqdm import tqdm
 from dxf.lattices import *
 
 hbar = 0.658  # in meV ps
 electron_mass = 5.68e3  # in meV ps2 um-2
+
+"""SETTING UP MATRICES"""
 
 
 def _kinetic_matrix(mass, size, x_spacing=1):
@@ -41,6 +45,16 @@ def make_axes(region=30, n_points=101):
     return x, y, _x, _y
 
 
+def make_k_axes(x_axes):
+    dx = np.diff(x_axes[2])[0]
+    _kx = np.linspace(-np.pi / dx, np.pi / dx, len(x_axes[2]))
+    dy = np.diff(x_axes[3])[0]
+    _ky = np.linspace(-np.pi / dy, np.pi / dy, len(x_axes[3]))
+    kx, ky = np.meshgrid(_kx, _ky)
+
+    return kx, ky, _kx, _ky
+
+
 def kinetic_matrix(size, rabi, mass_photon=1e-5, mass_exciton=0.35, x_spacing=1):
     """Matrix representation of the kinetic energy operator of a polariton
     :param size: int
@@ -58,12 +72,11 @@ def kinetic_matrix(size, rabi, mass_photon=1e-5, mass_exciton=0.35, x_spacing=1)
 
     # Coupling to exciton
     r = rabi * sparse.eye(size**2)
-    return sparse.bmat([[t_photon, r], [r, t_exciton]])
+    return sparse.bmat([[t_photon, r/2], [r/2, t_exciton]])
 
 
 def potential_matrix(potential_photon, potential_exciton, detuning):
     """
-
     :param potential_photon:
     :param potential_exciton:
     :param detuning:
@@ -77,6 +90,9 @@ def potential_matrix(potential_photon, potential_exciton, detuning):
     potential_exciton = sparse.diags(potential_exciton.reshape(size**2) - detuning / 2, 0)
 
     return sparse.bmat([[potential_photon, None], [None, potential_exciton]])
+
+
+"""EIGENSYSTEM SOLVING"""
 
 
 def solve_polariton_static(potential_photon, potential_exciton, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35,
@@ -118,6 +134,91 @@ def plot_eigenvectors(x, y, vecs, vals):
         imshow(get_eigenvector(idx, vecs)[0], _axs[0], xaxis=x, yaxis=y)
         imshow(get_eigenvector(idx, vecs)[1], _axs[1], xaxis=x, yaxis=y)
     return fig, [ax0, axs]
+
+
+"""FARFIELD CODE"""
+
+
+def Hamiltonian_k(k, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35):
+    """Free space polariton Hamiltonian"""
+    photon = hbar ** 2 * k ** 2 / (2 * mass_photon * electron_mass)
+    exciton = hbar ** 2 * k ** 2 / (2 * mass_exciton * electron_mass)
+    return np.array([[photon + detuning / 2, rabi / 2], [rabi / 2, exciton - detuning / 2]])
+
+
+def solve_for_krange(krange, hamiltonian):
+    bands = []
+    modes = []
+    for k in krange:
+        H = hamiltonian(k)
+        E, eig_vectors = np.linalg.eig(H)
+        idx_sort = np.argsort(E.real)
+        bands += [E[idx_sort]]
+        modes += [eig_vectors[:, idx_sort]]
+    return np.array(bands), np.array(modes)
+
+
+def rk_timestep(psi, hamiltonian, t, dt, noise_level=0):
+    """Single time step using Runge Kutta 4th order
+
+    :param psi: vector
+    :param hamiltonian: function. Should take a single input (time) and return a scipy.sparse matrix
+    :param t: float
+    :param dt: float
+    :param noise_level: float
+    :return:
+    """
+    K11 = -1j * (hamiltonian(t)@psi) / hbar
+    K21 = -1j * (hamiltonian(t + dt / 2)@(psi + K11 * dt / 2)) / hbar
+    K31 = -1j * (hamiltonian(t + dt / 2)@(psi + K21 * dt / 2)) / hbar
+    K41 = -1j * (hamiltonian(t + dt)@(psi + dt * K31)) / hbar
+
+    return psi + (K11 + 2 * K21 + 2 * K31 + K41) * dt / 6 + noise_level * np.random.rand(len(psi))
+
+
+def solve_timerange(psi0, hamiltonian, timerange):
+    """Time steps an initial wavefunction using the Runge Kutta stepper
+    :param psi0: vector
+    :param hamiltonian: function. Should take a single input (time) and return a scipy.sparse matrix
+    :param timerange: list
+    :return:
+    """
+    full_psi = np.zeros((len(psi0), len(timerange)), dtype=complex)
+    for idx_t, t in tqdm(enumerate(timerange), 'solve_timerange'):
+        full_psi[:, idx_t] = psi0
+        psi0 = rk_timestep(psi0, hamiltonian, t, np.diff(timerange)[0])
+    return full_psi
+
+
+def farfield(hamiltonian, timerange, starting_vectors=None):
+    """
+    :param hamiltonian:
+    :param timerange:
+    :param starting_vectors:
+    :return:
+    """
+    n_points = hamiltonian(0).shape[0]
+    size = int(np.sqrt(n_points / 2))
+    if starting_vectors is None:
+        starting_vectors = np.array([np.random.uniform(-1, 1, (n_points, ))
+                                     + 1.j * np.random.uniform(-1, 1, (n_points, ))])
+
+    # N = starting_vectors.shape[1] // 2
+    rho = np.zeros((size, size, len(timerange)))
+    for vec in tqdm(starting_vectors, 'farfield'):
+        psi = solve_timerange(vec, hamiltonian, timerange)
+        psi_reshaped = np.reshape(psi, (2, size, size, len(timerange)))
+
+        photon_field = psi_reshaped[0]
+        psikw = np.fft.fftshift(np.fft.fft2(photon_field, axes=(0, 1, 2)))
+        rho += np.abs(psikw) ** 2
+        if np.isnan(rho).any():
+            break
+
+    dE = hbar * np.pi / timerange[-1]
+    theory_eax = (np.linspace(-dE, dE, len(timerange)) * len(timerange) / 2)[::-1]
+
+    return rho, theory_eax
 
 
 """POTENTIAL FUNCTIONS"""
@@ -172,6 +273,60 @@ def test_potential_single_circles():
 
 
 def test_solver():
+    """Compares the far-field emission arising from the potential_matrix/kinetic_matrix in this file to that expected
+    from solving the Hamiltonian in k-space"""
+    DETUNING = -5
+    RABI = 3
+
+    n_points = 201
+    times = np.linspace(-25, 25, 8001)
+
+    axes = make_axes(100, n_points)  # Using a region large enough to get accurate free space propagation
+    k_axes = make_k_axes(axes)
+    size = axes[0].shape[0]
+    x_spacing = np.diff(axes[3])[0]
+
+    potential = potential_matrix(np.zeros(axes[0].shape), np.zeros(axes[0].shape), DETUNING)
+    kinetic = kinetic_matrix(size, RABI, x_spacing=x_spacing)
+    _ham = (potential + kinetic)
+    ham = lambda t: _ham
+
+    density, e_ax = farfield(ham, times)
+
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4))
+    for idx, index in enumerate([80, 90, 100]):
+        imshow(np.abs(density[index]).transpose(), axs[idx], norm=LogNorm(), diverging=False, xaxis=k_axes[2],
+               yaxis=e_ax, interpolation='none')
+        axs[idx].set_ylim(-10, 25)
+
+        kax2 = np.sqrt(k_axes[2] ** 2 + k_axes[2][index] ** 2)
+        two_modes, _ = solve_for_krange(kax2, partial(Hamiltonian_k, detuning=DETUNING, rabi=RABI))
+        axs[idx].plot(k_axes[2], two_modes)
+
+
+def test_solver2():
+    """Testing that the Hamiltonian here agrees with the equations we use to fit experimental data"""
+    from microcavities.analysis.dispersion import exciton_photon_dispersions
+    DETUNING = -5
+    RABI = 3
+
+    n_points = 201
+
+    axes = make_axes(100, n_points)  # Using a region large enough to get accurate free space propagation
+    k_axes = make_k_axes(axes)
+
+    two_modes, _ = solve_for_krange(k_axes[2], partial(Hamiltonian_k, detuning=DETUNING, rabi=RABI))
+    l, u, x, p = exciton_photon_dispersions(k_axes[2], DETUNING/2, RABI, 1e-5, -DETUNING/2, 0.35, for_fit=False)
+
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(k_axes[2], two_modes)
+    ax.plot(k_axes[2], l, color='k', ls='--')
+    ax.plot(k_axes[2], u, color='k', ls='--')
+    ax.plot(k_axes[2], x, color=(0.5, 0.5, 0.5, 0.5), ls='--')
+    ax.plot(k_axes[2], p, color=(0.5, 0.5, 0.5, 0.5), ls='--')
+
+
+def test_solver3():
     """
     Need to compare the numerical solution to analytics:
         - Get the farfield pattern from realspace and compare it to the exact k-space solution
