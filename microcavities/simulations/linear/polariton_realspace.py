@@ -1,16 +1,14 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from microcavities.utils.plotting import *
-from scipy.sparse.linalg import eigsh
-from scipy import sparse
-import logging
-from functools import partial
-from tqdm import tqdm
+""" Numerical solution of arbitrary 2D polariton Hamiltonians
+
+Constructs and solves exciton-photon coupled Hamiltonians with arbitrary potentials in for the photon and exciton
+components. To be used for physical systems with finite boundaries (i.e. not for periodic systems and bands)
+"""
+
+from microcavities.simulations.linear import *
 from dxf.lattices import *
 
-hbar = 0.658  # in meV ps
-electron_mass = 5.68e3  # in meV ps2 um-2
 
 """SETTING UP MATRICES"""
 
@@ -28,31 +26,6 @@ def _kinetic_matrix(mass, size, x_spacing=1):
     D = sparse.spdiags(diags, np.array([-1, 0, 1]), size, size)
     T = -1/2 * sparse.kronsum(D, D)
     return T * (hbar**2) / (mass*electron_mass*x_spacing**2)
-
-
-def make_axes(region=30, n_points=101):
-    """
-    :param region: float or tuple. Size (in um) of the area. If tuple, you can give (size_x, size_y) independently.
-    :param n_points: integer
-    :return:
-    """
-    if type(region) not in [tuple, list]:  # if region is a number, make it a tuple with the same number twice
-        region = (region, region)
-
-    _x = np.linspace(-region[0]/2, region[0]/2, n_points, dtype=float)
-    _y = np.linspace(-region[1]/2, region[1]/2, n_points, dtype=float)
-    x, y = np.meshgrid(_x, _y)
-    return x, y, _x, _y
-
-
-def make_k_axes(x_axes):
-    dx = np.diff(x_axes[2])[0]
-    _kx = np.linspace(-np.pi / dx, np.pi / dx, len(x_axes[2]))
-    dy = np.diff(x_axes[3])[0]
-    _ky = np.linspace(-np.pi / dy, np.pi / dy, len(x_axes[3]))
-    kx, ky = np.meshgrid(_kx, _ky)
-
-    return kx, ky, _kx, _ky
 
 
 def kinetic_matrix(size, rabi, mass_photon=1e-5, mass_exciton=0.35, x_spacing=1):
@@ -137,25 +110,6 @@ def plot_eigenvectors(x, y, vecs, vals):
 
 
 """FARFIELD CODE"""
-
-
-def Hamiltonian_k(k, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35):
-    """Free space polariton Hamiltonian"""
-    photon = hbar ** 2 * k ** 2 / (2 * mass_photon * electron_mass)
-    exciton = hbar ** 2 * k ** 2 / (2 * mass_exciton * electron_mass)
-    return np.array([[photon + detuning / 2, rabi / 2], [rabi / 2, exciton - detuning / 2]])
-
-
-def solve_for_krange(krange, hamiltonian):
-    bands = []
-    modes = []
-    for k in krange:
-        H = hamiltonian(k)
-        E, eig_vectors = np.linalg.eig(H)
-        idx_sort = np.argsort(E.real)
-        bands += [E[idx_sort]]
-        modes += [eig_vectors[:, idx_sort]]
-    return np.array(bands), np.array(modes)
 
 
 def rk_timestep(psi, hamiltonian, t, dt, noise_level=0):
@@ -272,9 +226,11 @@ def test_potential_single_circles():
     label_axes(axs[1], 'x [um]', 'y [um]', 'Exciton (+5meV)')
 
 
-def test_solver():
+def test_hamiltonian_x():
     """Compares the far-field emission arising from the potential_matrix/kinetic_matrix in this file to that expected
     from solving the Hamiltonian in k-space"""
+    from microcavities.simulations.linear.polariton_kspace import solve_for_krange, Hamiltonian_k
+
     DETUNING = -5
     RABI = 3
 
@@ -302,28 +258,6 @@ def test_solver():
         kax2 = np.sqrt(k_axes[2] ** 2 + k_axes[2][index] ** 2)
         two_modes, _ = solve_for_krange(kax2, partial(Hamiltonian_k, detuning=DETUNING, rabi=RABI))
         axs[idx].plot(k_axes[2], two_modes)
-
-
-def test_solver2():
-    """Testing that the Hamiltonian here agrees with the equations we use to fit experimental data"""
-    from microcavities.analysis.dispersion import exciton_photon_dispersions
-    DETUNING = -5
-    RABI = 3
-
-    n_points = 201
-
-    axes = make_axes(100, n_points)  # Using a region large enough to get accurate free space propagation
-    k_axes = make_k_axes(axes)
-
-    two_modes, _ = solve_for_krange(k_axes[2], partial(Hamiltonian_k, detuning=DETUNING, rabi=RABI))
-    l, u, x, p = exciton_photon_dispersions(k_axes[2], DETUNING/2, RABI, 1e-5, -DETUNING/2, 0.35, for_fit=False)
-
-    fig, ax = plt.subplots(1, 1)
-    ax.plot(k_axes[2], two_modes)
-    ax.plot(k_axes[2], l, color='k', ls='--')
-    ax.plot(k_axes[2], u, color='k', ls='--')
-    ax.plot(k_axes[2], x, color=(0.5, 0.5, 0.5, 0.5), ls='--')
-    ax.plot(k_axes[2], p, color=(0.5, 0.5, 0.5, 0.5), ls='--')
 
 
 def test_solver3():
