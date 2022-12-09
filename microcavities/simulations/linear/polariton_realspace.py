@@ -229,7 +229,7 @@ def test_potential_single_circles():
 def test_hamiltonian_x():
     """Compares the far-field emission arising from the potential_matrix/kinetic_matrix in this file to that expected
     from solving the Hamiltonian in k-space"""
-    from microcavities.simulations.linear.polariton_kspace import solve_for_krange, Hamiltonian_k
+    from microcavities.simulations.linear.polariton_kspace import solve_for_krange, hamiltonian_free_space
 
     DETUNING = -5
     RABI = 3
@@ -256,7 +256,7 @@ def test_hamiltonian_x():
         axs[idx].set_ylim(-10, 25)
 
         kax2 = np.sqrt(k_axes[2] ** 2 + k_axes[2][index] ** 2)
-        two_modes, _ = solve_for_krange(kax2, partial(Hamiltonian_k, detuning=DETUNING, rabi=RABI))
+        two_modes, _ = solve_for_krange(kax2, partial(hamiltonian_free_space, detuning=DETUNING, rabi=RABI))
         axs[idx].plot(k_axes[2], two_modes)
 
 
