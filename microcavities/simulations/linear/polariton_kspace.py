@@ -5,8 +5,8 @@
 from microcavities.simulations.linear import *
 
 
-def hamiltonian_free_space(k, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35):
-    """Free space polariton Hamiltonian
+def hamiltonian_k_free_space(k, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35):
+    """Free space polariton Hamiltonian in the momentum basis
 
     :param k: float. Magnitude of the momentum vector in 2D
     :param detuning:
@@ -44,7 +44,7 @@ def test_hamiltonian_k():
     axes = make_axes(100, n_points)  # Using a region large enough to get accurate free space propagation
     k_axes = make_k_axes(axes)
 
-    two_modes, _ = solve_for_krange(k_axes[2], partial(hamiltonian_free_space, detuning=DETUNING, rabi=RABI))
+    two_modes, _ = solve_for_krange(k_axes[2], partial(hamiltonian_k_free_space, detuning=DETUNING, rabi=RABI))
     l, u, x, p = exciton_photon_dispersions(k_axes[2], DETUNING/2, RABI, 1e-5, -DETUNING/2, 0.35, for_fit=False)
 
     fig, ax = plt.subplots(1, 1)
