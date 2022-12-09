@@ -5,11 +5,7 @@
 See test_ functions for example usage
 """
 
-from microcavities.analysis.condensation import *
-from nplab.utils.log import create_logger
-from functools import partial
-from tqdm import tqdm
-
+from microcavities.simulations.linear.one_d import *
 
 LOGGER = create_logger('Bloch simulations')
 LOGGER.setLevel('WARN')
@@ -87,66 +83,107 @@ def solve_for_krange(momentum_range, hamiltonian):
     modes = []
     for k in momentum_range:
         H = hamiltonian(k)
-        b, m = solve(H)
-        bands += [b]
-        modes += [m]
+        E, eig_vectors = np.linalg.eig(H)
+        idx_sort = np.argsort(E.real)
+        bands += [E[idx_sort]]
+        modes += [eig_vectors[:, idx_sort]]
     return np.array(bands), np.array(modes)
 
 
-# Example Hamiltonians
-def sinusoid_k(k, potential_depth=1, period=10., mass=electron_mass*1e-5, detuning=3, rabi=6, n_bands=6):
-    """Momentum space Hamiltonian for a sinusoidal potential
+def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=100, band_number=3, hamiltonian_kw=None):
+    """Calculates the Chern number of an (x, t) Hamiltonian
 
+    Numerically evaluates band differentials in momentum and time to extract the Berry curvature and then sums over the
+    whole 2D Brillouin zone to get the Chern number.
+
+    :param hamiltonian: function
+    :param momentum_range: float
+    :param time_period: float
+    :param n_points: int
+    :param band_number: int
+    :param hamiltonian_kw: dict or None
+    :return:
+    """
+    # Choosing a differential size that is smaller than the step size along the k and t dimensions
+    delta_k = momentum_range / (100*n_points)
+    delta_t = time_period / (100*n_points)
+
+    # Defining the Hamiltonian function to that it has only two parameters: k, t
+    f = np.abs(1/time_period)
+    if hamiltonian_kw is None: hamiltonian_kw = dict()
+    _hamiltonian = partial(hamiltonian, period=2*np.pi / momentum_range, frequency=f, **hamiltonian_kw)
+
+    # Looping over the Brillouin zones and one full time period
+    k_range = np.arange(-momentum_range / 2, momentum_range / 2, momentum_range / n_points)
+    t_range = np.arange(0, time_period, time_period / n_points)
+
+    berry_curvature = []
+    for kx in tqdm(k_range, 'Brillouin zone sum'):
+        _berry_curvature = []
+        for t in t_range:
+            # Band wavefunction evaluated at four points (k, t), (k+dk, t), (k, t+dt), (k+dk, k+dt)
+            vectors = []
+            for _t in [t, t + delta_t]:
+                for _k in [kx, kx + delta_k]:
+                    h = _hamiltonian(_k, _t)
+                    eigenvalue, eigenvector = np.linalg.eig(h)
+                    vector = eigenvector[:, np.argsort(np.real(eigenvalue))[band_number]]  #
+                    vectors += [vector]
+
+            # Fixing the gauge of the wavefunctions by making it real in the same BZ
+            index = np.argmax(np.abs(vectors[0]))  # BZ index
+            vectors = [v * np.exp(- 1j * np.angle(v[index])) for v in vectors]
+
+            # Berry connections as partial differentials wrt k and t
+            a_k = np.dot(vectors[0].transpose().conj(), (vectors[1] - vectors[0]) / delta_k)
+            a_t = np.dot(vectors[0].transpose().conj(), (vectors[2] - vectors[0]) / delta_t)
+            a_k_dt = np.dot(vectors[2].transpose().conj(), (vectors[3] - vectors[2]) / delta_k)
+            a_t_dk = np.dot(vectors[1].transpose().conj(), (vectors[3] - vectors[1]) / delta_t)
+
+            # Berry curvature
+            _berry_curvature += [(a_t_dk - a_t) / delta_k - (a_k_dt - a_k) / delta_t]
+        berry_curvature += [_berry_curvature]
+    chern_number = np.sum(berry_curvature) * (momentum_range / n_points) * (time_period / n_points) / (2 * np.pi * 1j)
+    return chern_number, np.array(berry_curvature)
+
+
+# Example Hamiltonians
+def hamiltonian_conveyor(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, n_bands=6):
+    """1D Time-dependent Bloch Hamiltonian for a conveyor belt potential on the exciton component
     :param k:
-    :param potential_depth:
+    :param t:
     :param period:
-    :param mass:
+    :param frequency:
+    :param potential_depth:
     :param detuning:
     :param rabi:
+    :param mass_photon:
+    :param mass_exciton:
     :param n_bands:
     :return:
     """
-    G = 2*np.pi / period  # reciprocal vector
+    G = 2 * np.pi / period
     space_size = 2 * n_bands + 1
+    omega = 2 * np.pi * frequency
 
     # Kinetic energy
-    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
-    Hk0 -= np.eye(space_size) * detuning / 2
+    photon = np.diag(
+        [hbar ** 2 * (k - x * G) ** 2 / (2 * mass_photon * electron_mass) for x in range(-n_bands, n_bands + 1)])
+    photon -= np.eye(space_size) * detuning / 2
+    photon = np.asarray(photon, dtype=complex)
 
     # Potential energy
+    exciton = np.diag(
+        [hbar ** 2 * (k - x * G) ** 2 / (2 * mass_exciton * electron_mass) for x in range(-n_bands, n_bands + 1)])
+    exciton = np.asarray(exciton, dtype=complex)
+
     pot = [potential_depth / 2] * (space_size - 1)
-    Hv = np.diag(pot, -1) + np.diag(pot, 1)
-    Hv += np.eye(space_size) * detuning / 2
+    exciton += np.diag(pot, -1) * np.exp(1j * omega * t) + np.diag(pot, 1) * np.exp(-1j * omega * t)
+    exciton += np.eye(space_size) * detuning / 2
 
     # Coupling to exciton
-    H1row = np.hstack([Hk0, rabi * np.eye(space_size) / 2])
-    H2row = np.hstack([rabi * np.eye(space_size) / 2, Hv])
-    return np.vstack([H1row, H2row])
-
-
-def _kinetic_matrix(mass, xaxis):
-    D2 = np.diag(-2 * np.ones(len(xaxis))) + np.diag(np.ones(len(xaxis) - 1), 1) + np.diag(np.ones(len(xaxis) - 1), -1)
-    dx = np.diff(xaxis)[0]  # 1.25
-    D2 /= dx ** 2
-    return -D2 * hbar ** 2 / (2 * mass)
-
-
-def sinusoid_x(t, potential, delta_k, frequency, periods=6, n_points=101, mass=electron_mass*3e-5, detuning=6, rabi=6):
-    single_period = 2 * np.pi / np.abs(delta_k)
-
-    if periods is None:
-        x = np.linspace(-21, 20, n_points)
-    else:
-        x = np.linspace(-single_period * periods / 2 - 0.1 * single_period, single_period * periods / 2, n_points)
-    D2 = np.diag(-2 * np.ones(n_points)) + np.diag(np.ones(n_points - 1), 1) + np.diag(np.ones(n_points - 1), -1)
-    dx = np.diff(x)[0]  # 1.25
-    D2 /= dx ** 2
-    Hk0 = -D2 * hbar ** 2 / (2 * mass)
-    Hk0 -= np.eye(n_points) * detuning / 2
-    Hv = (potential * np.cos(delta_k * x - 2 * np.pi * frequency * t) + detuning / 2) * np.eye(n_points)
-    H1row = np.hstack([Hk0, rabi * np.eye(n_points)])
-    H2row = np.hstack([rabi * np.eye(n_points), Hv])
-    return np.vstack([H1row, H2row])
+    _rabi = np.eye(space_size) * rabi/2
+    return np.bmat([[photon, _rabi], [_rabi, exciton]])
 
 
 def qho(t, w_0=1, mass=electron_mass*1e-5, detuning=3, rabi=6, n_points=101):
@@ -166,27 +203,6 @@ def qho(t, w_0=1, mass=electron_mass*1e-5, detuning=3, rabi=6, n_points=101):
 def test_hamiltonians():
     from microcavities.utils.plotting import create_axes, unique_legend, label_axes
 
-    # Sinusoidal in momentum space
-    potential = 0
-    period = 2*np.pi / 0.43
-    vals = []
-
-    for n_periods in [3, 5, 7]:
-        hx = sinusoid_x(0, potential, period, 0, n_periods, n_points=101)
-        val1, vec1 = np.linalg.eig(hx)
-        _sort_idx = np.argsort(val1)
-        val1 = val1[_sort_idx]
-        vec1 = vec1[:, _sort_idx]
-        vals += [val1]
-
-    hk = partial(sinusoid_k, potential_depth=potential, period=period, n_bands=6)
-    bands, modes = solve_for_krange(np.linspace(-2, 2, 101), hk)
-
-    fig, axs = plt.subplots(1, 2)
-    [axs[0].plot(val[:100], '--') for val in vals]
-    axs[1].plot(bands[:, :])
-    fig.suptitle('Sinusoidal solved in momentum')
-
     # Quantum Harmonic Oscillator
     trap = 1
 
@@ -205,36 +221,28 @@ def test_hamiltonians():
     label_axes(ax, 'x [um]', 'Energy', 'QHO solved in space')
 
 
-def test_rk4():
-    potential = 5
-    period = 0.43
-    single_period = 2 * np.pi / np.abs(period)
-    n_periods = 8
-    x = np.concatenate([np.linspace(-single_period * n_periods / 2 - 0.1 * single_period, single_period * n_periods / 2, 101)]*2)
+def test_conveyor_chern():
+    """Takes ~1h to run"""
+    n_points = 11
+    period = 15
+    depth = 1
+    detuning = -4
+    rabi = 8
+    ham = partial(hamiltonian_conveyor, potential_depth=depth, detuning=detuning, rabi=rabi, n_bands=20)
 
-    hx = partial(sinusoid_x, potential=potential, delta_k=period, periods=n_periods, frequency=0)
-    e, vecs = np.linalg.eig(hx(0))
-    _sort_idx = np.argsort(e)
-    e = e[_sort_idx]
-    vecs = vecs[:, _sort_idx]
+    chern_numbers = np.zeros([3, 10], dtype=complex)
+    frequencies = np.append(np.linspace(-9e-3, -1e-4, 5), np.linspace(1e-4, 9e-3, 5))
+    for bn in [0, 1, 2]:
+        for idx, f in enumerate(frequencies):
+            cn, bc = calculate_chern_number(ham, 2 * np.pi / period, 1/f, band_number=bn, n_points=n_points)
+            print('Chern number %gGHz= ' % (f*1e3), cn)
+            chern_numbers[bn, idx] = cn
 
-    fig, axs = create_axes(subplots_shape=(1, 5))
-    imshow((np.abs(vecs)**2).transpose(), axs[0], yaxis=x, cbar=False, diverging=False)
-    label_axes(axs[0], 'Space [um]', 'Eigen #', 'Eigen vectors')
-
-    axs[1].plot(e)
-    label_axes(axs[1], 'Eigen #', 'Energy [meV]', 'Eigenspectrum')
-
-    N = int(vecs.shape[0]/2)
-    waterfall(np.abs(vecs[:N, :3]).transpose(), axs[2], xaxis=x[:N], offsets=0.6)
-    waterfall(np.abs(vecs[N:, :3]).transpose()+0.05, axs[2], xaxis=x[N:], offsets=0.6, ls='--')
-    label_axes(axs[2], 'Space [um]', None, 'First three ground states')
-
-    start_wvf = np.exp(1j * 0.5 * np.linspace(-10, 10, 202))
-    t = np.linspace(0, 10, 2001)
-    solution = solve_timerange(start_wvf, hx, t)
-    imshow(np.abs(solution), axs[3], xaxis=t, yaxis=x, diverging=False, cbar=False)
-    label_axes(axs[3], 'Time [ps]', 'Space [um]', 'Evolution of a plane wave')
-
-    imshow(farfield(hx, np.random.random((10, 202)), np.linspace(0, 100, 1001)).transpose(), axs[4], diverging=False, norm=LogNorm(), cbar=False)
-    label_axes(axs[4], 'Momentum []', 'Energy []', 'Farfield emission')
+    fig, axs = plt.subplots(1, 2)
+    kx = np.linspace(-2*np.pi/period, 2*np.pi/period, 101)
+    bands, _ = solve_for_krange(kx, partial(ham, t=0, frequency=0, period=period))
+    axs[0].plot(kx, bands[:, :10].real)
+    label_axes(axs[0], '$k_x$ [um]', 'E [meV]')
+    [axs[1].plot(frequencies*1e3, c, label='band %d' % x) for x, c in enumerate(chern_numbers)]
+    label_axes(axs[1], 'f [GHz]', 'Chern number')
+    axs[1].legend()
