@@ -1,7 +1,7 @@
 # Simulations
 Useful numerical procedures:
 - [Transfer matrix simulations](#transfer-matrix-method) 
-- [Linear Schrodinger solver](#linear-schrdinger-solver)
+- [Linear Schrödinger solver](#linear-schrödinger-solver)
 
 ## Transfer Matrix Method
 Utility functions for microcavity design using [tmm](https://github.com/sbyrnes321/tmm) to solve the transfer matrix 
@@ -24,7 +24,7 @@ polariton:
 from microcavities.simulation.linear.one_d.realspace import *
 test_farfield_harmonic_potential()
 ```
-![](figures/simulations_linear_1D_QHO.png)
+![](figures/simulations_linear_1d_QHO.png)
 
 Next we show three different 2D examples showing the functionality of the code and a bit of the underlying physics.
 
