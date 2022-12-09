@@ -150,7 +150,7 @@ def harmonic_potential(omega=1, mass_photon=1e-5, mass_exciton=0.35, detuning=3,
 
     T = kinetic_matrix(len(xax), rabi, mass_photon, mass_exciton, np.diff(xax)[0])
     pot = (0.5 * mass_photon * (omega * xax) ** 2)
-    U = potential_matrix(pot, pot, detuning)
+    U = potential_matrix(pot, 0*xax, detuning)
     return T + U, xax
 
 
@@ -168,11 +168,12 @@ def test_farfield_harmonic_potential():
 
     fig, ax = plt.subplots(1, 1)
     imshow(np.abs(density).transpose(), ax, norm=LogNorm(), diverging=False, xaxis=kax,
-           yaxis=e_ax, interpolation='none')
-    ax.set_ylim(-5, 10)
+           yaxis=e_ax, interpolation='none', cbar=False)
+    ax.set_ylim(-3.5, 5)
     diff_e = np.diff(energies)[0]
     for e, m in zip(energies[:4], modes[:, :4].transpose()):
         normed = normalize(m[:101]) - 0.5
         normed -= normed[0]
         ax.plot(kax, 0.5 * diff_e * normed + e, color=(0.5, 0.5, 0.5, 0.7), ls='--')
+    label_axes(ax, '$k$ [um]', 'Energy [meV]')
 

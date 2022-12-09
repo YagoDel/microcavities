@@ -252,12 +252,16 @@ def test_hamiltonian_x():
     fig, axs = plt.subplots(1, 3, figsize=(16, 4))
     for idx, index in enumerate([80, 90, 100]):
         imshow(np.abs(density[index]).transpose(), axs[idx], norm=LogNorm(), diverging=False, xaxis=k_axes[2],
-               yaxis=e_ax, interpolation='none')
-        axs[idx].set_ylim(-10, 25)
+               yaxis=e_ax, interpolation='none', cbar=False)
+        axs[idx].set_ylim(-5, 15)
+        axs[idx].set_xlim(-3, 3)
 
         kax2 = np.sqrt(k_axes[2] ** 2 + k_axes[2][index] ** 2)
         two_modes, _ = solve_for_krange(kax2, partial(hamiltonian_free_space, detuning=DETUNING, rabi=RABI))
         axs[idx].plot(k_axes[2], two_modes)
+        axs[idx].set_title('$k_y$=%.1f' % k_axes[2][index])
+    label_grid(fig, '$k_x$ [um]', 'bottom')
+    label_grid(fig, 'E [meV]', 'left')
 
 
 def test_solver3():
