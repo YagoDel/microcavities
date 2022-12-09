@@ -10,67 +10,8 @@ from microcavities.simulations.linear.one_d import *
 LOGGER = create_logger('Bloch simulations')
 LOGGER.setLevel('WARN')
 
-hbar = 0.658  # in meV ps
-electron_mass = 5.68e3  # in meV ps2 um-2
-
-
-# Time step solver
-def rk_timestep(psi, hamiltonian, t, dt):
-    """Runge-Kutta 4th order time step
-    :param psi: vector
-    :param hamiltonian: function that returns a matrix
-    :param t: float
-    :param dt: float
-    :return:
-    """
-    k11 = -1j * np.matmul(hamiltonian(t), psi) / hbar
-    k21 = -1j * np.matmul(hamiltonian(t + dt / 2), psi + k11 * dt / 2) / hbar
-    k31 = -1j * np.matmul(hamiltonian(t + dt / 2), psi + k21 * dt / 2) / hbar
-    k41 = -1j * np.matmul(hamiltonian(t + dt), psi + dt * k31) / hbar
-
-    return psi + (k11 + 2 * k21 + 2 * k31 + k41) * dt / 6
-
-
-def solve_timerange(starting_wavefunction, hamiltonian, time_range):
-    """
-    :param starting_wavefunction: vector
-    :param hamiltonian: function. Takes one argument (time), returns an array
-    :param time_range:
-    :return: 2d array
-    """
-    full_psi = np.zeros((len(starting_wavefunction), len(time_range)), dtype=complex)
-    for idx_t, t in enumerate(time_range):
-        full_psi[:, idx_t] = starting_wavefunction
-        starting_wavefunction = rk_timestep(starting_wavefunction, hamiltonian, t, np.diff(time_range)[0])
-    return full_psi
-
-
-def farfield(hamiltonian, starting_vectors, time_range):
-    """Calculates the farfield emission pattern of a Hamiltonian when the eigenvectors are randomly occupied
-
-    :param hamiltonian: function. Takes one argument (time), returns an array
-    :param starting_vectors:
-    :param time_range:
-    :return:
-    """
-    N = len(starting_vectors[0]) // 2
-    rho = np.zeros((N, len(time_range)))
-    for vec in tqdm(starting_vectors, 'farfield'):
-        psi = solve_timerange(vec, hamiltonian, time_range)
-        psi_kw = np.fft.fftshift(np.fft.fft2(psi[:N, :]))
-        rho += np.abs(psi_kw) ** 2
-        if np.isnan(rho).any():
-            break
-    return rho
-
 
 # Diagonalisation solver
-def solve(hamiltonian):
-    E, eig_vectors = np.linalg.eig(hamiltonian)
-    # linalg.eig does not necessarily return sorted values, so we sort it after:
-    idx_sort = np.argsort(E.real)
-    return E[idx_sort], eig_vectors[:, idx_sort]
-
 
 def solve_for_krange(momentum_range, hamiltonian):
     """Diagonalises a Hamiltonian at different points in momentum space
@@ -184,41 +125,6 @@ def hamiltonian_conveyor(k, t, period, frequency, potential_depth, detuning, rab
     # Coupling to exciton
     _rabi = np.eye(space_size) * rabi/2
     return np.bmat([[photon, _rabi], [_rabi, exciton]])
-
-
-def qho(t, w_0=1, mass=electron_mass*1e-5, detuning=3, rabi=6, n_points=101):
-    x = np.linspace(-21, 20, n_points)
-    D2 = np.diag(-2 * np.ones(n_points)) + np.diag(np.ones(n_points - 1), 1) + np.diag(np.ones(n_points - 1), -1)
-    dx = np.diff(x)[0]  # 1.25
-    D2 /= dx ** 2
-    Hk0 = -D2 * hbar ** 2 / (2 * mass)
-    Hk0 -= np.eye(n_points) * detuning / 2
-    Hk0 += (0.5 * mass * (w_0 * x) ** 2) * np.eye(n_points)
-    Hv = (0.5 * mass * (w_0 * x) ** 2) * np.eye(n_points)
-    H1row = np.hstack([Hk0, rabi * np.eye(n_points)])
-    H2row = np.hstack([rabi * np.eye(n_points), Hv])
-    return np.vstack([H1row, H2row])
-
-
-def test_hamiltonians():
-    from microcavities.utils.plotting import create_axes, unique_legend, label_axes
-
-    # Quantum Harmonic Oscillator
-    trap = 1
-
-    energies, modes = solve(qho(0, trap))
-    _norm = 0.25 * np.diff(energies).max()
-    x = np.linspace(-21, 20, 101)
-
-    fig, ax = create_axes()
-    idx = 0
-    for e, m in zip(energies[:3], modes.transpose()[:3]):
-        mode = normalize(m) * _norm + e
-        ax.plot(x, mode[:101], color='C%d' % idx, label='exciton')
-        ax.plot(x, mode[101:],  '--', color='C%d' % idx, label='photon')
-        idx += 1
-    unique_legend(ax, multi_artist=True)
-    label_axes(ax, 'x [um]', 'Energy', 'QHO solved in space')
 
 
 def test_conveyor_chern():
