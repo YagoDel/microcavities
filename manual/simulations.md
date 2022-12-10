@@ -33,14 +33,14 @@ of a polariton:
 from microcavities.simulation.linear.one_d.realspace import *
 test_farfield_conveyor_belt()
 ```
-![](figures/simulations_linear_1D_conveyorbelt.png)
+![](figures/simulations_linear_1d_conveyorbelt.png)
 
 And then from the kspace of the same Hamiltonian, calculate the Chern number for the first three bands:
 ```
 from microcavities.simulation.linear.one_d.realspace import *
 test_farfield_conveyor_belt()
 ```
-![](figures/simulations_linear_1D_conveyorbelt_chern.png)
+![](figures/simulations_linear_1d_conveyorbelt_chern.png)
 
 ### Two-dimensional examples
 
