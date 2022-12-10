@@ -58,53 +58,7 @@ def potential_matrix(potential_photon, potential_exciton, detuning):
     return np.bmat([[potential_photon, off_diag], [off_diag, potential_exciton]])
 
 
-"""EIGENSYSTEM SOLVING"""
-
-
-def rk_timestep(psi, hamiltonian, t, dt):
-    """Runge-Kutta 4th order time step
-    :param psi: vector
-    :param hamiltonian: function that returns a matrix
-    :param t: float
-    :param dt: float
-    :return:
-    """
-    # print(psi.shape)
-    # print(hamiltonian(t).shape)
-    k11 = -1j * np.squeeze(np.asarray(np.matmul(hamiltonian(t), psi))) / hbar
-    # print(type(k11))
-    # print(k11.transpose()[:, 0].shape)
-    # print((psi + k11 * dt / 2).shape)
-    # print(hamiltonian(t + dt / 2).shape)
-    # print(dt)
-    # print((psi + k11 * dt / 2).shape)
-    # print(psi.shape)
-    # print(np.matmul(hamiltonian(t + dt / 2), psi + k11 * dt / 2))
-
-    k21 = -1j * np.squeeze(np.asarray(np.matmul(hamiltonian(t + dt / 2), psi + k11 * dt / 2))) / hbar
-    k31 = -1j * np.squeeze(np.asarray(np.matmul(hamiltonian(t + dt / 2), psi + k21 * dt / 2))) / hbar
-    k41 = -1j * np.squeeze(np.asarray(np.matmul(hamiltonian(t + dt), psi + dt * k31))) / hbar
-    # print(k11.shape, (psi + (k11 + 2 * k21 + 2 * k31 + k41) * dt / 6).shape)
-    # print(k21.shape)
-    # print(k31.shape)
-    # print(k41.shape)
-    return psi + (k11 + 2 * k21 + 2 * k31 + k41) * dt / 6
-
-
-def solve_timerange(starting_wavefunction, hamiltonian, time_range):
-    """
-    :param starting_wavefunction: vector
-    :param hamiltonian: function. Takes one argument (time), returns an array
-    :param time_range:
-    :return: 2d array
-    """
-    full_psi = np.zeros((len(starting_wavefunction), len(time_range)), dtype=complex)
-    for idx_t, t in enumerate(time_range):
-        # print(1, starting_wavefunction.shape)
-        full_psi[:, idx_t] = starting_wavefunction
-        starting_wavefunction = rk_timestep(starting_wavefunction, hamiltonian, t, np.diff(time_range)[0])
-        # print(2, starting_wavefunction.shape)
-    return full_psi
+"""FARFIELD EMISSION"""
 
 
 def farfield(hamiltonian, time_range, starting_vectors=None):
@@ -126,7 +80,7 @@ def farfield(hamiltonian, time_range, starting_vectors=None):
 
     rho = np.zeros((size, len(time_range)))
     for vec in tqdm(starting_vectors, 'farfield'):
-        psi = solve_timerange(vec, hamiltonian, time_range)
+        psi = solve_timerange(hamiltonian, time_range, vec)
         psi_reshaped = np.reshape(psi, (2, size, len(time_range)))
         photon_field = psi_reshaped[0]
 
@@ -154,6 +108,16 @@ def harmonic_potential(omega=1, mass_photon=1e-5, mass_exciton=0.35, detuning=3,
     return T + U, xax
 
 
+def hamiltonian_conveyor_x(t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, xax=None):
+    if xax is None:
+        xax = make_ax()
+
+    T = kinetic_matrix(len(xax), rabi, mass_photon, mass_exciton, np.diff(xax)[0])
+    pot = potential_depth * np.cos((2 * np.pi / period) * xax - (2 * np.pi * frequency) * t)
+    U = potential_matrix(0*xax, pot, detuning)
+    return T + U, xax
+
+
 def test_farfield_harmonic_potential():
     omega = 200
     DETUNING = -5
@@ -177,3 +141,34 @@ def test_farfield_harmonic_potential():
         ax.plot(kax, 0.5 * diff_e * normed + e, color=(0.5, 0.5, 0.5, 0.7), ls='--')
     label_axes(ax, '$k$ [um]', 'Energy [meV]')
 
+
+def test_farfield_conveyor_belt():
+    n_points = 101
+    period = 15
+    xax = make_ax(period * 8, n_points)
+    depth = 1
+    detuning = -4
+    rabi = 8
+    times = np.linspace(-100, 100, 2001)
+    kax = make_k_ax(xax)
+
+    # energies, modes = solve(ham(0))
+    fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+
+    for ax, frequency in zip(axs, [0, 1e-2, 1e-1]):
+        _ham = partial(hamiltonian_conveyor_x, period=period, frequency=frequency, potential_depth=depth,
+                       detuning=detuning,
+                       rabi=rabi, xax=xax)
+        ham = lambda t: _ham(t)[0]
+        density, e_ax = farfield(ham, times, 3)
+
+        imshow(np.abs(density).transpose(), ax, norm=LogNorm(), diverging=False, xaxis=kax,
+               yaxis=e_ax, interpolation='none', cbar=False)
+        ax.set_ylim(-6, 6)
+        ax.set_xlim(-1.5, 1.5)
+        # diff_e = np.diff(energies)[0]
+        # for e, m in zip(energies[:4], modes[:, :4].transpose()):
+        #     normed = normalize(m[:101]) - 0.5
+        #     normed -= normed[0]
+        #     ax.plot(kax, 0.5 * diff_e * normed + e, color=(0.5, 0.5, 0.5, 0.7), ls='--')
+        label_axes(ax, '$k$ [um]', 'Energy [meV]', 'f=%dGHz' % (frequency * 1e3))

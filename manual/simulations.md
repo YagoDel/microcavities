@@ -18,7 +18,8 @@ distribution inside the cavity can be easily and quickly calculated and plotted.
 ## Linear Schrödinger solver
 Direct diagonalisation solvers for polariton systems in one and two dimensions.
 
-As a 1D example, you can get the farfield emission pattern from a harmonic well that modifies the photon component of the 
+### One-dimensional examples
+Farfield emission pattern from a harmonic potential on the photonic component of a 
 polariton:
 ```
 from microcavities.simulation.linear.one_d.realspace import *
@@ -26,10 +27,24 @@ test_farfield_harmonic_potential()
 ```
 ![](figures/simulations_linear_1D_QHO.png)
 
-Next we show three different 2D examples showing the functionality of the code and a bit of the underlying physics.
+Farfield emission pattern from a conveyor belt potential (a travelling sinusoidal potential) on the excitonic component
+of a polariton:
+```
+from microcavities.simulation.linear.one_d.realspace import *
+test_farfield_conveyor_belt()
+```
+![](figures/simulations_linear_1D_conveyorbelt.png)
 
+And then from the kspace of the same Hamiltonian, calculate the Chern number for the first three bands:
+```
+from microcavities.simulation.linear.one_d.realspace import *
+test_farfield_conveyor_belt()
+```
+![](figures/simulations_linear_1D_conveyorbelt_chern.png)
 
-The first is simply the free-space dispersion relation, but obtained from farfield emission of realspace wavefunctions
+### Two-dimensional examples
+
+First, simply the free-space dispersion relation, but obtained from farfield emission of realspace wavefunctions
 and compared to analytical results (if you're interested in running it yourself, it took about ~5min to run on a normal
 laptop):
 ```

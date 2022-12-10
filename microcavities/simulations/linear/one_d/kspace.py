@@ -7,7 +7,7 @@ See test_ functions for example usage
 
 from microcavities.simulations.linear.one_d import *
 
-LOGGER = create_logger('Bloch simulations')
+LOGGER = create_logger('microcavities.simulations.linear.one_d.kspace')
 LOGGER.setLevel('WARN')
 
 
@@ -89,7 +89,7 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
 
 
 # Example Hamiltonians
-def hamiltonian_conveyor(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, n_bands=6):
+def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, n_bands=6):
     """1D Time-dependent Bloch Hamiltonian for a conveyor belt potential on the exciton component
     :param k:
     :param t:
@@ -128,13 +128,13 @@ def hamiltonian_conveyor(k, t, period, frequency, potential_depth, detuning, rab
 
 
 def test_conveyor_chern():
-    """Takes ~1h to run"""
+    """Takes ~5min to run"""
     n_points = 11
     period = 15
     depth = 1
     detuning = -4
     rabi = 8
-    ham = partial(hamiltonian_conveyor, potential_depth=depth, detuning=detuning, rabi=rabi, n_bands=20)
+    ham = partial(hamiltonian_conveyor_k, potential_depth=depth, detuning=detuning, rabi=rabi, n_bands=20)
 
     chern_numbers = np.zeros([3, 10], dtype=complex)
     frequencies = np.append(np.linspace(-9e-3, -1e-4, 5), np.linspace(1e-4, 9e-3, 5))
@@ -144,11 +144,12 @@ def test_conveyor_chern():
             print('Chern number %gGHz= ' % (f*1e3), cn)
             chern_numbers[bn, idx] = cn
 
-    fig, axs = plt.subplots(1, 2)
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
     kx = np.linspace(-2*np.pi/period, 2*np.pi/period, 101)
-    bands, _ = solve_for_krange(kx, partial(ham, t=0, frequency=0, period=period))
+    bands, _ = solve_for_krange(kx, partial(ham, t=0, frequency=1e-3, period=period))
     axs[0].plot(kx, bands[:, :10].real)
     label_axes(axs[0], '$k_x$ [um]', 'E [meV]')
+
     [axs[1].plot(frequencies*1e3, c, label='band %d' % x) for x, c in enumerate(chern_numbers)]
     label_axes(axs[1], 'f [GHz]', 'Chern number')
     axs[1].legend()
