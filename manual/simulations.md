@@ -1,7 +1,7 @@
 # Simulations
 Useful numerical procedures:
 - [Transfer matrix simulations](#transfer-matrix-method) 
-- [Linear Schrodinger solver](#linear-schrdinger-solver)
+- [Linear Schrödinger solver](#linear-schrödinger-solver)
 
 ## Transfer Matrix Method
 Utility functions for microcavity design using [tmm](https://github.com/sbyrnes321/tmm) to solve the transfer matrix 
@@ -25,7 +25,7 @@ polariton:
 from microcavities.simulation.linear.one_d.realspace import *
 test_farfield_harmonic_potential()
 ```
-![](figures/simulations_linear_1D_QHO.png)
+![](figures/simulations_linear_1d_QHO.png)
 
 Farfield emission pattern from a conveyor belt potential (a travelling sinusoidal potential) on the excitonic component
 of a polariton:
