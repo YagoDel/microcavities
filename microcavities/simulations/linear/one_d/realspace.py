@@ -62,21 +62,22 @@ def potential_matrix(potential_photon, potential_exciton, detuning):
 
 
 def farfield(hamiltonian, time_range, starting_vectors=None):
-    """Calculates the farfield emission pattern of a Hamiltonian when the eigenvectors are randomly occupied
+    """Calculates the farfield emission pattern of a one dimensional Hamiltonian
 
-    :param hamiltonian: function. Takes one argument (time), returns an array
-    :param time_range:
-    :param starting_vectors:
+    Given a list of starting wavefunctions, evolves them in time using a Runge Kutta stepper and extracts the farfield
+    emission of each wavefunction by Fourier transforming them in space and time
+
+    :param hamiltonian: function. Takes one argument (time), returns a 2D matrix
+    :param time_range: list of times to evaluate the Hamiltonian at
+    :param starting_vectors: list of vectors, integer or None. If None, If an integer,
     :return:
     """
     n_points = hamiltonian(0).shape[0]
     size = int(n_points / 2)
     if starting_vectors is None:
-        starting_vectors = np.array([np.random.uniform(-1, 1, (n_points, ))
-                                     + 1.j * np.random.uniform(-1, 1, (n_points, ))])
+        starting_vectors = [None]
     elif type(starting_vectors) == int:
-        starting_vectors = np.array([np.random.uniform(-1, 1, (n_points, ))
-                                     + 1.j * np.random.uniform(-1, 1, (n_points, )) for x in range(starting_vectors)])
+        starting_vectors = [None] * starting_vectors
 
     rho = np.zeros((size, len(time_range)))
     for vec in tqdm(starting_vectors, 'farfield'):
@@ -152,7 +153,6 @@ def test_farfield_conveyor_belt():
     times = np.linspace(-100, 100, 2001)
     kax = make_k_ax(xax)
 
-    # energies, modes = solve(ham(0))
     fig, axs = plt.subplots(1, 3, figsize=(12, 4))
 
     for ax, frequency in zip(axs, [0, 1e-2, 1e-1]):
@@ -166,9 +166,4 @@ def test_farfield_conveyor_belt():
                yaxis=e_ax, interpolation='none', cbar=False)
         ax.set_ylim(-6, 6)
         ax.set_xlim(-1.5, 1.5)
-        # diff_e = np.diff(energies)[0]
-        # for e, m in zip(energies[:4], modes[:, :4].transpose()):
-        #     normed = normalize(m[:101]) - 0.5
-        #     normed -= normed[0]
-        #     ax.plot(kax, 0.5 * diff_e * normed + e, color=(0.5, 0.5, 0.5, 0.7), ls='--')
         label_axes(ax, '$k$ [um]', 'Energy [meV]', 'f=%dGHz' % (frequency * 1e3))

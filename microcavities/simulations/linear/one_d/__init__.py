@@ -49,7 +49,7 @@ def rk_timestep(psi, hamiltonian, t, dt):
 
 
 def solve_timerange(hamiltonian, time_range, starting_wavefunction=None):
-    """
+    """Time steps an initial wavefunction using the Runge Kutta stepper
     :param starting_wavefunction: vector
     :param hamiltonian: function. Takes one argument (time), returns an array
     :param time_range:
@@ -57,8 +57,7 @@ def solve_timerange(hamiltonian, time_range, starting_wavefunction=None):
     """
     if starting_wavefunction is None:
         n_points = hamiltonian(0).shape[0]
-        starting_wavefunction = np.array([np.random.uniform(-1, 1, (n_points,))
-                                          + 1.j * np.random.uniform(-1, 1, (n_points,))])
+        starting_wavefunction = np.random.uniform(-1, 1, (n_points,)) + 1.j * np.random.uniform(-1, 1, (n_points,))
 
     full_psi = np.zeros((len(starting_wavefunction), len(time_range)), dtype=complex)
     for idx_t, t in enumerate(time_range):
