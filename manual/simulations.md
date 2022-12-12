@@ -53,13 +53,23 @@ test_hamiltonian_freespace_x()
 ```
 ![](figures/simulations_linear_2d_freespace.png)
 
-The second example is the infinite square well, for which we turn the Rabi coupling to zero and introduce a well in the
+Similarly, it is possible to get the farfield emission from the momentum space wavefunctions, where you Fourier
+transform just the time axis, rather than the space and time axis. And you can compare this directly to the analytical
+diagonalisation that we use to fit experimental data:
+```
+from microcavities.simulations.linear.polariton_kspace import *
+test_hamiltonian_k()
+```
+![](figures/simulations_linear_2d_freespace_k.png)
+
+
+The third example is the infinite square well, for which we turn the Rabi coupling to zero and introduce a well in the
 photon field. The numerical results agree very well with the analytical ones, although they start to diverge after the
 ~15th eigenstate, due to high-momenta components for which higher resolution spatial grids are needed.
 
 ![](figures/simulations_linear_2d_infinitepotentialwell.png)
 
-The third example is a harmonic potential in the photonic part of a polariton system. The effect of the exciton-photon
+The fourth example is a harmonic potential in the photonic part of a polariton system. The effect of the exciton-photon
 coupling is to break the harmonicity of the potential, although it is possible to reduce this anharmonicity by having
 the harmonic potential on both the exciton and photon component, the coupling to the exciton is a fundamental limit to
 how many equally separated states a harmonic potential can have. 

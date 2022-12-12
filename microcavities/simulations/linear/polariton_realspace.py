@@ -80,88 +80,11 @@ def make_hamiltonian(potential_photon, potential_exciton, detuning, rabi, mass_p
     return kinetic + potential, axes
 
 
-"""EIGENSYSTEM SOLVING"""
-
-
-def solve_polariton_static(hamiltonian, n_eigenvalues=250):
-
-    #
-    # if axes is None:
-    #     axes = make_axes()  # 30 um square area
-    size = hamiltonian.shape[0]
-    # x_spacing = np.diff(axes[3])[0]
-    if n_eigenvalues > 2 * (size**2): n_eigenvalues = 2*(size**2)-1
-    #
-    # potential = potential_matrix(potential_photon, potential_exciton, detuning)
-    # kinetic = kinetic_matrix(size, rabi, mass_photon, mass_exciton, x_spacing)
-
-    # Compute eigenvalues and eigenvectors
-    vals, vecs = eigsh(hamiltonian, k=n_eigenvalues, which='SA')
-    return vals, vecs
-
-
-def get_eigenvector(n, vecs, size=None):
-    """
-    :param n: int. Index selection of eigenvector
-    :param vecs: array. List of eigenvectors
-    :param size: int. To determine how to reshape the eigenvector from a list to a matrix
-    :return:
-    """
-    if size is None: size = int(np.sqrt(vecs.shape[0]/2))
-    return vecs.T[n].reshape((2, size, size))
-
-
-def plot_eigenvectors(x, y, vecs, vals):
-    fig = plt.figure(figsize=(9, 4))
-    gs = gridspec.GridSpec(1, 2, fig, width_ratios=[1, 4])
-    gs2 = gridspec.GridSpecFromSubplotSpec(2, 4, gs[1])
-    ax0 = plt.subplot(gs[0])
-    ax0.plot(vals)
-    axs = gs2.subplots()
-    # fig, axs = plt.subplots(4, 2, figsize=(9, 9))
-    for idx, _axs in enumerate(axs.transpose()):
-        imshow(get_eigenvector(idx, vecs)[0], _axs[0], xaxis=x, yaxis=y)
-        imshow(get_eigenvector(idx, vecs)[1], _axs[1], xaxis=x, yaxis=y)
-    return fig, [ax0, axs]
-
-
 """FARFIELD CODE"""
 
 
-def rk_timestep(psi, hamiltonian, t, dt, noise_level=0):
-    """Single time step using Runge Kutta 4th order
-
-    :param psi: vector
-    :param hamiltonian: function. Should take a single input (time) and return a scipy.sparse matrix
-    :param t: float
-    :param dt: float
-    :param noise_level: float
-    :return:
-    """
-    K11 = -1j * (hamiltonian(t)@psi) / hbar
-    K21 = -1j * (hamiltonian(t + dt / 2)@(psi + K11 * dt / 2)) / hbar
-    K31 = -1j * (hamiltonian(t + dt / 2)@(psi + K21 * dt / 2)) / hbar
-    K41 = -1j * (hamiltonian(t + dt)@(psi + dt * K31)) / hbar
-
-    return psi + (K11 + 2 * K21 + 2 * K31 + K41) * dt / 6 + noise_level * np.random.rand(len(psi))
-
-
-def solve_timerange(psi0, hamiltonian, timerange):
-    """Time steps an initial wavefunction using the Runge Kutta stepper
-    :param psi0: vector
-    :param hamiltonian: function. Should take a single input (time) and return a scipy.sparse matrix
-    :param timerange: list
-    :return:
-    """
-    full_psi = np.zeros((len(psi0), len(timerange)), dtype=complex)
-    for idx_t, t in tqdm(enumerate(timerange), 'solve_timerange'):
-        full_psi[:, idx_t] = psi0
-        psi0 = rk_timestep(psi0, hamiltonian, t, np.diff(timerange)[0])
-    return full_psi
-
-
 def farfield(hamiltonian, timerange, starting_vectors=None):
-    """
+    """Calculates the farfield emission pattern of a two dimensional Hamiltonian
     :param hamiltonian:
     :param timerange:
     :param starting_vectors:
@@ -170,13 +93,13 @@ def farfield(hamiltonian, timerange, starting_vectors=None):
     n_points = hamiltonian(0).shape[0]
     size = int(np.sqrt(n_points / 2))
     if starting_vectors is None:
-        starting_vectors = np.array([np.random.uniform(-1, 1, (n_points, ))
-                                     + 1.j * np.random.uniform(-1, 1, (n_points, ))])
+        starting_vectors = [None]
+    elif type(starting_vectors) == int:
+        starting_vectors = [None] * starting_vectors
 
-    # N = starting_vectors.shape[1] // 2
     rho = np.zeros((size, size, len(timerange)))
     for vec in tqdm(starting_vectors, 'farfield'):
-        psi = solve_timerange(vec, hamiltonian, timerange)
+        psi = solve_timerange(hamiltonian, timerange, vec)
         psi_reshaped = np.reshape(psi, (2, size, size, len(timerange)))
 
         photon_field = psi_reshaped[0]
@@ -194,24 +117,7 @@ def farfield(hamiltonian, timerange, starting_vectors=None):
 """EXAMPLE HAMILTONIANS"""
 
 
-# def hamiltonian_x_qho(omega, rabi, detuning, mass_photon=1e-5, mass_exciton=0.35, axes=None):
-#     if axes is None:
-#         axes = make_axes()  # 30 um square area
-#     # size = axes[0].shape[0]
-#     # x_spacing = np.diff(axes[3])[0]
-#     _potential = 0.5 * mass_photon * (omega**2) * (axes[0]**2 + axes[1]**2)
-#     potential = potential_matrix(_potential, np.zeros(axes[0].shape), detuning)
-#     # kinetic = kinetic_matrix(size, rabi, mass_photon, mass_exciton, x_spacing=x_spacing)
-#     return add_kinetic(potential, rabi,  mass_photon, mass_exciton, axes)
-
-    # return potential + kinetic, axes
-    # nx,ny = np.arange(0,4), np.arange(0,4)
-    # ana_vals = hbar**2*(nx+ny+1)*omega**2/(2*mass)
-    # return V
-
-
-def single_circle(radius, depth_photon, depth_exciton, center=(0, 0), background=0, axes=None,
-                  potential=None):
+def single_circle(radius, depth_photon, depth_exciton, center=(0, 0), background=0, axes=None):
     """Creates a potential with a single, circular well
 
     :param radius:
@@ -220,7 +126,6 @@ def single_circle(radius, depth_photon, depth_exciton, center=(0, 0), background
     :param center:
     :param background:
     :param axes:
-    :param potential:
     :return:
     """
     if axes is None:
@@ -261,16 +166,6 @@ def test_hamiltonian_freespace_x():
 
     axes = make_axes(100, n_points)  # Using a region large enough to get accurate free space propagation
     k_axes = make_k_axes(axes)
-    # size = axes[0].shape[0]
-    # x_spacing = np.diff(axes[3])[0]
-
-    # potential = potential_matrix(np.zeros(axes[0].shape), np.zeros(axes[0].shape), DETUNING)
-    # kinetic = kinetic_matrix(size, RABI, x_spacing=x_spacing)
-    # _ham = (potential + kinetic)
-    # _ham = hamiltonian_x_free_space(RABI, DETUNING, axes=axes)
-    # kinetic, axes = kinetic_matrix(RABI, axes=axes)
-    # potential = potential_matrix(0, 0, DETUNING)
-    # _ham = (potential + kinetic)
     _ham, axes = make_hamiltonian(0, 0, DETUNING, RABI, axes=axes)
 
     ham = lambda t: _ham
@@ -303,7 +198,7 @@ def test_hamiltonian_qho():
     _potential = 0.5 * MASS_PHOTON * (omega**2) * (axes[0]**2 + axes[1]**2)
     _ham, axes = make_hamiltonian(_potential, 0, DETUNING, RABI, MASS_PHOTON, axes=axes)
 
-    energies, vectors = solve_polariton_static(_ham, 20)
+    energies, vectors = diagonalise_hamiltonian(_ham, 20)
 
     fig = figure(figsize=(10, 6))
     gs = gridspec.GridSpec(1, 2, fig, wspace=0.3)
@@ -350,7 +245,7 @@ def test_infinite_potential_well():
     vphot[mask] = DEPTH
     _ham, axes = make_hamiltonian(vphot, 0, DETUNING, RABI, MASS_PHOTON, axes=axes)
 
-    energies, vectors = solve_polariton_static(_ham, 20)
+    energies, vectors = diagonalise_hamiltonian(_ham, 20)
     analytical = infinite_potential_well(MASS_PHOTON*electron_mass, WIDTH) + DEPTH + DETUNING/2
 
     fig = figure(figsize=(10, 6))
