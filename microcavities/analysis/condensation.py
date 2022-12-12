@@ -7,7 +7,7 @@ take data using the microcavities.utils.HierarchicalScan.ExperimentScan and then
 and plots it
 """
 
-from microcavities.utils.plotting import *
+from microcavities.analysis import *
 from microcavities.utils.HierarchicalScan import get_data_from_yamls
 from microcavities.analysis.dispersion import find_k0, dispersion, fit_quadratic_dispersion
 from cycler import cycler

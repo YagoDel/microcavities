@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from microcavities.analysis.dispersion import *
-from microcavities.analysis.condensation import *
+from microcavities.utils.plotting import *
 
 
 hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # Planck constant   meV.ps

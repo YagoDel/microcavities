@@ -2,7 +2,6 @@
 """Utility functions to analyse low power dispersion images"""
 
 from microcavities.analysis import *
-from microcavities.utils.plotting import *
 from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 from scipy.ndimage import gaussian_filter
