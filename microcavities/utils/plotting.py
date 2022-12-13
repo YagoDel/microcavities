@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-
+import itertools
 import warnings, os, re, imageio
 import numpy as np
 from scipy.interpolate import interp1d
 from microcavities.utils import square, get_data_path, normalize, run_once
 from itertools import cycle
+from skimage.segmentation import watershed
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec, colors, cm, collections, transforms
@@ -19,85 +20,34 @@ plt.rcParams['pdf.fonttype'] = 'truetype'
 plt.rcParams['svg.fonttype'] = 'none'
 
 
-# COLORMAPS
-
-_cmap = LinearSegmentedColormap.from_list('BlueYellowRed',
-                                            [(1, 1, 1),
-                                             'xkcd:royal blue', 'xkcd:canary yellow', 'xkcd:cherry red',
-                                             (0, 0, 0)])
+# Colormaps
+_cmap = LinearSegmentedColormap.from_list('BlueYellowRed', [(1, 1, 1),
+                                                            'xkcd:royal blue', 'xkcd:canary yellow', 'xkcd:cherry red',
+                                                            (0, 0, 0)])
 run_once(lambda: plt.register_cmap(cmap=_cmap))()  # only register colormap once, useful when importing multiple times
 
-cdict = {'red': [(0.0, 0.0, 1.0),
-                 (0.25, 0.0, 0.0),
-                 (0.5, 1.0, 1.0),
-                 (0.75, 1.0, 1.0),
-                 (1.0, 0.0, 0.0)],
-         'green': [(0.0, 0.0, 1.0),
-                   (0.25, 0.4, 0.4),
-                   (0.5, 1.0, 1.0),
-                   (0.75, 0.0, 0.0),
-                   (1.0, 0.0, 0.0)],
-         'blue': [(0.0, 1.0, 1.0),
-                  (0.25, 0.0, 0.0),
-                  (0.5, 0.0, 0.0),
-                  (0.75, 0.0, 0.0),
-                  (1.0, 0.0, 0.0)]}
+cdict = {'red': [(0.0, 0.0, 1.0), (0.25, 0.0, 0.0), (0.5, 1.0, 1.0), (0.75, 1.0, 1.0), (1.0, 0.0, 0.0)],
+         'green': [(0.0, 0.0, 1.0), (0.25, 0.4, 0.4), (0.5, 1.0, 1.0), (0.75, 0.0, 0.0), (1.0, 0.0, 0.0)],
+         'blue': [(0.0, 1.0, 1.0), (0.25, 0.0, 0.0), (0.5, 0.0, 0.0), (0.75, 0.0, 0.0), (1.0, 0.0, 0.0)]}
 _cmap = LinearSegmentedColormap('Michael', cdict, 256)
 run_once(lambda: plt.register_cmap(cmap=_cmap))()  # only register colormap once, useful when importing multiple times
 
 greek_alphabet = {
-    'Alpha': u'\u0391',
-    'Beta': u'\u0392',
-    'Gamma': u'\u0393',
-    'Delta': u'\u0394',
-    'Epsilon': u'\u0395',
-    'Zeta': u'\u0396',
-    'Eta': u'\u0397',
-    'Theta': u'\u0398',
-    'Iota': u'\u0399',
-    'Kappa': u'\u039A',
-    'Lamda': u'\u039B',
-    'Mu': u'\u039C',
-    'Nu': u'\u039D',
-    'Xi': u'\u039E',
-    'Omicron': u'\u039F',
-    'Pi': u'\u03A0',
-    'Rho': u'\u03A1',
-    'Sigma': u'\u03A3',
-    'Tau': u'\u03A4',
-    'Upsilon': u'\u03A5',
-    'Phi': u'\u03A6',
-    'Chi': u'\u03A7',
-    'Psi': u'\u03A8',
+    'Alpha': u'\u0391', 'Beta': u'\u0392', 'Gamma': u'\u0393', 'Delta': u'\u0394', 'Epsilon': u'\u0395',
+    'Zeta': u'\u0396', 'Eta': u'\u0397', 'Theta': u'\u0398', 'Iota': u'\u0399', 'Kappa': u'\u039A', 'Lamda': u'\u039B',
+    'Mu': u'\u039C', 'Nu': u'\u039D', 'Xi': u'\u039E', 'Omicron': u'\u039F', 'Pi': u'\u03A0', 'Rho': u'\u03A1',
+    'Sigma': u'\u03A3', 'Tau': u'\u03A4', 'Upsilon': u'\u03A5', 'Phi': u'\u03A6', 'Chi': u'\u03A7', 'Psi': u'\u03A8',
     'Omega': u'\u03A9',
-    'alpha': u'\u03B1',
-    'beta': u'\u03B2',
-    'gamma': u'\u03B3',
-    'delta': u'\u03B4',
-    'epsilon': u'\u03B5',
-    'zeta': u'\u03B6',
-    'eta': u'\u03B7',
-    'theta': u'\u03B8',
-    'iota': u'\u03B9',
-    'kappa': u'\u03BA',
-    'lamda': u'\u03BB',
-    'mu': u'\u03BC',
-    'nu': u'\u03BD',
-    'xi': u'\u03BE',
-    'omicron': u'\u03BF',
-    'pi': u'\u03C0',
-    'rho': u'\u03C1',
-    'sigma': u'\u03C3',
-    'tau': u'\u03C4',
-    'upsilon': u'\u03C5',
-    'phi': u'\u03C6',
-    'chi': u'\u03C7',
-    'psi': u'\u03C8',
+    'alpha': u'\u03B1', 'beta': u'\u03B2', 'gamma': u'\u03B3', 'delta': u'\u03B4', 'epsilon': u'\u03B5',
+    'zeta': u'\u03B6', 'eta': u'\u03B7', 'theta': u'\u03B8', 'iota': u'\u03B9', 'kappa': u'\u03BA', 'lamda': u'\u03BB',
+    'mu': u'\u03BC', 'nu': u'\u03BD', 'xi': u'\u03BE', 'omicron': u'\u03BF', 'pi': u'\u03C0', 'rho': u'\u03C1',
+    'sigma': u'\u03C3', 'tau': u'\u03C4', 'upsilon': u'\u03C5', 'phi': u'\u03C6', 'chi': u'\u03C7', 'psi': u'\u03C8',
     'omega': u'\u03C9',
 }
 unicodes = {'hbar': '\u0127', 'deg': '\u03B1'}
 
 
+# Utils
 def default_extension(path, default):
     name, extension = os.path.splitext(path)
     if extension == '':
@@ -105,7 +55,6 @@ def default_extension(path, default):
     return ''.join([name, extension])
 
 
-# Utils
 def figure(aspect_ratio=1.5, columns='double', margins=5, column_separation=5, *args, **kwargs):
     """Wrapper for plt.figure to make paper-ready figures
 
@@ -1080,6 +1029,77 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
                     pass
         lines += [line]
     return fig, ax, np.squeeze(intersections), lines
+
+
+def polygonal_image(points, z_scale=None, margins=(0.1, 0.1), min_points=(101, 101), plot_kwargs=None, *args, **kwargs):
+    """Creates skimage.segmentation.watershed labelled image from a series of points
+
+    Example:
+    >>> x = [-1, 0, 1, 2]
+    >>> y = [0, -1, 0, 1]
+    >>> scales = np.array([0, -1, 1, 2])
+    >>> points = np.array([(_x, _y) for _x, _y in zip(x, y)])
+    >>> polygonal_image(points, scales)
+
+    :param points: (Nx2) ndarray. (x, y) positions defining the position of each watershed-defined region
+    :param z_scale: (N, ) ndarray. Values to evaluate the colormap of each region
+    :param margins: 2-tuple of floats. Percentage of spatial range to add as margins on the edges
+    :param min_points: 2-tuple of int. Minimum number of grid points to use in the boundary image
+    :param plot_kwargs: dict or None. To be passed to pyplot.plot
+    :param args: to be passed to imshow
+    :param kwargs: to be passed to imshow
+    :return:
+    """
+    if z_scale is None:
+        z_scale = np.arange(len(points))
+    normalized_z = -normalize(z_scale)  # Setting the zscale to go from -1 to 0 so that watershed segments correctly
+    z_scale = np.append(z_scale, np.nan)  # Adding a np.nan for the boundary pixels
+
+    # Edges of the spatial grid
+    min_x, min_y = np.min(points, 0)
+    max_x, max_y = np.max(points, 0)
+
+    # Adding margins
+    range_x = (max_x - min_x)
+    range_y = (max_y - min_y)
+    min_x -= range_x * margins[0]
+    max_x += range_x * margins[0]
+    min_y -= range_y * margins[1]
+    max_y += range_y * margins[1]
+
+    # Need enough points to separate any two points
+    pairs = np.array(list(itertools.product(points, points)))  # pairs of points
+    distances_x = np.abs(pairs[..., 0, 0]-pairs[..., 1, 0])  # x distance between every two points
+    distances_y = np.abs(pairs[..., 0, 1]-pairs[..., 1, 1])  # y distance between every two points
+
+    # Creating the grids, ensuring there's at least 10 pixels in between the nearest points
+    dx = np.min(distances_x[np.nonzero(distances_x)]) * 1e-1
+    dy = np.min(distances_y[np.nonzero(distances_y)]) * 1e-1
+    nx = np.max([int((max_x - min_x) / dx), min_points[0]])
+    ny = np.max([int((max_y - min_y) / dy), min_points[1]])
+    x = np.linspace(min_x, max_x, nx)
+    y = np.linspace(min_y, max_y, ny)
+
+    # Creating an image with single pixels at points set to values in zscale
+    data = np.ones((len(x), len(y)))
+    for z, point in zip(normalized_z, points):
+        idx = np.argmin(np.abs(x - point[0]))
+        idy = np.argmin(np.abs(y - point[1]))
+        data[idx, idy] = z
+
+    # Finding the boundaries using skimage.segmentation.watershed
+    boundaries = watershed(data, watershed_line=True)  # nx by ny array with region indices
+    scaled = z_scale[boundaries-1]  # nx by ny array with region z-values
+
+    # Plotting
+    fig, ax, cax = imshow(scaled.transpose(), xaxis=x, yaxis=y, *args, **kwargs)
+    if plot_kwargs is not False:
+        defaults = dict(color='k', marker='x', ls='none')
+        if plot_kwargs is None:
+            plot_kwargs = dict()
+        plot_kwargs = {**defaults, **plot_kwargs}
+        ax.plot(*points.transpose(), **plot_kwargs)
+    return fig, ax, cax
 
 
 # Tests
