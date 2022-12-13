@@ -1031,14 +1031,15 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
     return fig, ax, np.squeeze(intersections), lines
 
 
-def polygonal_image(points, z_scale=None):
+def polygonal_image(points, z_scale=None, *args, **kwargs):
     """
 
     Example:
     >>> x = [-1, 0, 1, 2]
     >>> y = [0, -1, 0, 1]
+    >>> scales = np.array([0, -1, 0, 1])
     >>> points = np.array([(_x, _y) for _x, _y in zip(x, y)])
-    >>> polygonal_image(points)
+    >>> polygonal_image(points, scales)
 
     :param points:
     :param z_scale:
@@ -1070,9 +1071,10 @@ def polygonal_image(points, z_scale=None):
         idx = np.argmin(np.abs(x - point[0]))
         idy = np.argmin(np.abs(y - point[1]))
         data[idx, idy] = z
-    boundaries = watershed(data)
+    boundaries = watershed(data)  # nx by ny array with region indices
+    scaled = z_scale[boundaries-1]  # nx by ny array with region z-values
 
-    fig, ax, cax = imshow(boundaries.transpose(), xaxis=x, yaxis=y)
+    fig, ax, cax = imshow(scaled.transpose(), xaxis=x, yaxis=y, *args, **kwargs)
     ax.plot(*points.transpose(), 'kx')
     return fig, ax, cax
 
