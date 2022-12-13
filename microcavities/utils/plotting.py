@@ -19,85 +19,34 @@ plt.rcParams['pdf.fonttype'] = 'truetype'
 plt.rcParams['svg.fonttype'] = 'none'
 
 
-# COLORMAPS
-
-_cmap = LinearSegmentedColormap.from_list('BlueYellowRed',
-                                            [(1, 1, 1),
-                                             'xkcd:royal blue', 'xkcd:canary yellow', 'xkcd:cherry red',
-                                             (0, 0, 0)])
+# Colormaps
+_cmap = LinearSegmentedColormap.from_list('BlueYellowRed', [(1, 1, 1),
+                                                            'xkcd:royal blue', 'xkcd:canary yellow', 'xkcd:cherry red',
+                                                            (0, 0, 0)])
 run_once(lambda: plt.register_cmap(cmap=_cmap))()  # only register colormap once, useful when importing multiple times
 
-cdict = {'red': [(0.0, 0.0, 1.0),
-                 (0.25, 0.0, 0.0),
-                 (0.5, 1.0, 1.0),
-                 (0.75, 1.0, 1.0),
-                 (1.0, 0.0, 0.0)],
-         'green': [(0.0, 0.0, 1.0),
-                   (0.25, 0.4, 0.4),
-                   (0.5, 1.0, 1.0),
-                   (0.75, 0.0, 0.0),
-                   (1.0, 0.0, 0.0)],
-         'blue': [(0.0, 1.0, 1.0),
-                  (0.25, 0.0, 0.0),
-                  (0.5, 0.0, 0.0),
-                  (0.75, 0.0, 0.0),
-                  (1.0, 0.0, 0.0)]}
+cdict = {'red': [(0.0, 0.0, 1.0), (0.25, 0.0, 0.0), (0.5, 1.0, 1.0), (0.75, 1.0, 1.0), (1.0, 0.0, 0.0)],
+         'green': [(0.0, 0.0, 1.0), (0.25, 0.4, 0.4), (0.5, 1.0, 1.0), (0.75, 0.0, 0.0), (1.0, 0.0, 0.0)],
+         'blue': [(0.0, 1.0, 1.0), (0.25, 0.0, 0.0), (0.5, 0.0, 0.0), (0.75, 0.0, 0.0), (1.0, 0.0, 0.0)]}
 _cmap = LinearSegmentedColormap('Michael', cdict, 256)
 run_once(lambda: plt.register_cmap(cmap=_cmap))()  # only register colormap once, useful when importing multiple times
 
 greek_alphabet = {
-    'Alpha': u'\u0391',
-    'Beta': u'\u0392',
-    'Gamma': u'\u0393',
-    'Delta': u'\u0394',
-    'Epsilon': u'\u0395',
-    'Zeta': u'\u0396',
-    'Eta': u'\u0397',
-    'Theta': u'\u0398',
-    'Iota': u'\u0399',
-    'Kappa': u'\u039A',
-    'Lamda': u'\u039B',
-    'Mu': u'\u039C',
-    'Nu': u'\u039D',
-    'Xi': u'\u039E',
-    'Omicron': u'\u039F',
-    'Pi': u'\u03A0',
-    'Rho': u'\u03A1',
-    'Sigma': u'\u03A3',
-    'Tau': u'\u03A4',
-    'Upsilon': u'\u03A5',
-    'Phi': u'\u03A6',
-    'Chi': u'\u03A7',
-    'Psi': u'\u03A8',
+    'Alpha': u'\u0391', 'Beta': u'\u0392', 'Gamma': u'\u0393', 'Delta': u'\u0394', 'Epsilon': u'\u0395',
+    'Zeta': u'\u0396', 'Eta': u'\u0397', 'Theta': u'\u0398', 'Iota': u'\u0399', 'Kappa': u'\u039A', 'Lamda': u'\u039B',
+    'Mu': u'\u039C', 'Nu': u'\u039D', 'Xi': u'\u039E', 'Omicron': u'\u039F', 'Pi': u'\u03A0', 'Rho': u'\u03A1',
+    'Sigma': u'\u03A3', 'Tau': u'\u03A4', 'Upsilon': u'\u03A5', 'Phi': u'\u03A6', 'Chi': u'\u03A7', 'Psi': u'\u03A8',
     'Omega': u'\u03A9',
-    'alpha': u'\u03B1',
-    'beta': u'\u03B2',
-    'gamma': u'\u03B3',
-    'delta': u'\u03B4',
-    'epsilon': u'\u03B5',
-    'zeta': u'\u03B6',
-    'eta': u'\u03B7',
-    'theta': u'\u03B8',
-    'iota': u'\u03B9',
-    'kappa': u'\u03BA',
-    'lamda': u'\u03BB',
-    'mu': u'\u03BC',
-    'nu': u'\u03BD',
-    'xi': u'\u03BE',
-    'omicron': u'\u03BF',
-    'pi': u'\u03C0',
-    'rho': u'\u03C1',
-    'sigma': u'\u03C3',
-    'tau': u'\u03C4',
-    'upsilon': u'\u03C5',
-    'phi': u'\u03C6',
-    'chi': u'\u03C7',
-    'psi': u'\u03C8',
+    'alpha': u'\u03B1', 'beta': u'\u03B2', 'gamma': u'\u03B3', 'delta': u'\u03B4', 'epsilon': u'\u03B5',
+    'zeta': u'\u03B6', 'eta': u'\u03B7', 'theta': u'\u03B8', 'iota': u'\u03B9', 'kappa': u'\u03BA', 'lamda': u'\u03BB',
+    'mu': u'\u03BC', 'nu': u'\u03BD', 'xi': u'\u03BE', 'omicron': u'\u03BF', 'pi': u'\u03C0', 'rho': u'\u03C1',
+    'sigma': u'\u03C3', 'tau': u'\u03C4', 'upsilon': u'\u03C5', 'phi': u'\u03C6', 'chi': u'\u03C7', 'psi': u'\u03C8',
     'omega': u'\u03C9',
 }
 unicodes = {'hbar': '\u0127', 'deg': '\u03B1'}
 
 
+# Utils
 def default_extension(path, default):
     name, extension = os.path.splitext(path)
     if extension == '':
@@ -105,7 +54,6 @@ def default_extension(path, default):
     return ''.join([name, extension])
 
 
-# Utils
 def figure(aspect_ratio=1.5, columns='double', margins=5, column_separation=5, *args, **kwargs):
     """Wrapper for plt.figure to make paper-ready figures
 
