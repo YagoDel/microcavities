@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-
+import itertools
 import warnings, os, re, imageio
 import numpy as np
 from scipy.interpolate import interp1d
 from microcavities.utils import square, get_data_path, normalize, run_once
 from itertools import cycle
+from skimage.segmentation import watershed
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec, colors, cm, collections, transforms
@@ -1028,6 +1029,52 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
                     pass
         lines += [line]
     return fig, ax, np.squeeze(intersections), lines
+
+
+def polygonal_image(points, z_scale=None):
+    """
+
+    Example:
+    >>> x = [-1, 0, 1, 2]
+    >>> y = [0, -1, 0, 1]
+    >>> points = np.array([(_x, _y) for _x, _y in zip(x, y)])
+    >>> polygonal_image(points)
+
+    :param points:
+    :param z_scale:
+    :return:
+    """
+    if z_scale is None:
+        z_scale = np.arange(len(points))
+    normalized_z = -normalize(z_scale)  # Setting the zscale to go from -1 to 0
+
+    # Creating the spatial grid to evaluate the boundaries
+    min_x, min_y = np.min(points, 0)
+    max_x, max_y = np.max(points, 0)
+
+    pairs = np.array(list(itertools.product(points, points)))
+    distances_x = np.abs(pairs[..., 0, 0]-pairs[..., 1, 0])
+    distances_y = np.abs(pairs[..., 0, 1]-pairs[..., 1, 1])
+
+    dx = np.min(distances_x[np.nonzero(distances_x)]) * 1e-1
+    dy = np.min(distances_y[np.nonzero(distances_y)]) * 1e-1
+    nx = np.max([int((max_x - min_x) / dx), 101])
+    ny = np.max([int((max_y - min_y) / dy), 101])
+
+    x = np.linspace(min_x, max_x, nx)
+    y = np.linspace(min_y, max_y, ny)
+
+    # Creating an image with single pixels at points set to values in zscale
+    data = np.ones((len(x), len(y)))
+    for z, point in zip(normalized_z, points):
+        idx = np.argmin(np.abs(x - point[0]))
+        idy = np.argmin(np.abs(y - point[1]))
+        data[idx, idy] = z
+    boundaries = watershed(data)
+
+    fig, ax, cax = imshow(boundaries.transpose(), xaxis=x, yaxis=y)
+    ax.plot(*points.transpose(), 'kx')
+    return fig, ax, cax
 
 
 # Tests
