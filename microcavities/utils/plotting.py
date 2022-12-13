@@ -1031,37 +1031,52 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
     return fig, ax, np.squeeze(intersections), lines
 
 
-def polygonal_image(points, z_scale=None, *args, **kwargs):
-    """
+def polygonal_image(points, z_scale=None, margins=(0.1, 0.1), min_points=(101, 101), plot_kwargs=None, *args, **kwargs):
+    """Creates skimage.segmentation.watershed labelled image from a series of points
 
     Example:
     >>> x = [-1, 0, 1, 2]
     >>> y = [0, -1, 0, 1]
-    >>> scales = np.array([0, -1, 0, 1])
+    >>> scales = np.array([0, -1, 1, 2])
     >>> points = np.array([(_x, _y) for _x, _y in zip(x, y)])
     >>> polygonal_image(points, scales)
 
-    :param points:
-    :param z_scale:
+    :param points: (Nx2) ndarray. (x, y) positions defining the position of each watershed-defined region
+    :param z_scale: (N, ) ndarray. Values to evaluate the colormap of each region
+    :param margins: 2-tuple of floats. Percentage of spatial range to add as margins on the edges
+    :param min_points: 2-tuple of int. Minimum number of grid points to use in the boundary image
+    :param plot_kwargs: dict or None. To be passed to pyplot.plot
+    :param args: to be passed to imshow
+    :param kwargs: to be passed to imshow
     :return:
     """
     if z_scale is None:
         z_scale = np.arange(len(points))
-    normalized_z = -normalize(z_scale)  # Setting the zscale to go from -1 to 0
+    normalized_z = -normalize(z_scale)  # Setting the zscale to go from -1 to 0 so that watershed segments correctly
+    z_scale = np.append(z_scale, np.nan)  # Adding a np.nan for the boundary pixels
 
-    # Creating the spatial grid to evaluate the boundaries
+    # Edges of the spatial grid
     min_x, min_y = np.min(points, 0)
     max_x, max_y = np.max(points, 0)
 
-    pairs = np.array(list(itertools.product(points, points)))
-    distances_x = np.abs(pairs[..., 0, 0]-pairs[..., 1, 0])
-    distances_y = np.abs(pairs[..., 0, 1]-pairs[..., 1, 1])
+    # Adding margins
+    range_x = (max_x - min_x)
+    range_y = (max_y - min_y)
+    min_x -= range_x * margins[0]
+    max_x += range_x * margins[0]
+    min_y -= range_y * margins[1]
+    max_y += range_y * margins[1]
 
+    # Need enough points to separate any two points
+    pairs = np.array(list(itertools.product(points, points)))  # pairs of points
+    distances_x = np.abs(pairs[..., 0, 0]-pairs[..., 1, 0])  # x distance between every two points
+    distances_y = np.abs(pairs[..., 0, 1]-pairs[..., 1, 1])  # y distance between every two points
+
+    # Creating the grids, ensuring there's at least 10 pixels in between the nearest points
     dx = np.min(distances_x[np.nonzero(distances_x)]) * 1e-1
     dy = np.min(distances_y[np.nonzero(distances_y)]) * 1e-1
-    nx = np.max([int((max_x - min_x) / dx), 101])
-    ny = np.max([int((max_y - min_y) / dy), 101])
-
+    nx = np.max([int((max_x - min_x) / dx), min_points[0]])
+    ny = np.max([int((max_y - min_y) / dy), min_points[1]])
     x = np.linspace(min_x, max_x, nx)
     y = np.linspace(min_y, max_y, ny)
 
@@ -1071,11 +1086,19 @@ def polygonal_image(points, z_scale=None, *args, **kwargs):
         idx = np.argmin(np.abs(x - point[0]))
         idy = np.argmin(np.abs(y - point[1]))
         data[idx, idy] = z
-    boundaries = watershed(data)  # nx by ny array with region indices
+
+    # Finding the boundaries using skimage.segmentation.watershed
+    boundaries = watershed(data, watershed_line=True)  # nx by ny array with region indices
     scaled = z_scale[boundaries-1]  # nx by ny array with region z-values
 
+    # Plotting
     fig, ax, cax = imshow(scaled.transpose(), xaxis=x, yaxis=y, *args, **kwargs)
-    ax.plot(*points.transpose(), 'kx')
+    if plot_kwargs is not False:
+        defaults = dict(color='k', marker='x', ls='none')
+        if plot_kwargs is None:
+            plot_kwargs = dict()
+        plot_kwargs = {**defaults, **plot_kwargs}
+        ax.plot(*points.transpose(), **plot_kwargs)
     return fig, ax, cax
 
 
