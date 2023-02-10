@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-from microcavities.analysis import *
+from microcavities.analysis import photon_density, photons_per_mw
 from microcavities.utils.plotting import *
 from nplab.utils.log import create_logger
 import h5py
 from scipy.ndimage.measurements import center_of_mass
-from microcavities.analysis.phase_maps import low_pass
+from microcavities.analysis.phase_maps import low_pass, find_vortex
 from microcavities.utils import apply_along_axes
 from functools import partial
 from scipy.signal import fftconvolve
 from microcavities.experiment.utils import magnification_function, spectrometer_calibration
 from microcavities.experiment.utils import magnification
 
+
 LOGGER = create_logger('Rotation')
 
-n_cmap = mycmap
+n_cmap = 'Michael'
 delta_n_cmap = 'RdBu_r'
 lz_cmap = 'PuOr'
 
@@ -270,3 +271,32 @@ def momentum_quantum(wavefunction, axes=None):
         axes = np.array([(np.arange(x) - x / 2) for x in wavefunction.shape[::-1]])
     vector_field = np.array(np.gradient(wavefunction, *axes))
     return np.imag(np.conj(wavefunction) * vector_field)[::-1]
+
+
+def threshold_find_vortex(phase_image, density_image, threshold=0.2, plot=True):
+    image = normalize(density_image)
+    x, y = [np.arange(_x) for _x in density_image.shape[::-1]]
+    X, Y = np.meshgrid(x, y)
+
+    v, av = find_vortex(phase_image)
+    mask = image > threshold * np.percentile(image, 99)
+
+    mask_coords = [str(_x) for _x in zip(X[mask].flatten(), Y[mask].flatten())]
+    mask_v = [str(tuple(_v[::-1])) in mask_coords for _v in v]
+    mask_av = [str(tuple(_v[::-1])) in mask_coords for _v in av]
+
+    selected_v = v[mask_v]
+    selected_av = av[mask_av]
+
+    if plot:
+        fig, axs = plt.subplots(1, 2)
+        imshow(image, axs[0], diverging=False)
+        axs[0].plot(*v[:, ::-1].transpose(), 'rx', ls='')
+        axs[0].plot(*av[:, ::-1].transpose(), 'bx', ls='')
+        mask = image > threshold * np.percentile(image, 99)
+        imshow(np.asarray(mask, float), axs[1], diverging=False)
+        # axs[1].plot(*np.array(list(zip(X[mask].flatten(), Y[mask].flatten()))).transpose(), 'rx', ls='');
+        axs[1].plot(*v[mask_v][:, ::-1].transpose(), 'rx', ls='')
+        axs[1].plot(*av[mask_av][:, ::-1].transpose(), 'bx', ls='')
+
+    return selected_v, selected_av, v, av
