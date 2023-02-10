@@ -16,8 +16,8 @@ import matplotlib.patches as mpatches
 from shapely.geometry import MultiLineString
 
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
-plt.rcParams['pdf.fonttype'] = 'truetype'
-plt.rcParams['svg.fonttype'] = 'none'
+# plt.rcParams['pdf.fonttype'] = 'truetype'
+plt.rcParams['svg.fonttype'] = 'path'
 
 
 # Colormaps
