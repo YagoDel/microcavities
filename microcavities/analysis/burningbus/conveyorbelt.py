@@ -4,7 +4,7 @@ import lmfit
 from lmfit.models import LorentzianModel, ConstantModel, GaussianModel
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import gaussian_filter
-from microcavities.simulations.quantum_box import *
+# from microcavities.simulations.quantum_box import *
 from microcavities.utils import apply_along_axes, random_choice
 from microcavities.analysis import *
 from microcavities.analysis.phase_maps import low_pass
@@ -1507,10 +1507,10 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
             if 'label_string' in plotting_kw:
                 label = ''
             else:
-                label = '%s$k_{laser}$=%.2g%sm$^{-1}$\n' % (delta, config['laser_angle'], mu)
+                label = '%s$k_{laser}$=%.2g%sm$^{-1}$\n' % (greek_alphabet['delta'], config['laser_angle'], greek_alphabet['mu'])
                 try:
                     power_label = variables['normalised_power_axis'][selected_indices[-1]] * 1e3
-                    label += '$P_s$=%.1fmW%sm$^{-2}$\n' % (power_label, mu)
+                    label += '$P_s$=%.1fmW%sm$^{-2}$\n' % (power_label, greek_alphabet['mu'])
                 except:
                     pass
                 if not np.isnan(depth):
@@ -1644,7 +1644,7 @@ def compare_to_experiment(dataset_index, selected_indices, ground_state_energy=0
                         ground_state_pixel=ground_state_pixel, ground_state_energy=ground_state_energy,
                         arbitrary_k_scale=arbitrary_k_scale)
     label_grid(fig._gridspecs[0], 'Energy [eV]', 'left', offset=0.05)
-    label_grid(fig._gridspecs[0], 'Momentum [%sm$^{-1}$]' % mu, 'bottom')
+    label_grid(fig._gridspecs[0], 'Momentum [%sm$^{-1}$]' % greek_alphabet['mu'], 'bottom')
     return fig, axs
 
 
