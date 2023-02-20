@@ -178,18 +178,35 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
     center = np.asarray(image.shape, int) // 2
 
     # Fourier plane
-    fourier = np.fft.fftshift(np.fft.fft2(image))
+    fourier = np.fft.fft2(image)
+    shifted_fourier = np.fft.fftshift(fourier)
+
     # Centering the frequency peak
     if offset is None:
         if peak_kwargs is None: peak_kwargs = dict()
         default_peak_kwargs = dict(min_distance=5, threshold_abs=0.01)
         peak_kwargs = {**default_peak_kwargs, **peak_kwargs}
-        peaks = peak_local_max(normalize(np.abs(fourier)), **peak_kwargs)
-        peak_intensities = [np.abs(fourier)[peak[0], peak[1]] for peak in peaks]
+        peaks = peak_local_max(normalize(np.abs(shifted_fourier)), **peak_kwargs)
+        peak_intensities = [np.abs(shifted_fourier)[peak[0], peak[1]] for peak in peaks]
+        # Sorting peaks in decreasing order of intensity
         idxs = np.argsort(peak_intensities)[::-1]
         sorted_peaks = peaks[idxs]
-        offset = sorted_peaks[1] - sorted_peaks[0]
-    rolled = np.roll(fourier, offset, (0, 1))
+
+        # If the first peak is near the center, the second and third peaks are likely a frequency peaks. Otherwise, the
+        # first and second peak are likely the frequency peaks. This will fail if data is very noisy.
+        if np.sum(np.abs(sorted_peaks[0] - np.array(shifted_fourier.shape)/2)) < 2:
+            frequency_peaks = sorted_peaks[1:3]
+        else:
+            frequency_peaks = sorted_peaks[:2]
+
+        # Sorting frequency peaks in decreasing order of x (y) if the fringes are horizontal (vertical)
+        _idx = np.argmax(np.abs(frequency_peaks[0]))  # index of dimension with larger offset
+        idxs = np.argsort(frequency_peaks[:, _idx])  # sorting along that dimension
+        frequency_peaks = frequency_peaks[idxs]
+
+        # The offset required to center the frequency peak
+        offset = (frequency_peaks[1] - frequency_peaks[0]) // 2
+    rolled = np.roll(shifted_fourier, offset, (0, 1))
 
     # Defining a centered circular hard mask
     axes = [np.arange(x) for x in image.shape]
@@ -201,17 +218,16 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
     mask = np.asarray(r**2 < mask_radius**2, int)
 
     # Separating the interference term from the envelope term
-    cw = np.abs(np.fft.ifft2(mask * fourier))
-    mod = 2 * np.fft.ifft2(mask * rolled)  # factor of 2 from mask taking out half the frequency plane
+    mask1 = np.fft.fftshift(mask) * fourier  # selecting the mask area around the 0th frequency
+    mask2 = np.fft.fftshift(mask * rolled)  # selecting the mask area around the offset frequency
+    zeroth_modulation = np.fft.ifft2(mask1)
+    offset_modulation = np.fft.ifft2(mask2)
 
-    # Visibility
-    visibility = np.abs(mod) / (cw + 1e-6)  # 1e-6 ensures we don't divide by zero
-
-    # Phase
-    angle = np.angle(mod)
-    angle = ((2 * angle) % (2*np.pi))  # HACK: factor of 2 unwinds pixel-to-pixel variations that come from np.angle
-    angle = unwrap_phase(angle) / 2
-    angle = angle % (2 * np.pi) - np.pi  # makes it go from -pi to pi
+    # Visibility, phase and cw
+    # factor of 2 from mask taking out half the frequency plane. 1e-6 ensures we don't divide by zero
+    visibility = 2 * np.abs(offset_modulation) / (np.abs(zeroth_modulation) + 1e-6)
+    angle = np.angle(offset_modulation)
+    cw = np.abs(zeroth_modulation)
 
     if plot:
         # Plot results
@@ -225,8 +241,8 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         idx = image.shape[0]//2
         axs[1, 1].plot(image[idx])
         axs[1, 1].plot(cw[idx])
-        ip = cw + np.abs(mod)
-        im = cw - np.abs(mod)
+        ip = cw + np.abs(offset_modulation)
+        im = cw - np.abs(offset_modulation)
         vs = (ip - im) / (ip + im)
         axs[1, 1].plot(ip[idx])
         axs[1, 1].plot(im[idx])
@@ -269,4 +285,4 @@ def test_analyse_fringes(interference_type='flat', options=None):
     interference = field1 + field2
     measurement = incoherent + np.abs(interference) ** 2
 
-    analyse_fringes(measurement, plot=True)
+    v, a, c, _, _ = analyse_fringes(measurement, plot=True);
