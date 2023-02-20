@@ -273,30 +273,22 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=N
 
     # Fitting the Rabi splitting and detuning
     if fit_kwargs is None: fit_kwargs = dict()
-    defaults = dict(mode='lp',
-                    # starting_fit_parameters=(np.mean(energy_axis),  # photon energy
-                    #                          (np.max(energy_axis)-np.min(energy_axis))/4,  # rabi
-                    #                          mass,  # photon mass
-                    #                          np.mean(energy_axis),  # exciton energy
-                    #                          mass * 1e5,  # exciton mass
-                    #                          0),  # k_0 offset
-                    least_squares_kw=dict(max_nfev=5e4)
-                    )
+    defaults = dict(mode='lp', least_squares_kw=dict(max_nfev=5e4))
     fit_kwargs = {**defaults, **fit_kwargs}
     final_params, parameter_errors, res = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
     LOGGER.debug('Final fit parameters: %s' % final_params)
 
-    exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
-                                                final_params['photon_energy'] - final_params['exciton_energy'])
+    if res.success:
+        exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
+                                                    final_params['photon_energy'] - final_params['exciton_energy'])
+        # Getting return values in physically useful units
+        energy = result.best_values['center']
+        lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
 
-    # Getting return values in physically useful units
-    energy = result.best_values['center']
-    lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
-
-    final_params['polariton_energy'] = energy
-    final_params['polariton_lifetime'] = lifetime
-    final_params['polariton_mass'] = mass
-    final_params['exciton_fraction'] = exciton_fraction
+        final_params['polariton_energy'] = energy
+        final_params['polariton_lifetime'] = lifetime
+        final_params['polariton_mass'] = mass
+        final_params['exciton_fraction'] = exciton_fraction
 
     return final_params
 
@@ -406,6 +398,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
                 final_params += [known_sample_parameters[key]]
             else:
                 final_params += [st]
+
     final_params = {key: value for key, value in zip(parameter_names, final_params)}
 
     # parsing fit errors, copying from scipy.optimize.curve_fit
@@ -422,14 +415,15 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
         imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm(), cmap='Greys')
         [ax.plot(*band.transpose()) for band in bands]
 
-        new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
-        lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
-        [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
-        [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
-
         if not res.success:
             ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
         else:
+            new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
+
+            lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
+            [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+            [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+
             ax.text(0.5, 0.95,
                     u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
                                                                    final_params['exciton_energy']-final_params['photon_energy']),
