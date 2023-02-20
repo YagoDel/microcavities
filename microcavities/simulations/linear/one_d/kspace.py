@@ -110,7 +110,7 @@ def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, r
     # Kinetic energy
     photon = np.diag(
         [hbar ** 2 * (k - x * G) ** 2 / (2 * mass_photon * electron_mass) for x in range(-n_bands, n_bands + 1)])
-    photon -= np.eye(space_size) * detuning / 2
+    photon += np.eye(space_size) * detuning / 2
     photon = np.asarray(photon, dtype=complex)
 
     # Potential energy
@@ -120,7 +120,7 @@ def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, r
 
     pot = [potential_depth / 2] * (space_size - 1)
     exciton += np.diag(pot, -1) * np.exp(1j * omega * t) + np.diag(pot, 1) * np.exp(-1j * omega * t)
-    exciton += np.eye(space_size) * detuning / 2
+    exciton -= np.eye(space_size) * detuning / 2
 
     # Coupling to exciton
     _rabi = np.eye(space_size) * rabi/2
@@ -153,3 +153,46 @@ def test_conveyor_chern():
     [axs[1].plot(frequencies*1e3, c, label='band %d' % x) for x, c in enumerate(chern_numbers)]
     label_axes(axs[1], 'f [GHz]', 'Chern number')
     axs[1].legend()
+
+
+def test_farfield_free_space():
+    from microcavities.analysis.dispersion import exciton_photon_dispersions
+
+    n_bands = 0
+    space_size = 2 * n_bands + 1
+    mass_photon = 5e-5
+    mass_exciton = 0.35
+    detuning = -5
+    rabi = 5
+    G = 2 * np.pi / 15
+
+    def free_space(k):
+        # Kinetic energy
+        photon = np.diag(
+            [hbar ** 2 * (k - x * G) ** 2 / (2 * mass_photon * electron_mass) for x in range(-n_bands, n_bands + 1)])
+        photon += np.eye(space_size) * detuning / 2
+        photon = np.asarray(photon, dtype=complex)
+
+        # Potential energy
+        exciton = np.diag(
+            [hbar ** 2 * (k - x * G) ** 2 / (2 * mass_exciton * electron_mass) for x in range(-n_bands, n_bands + 1)])
+        exciton = np.asarray(exciton, dtype=complex)
+        exciton -= np.eye(space_size) * detuning / 2
+
+        # Coupling to exciton
+        _rabi = np.eye(space_size) * rabi / 2
+        return np.bmat([[photon, _rabi], [_rabi, exciton]])
+
+    k_ax = np.linspace(-10, 10, 101)
+
+    theory_bands, _ = solve_for_krange(k_ax, free_space)
+
+    lower, upper, exciton, photon = exciton_photon_dispersions(k_ax, (detuning)/2, rabi, mass_photon, -detuning/2,
+                                                               mass_exciton, for_fit=False)
+
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(k_ax, theory_bands, 'r')
+    [ax.plot(k_ax, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+    [ax.plot(k_ax, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+
+
