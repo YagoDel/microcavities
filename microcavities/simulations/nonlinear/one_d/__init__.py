@@ -8,6 +8,26 @@ from microcavities.simulations.linear.one_d import make_ax, make_k_ax, solve
 from microcavities.simulations.linear.one_d import hbar, electron_mass
 
 
+def dissipative_edges(loss, x_ax, mode='butter', boundary_params=None):
+    if boundary_params is None: boundary_params = dict()
+    if mode == 'butter':
+        defaults = dict(edge=6, order=4)  # default dissipative edge of 8um
+        boundary_params = {**defaults, **boundary_params}
+
+        return loss * np.sqrt(1 + (x_ax / (x_ax.max() - boundary_params['edge'])) ** (2 * boundary_params['order']))
+    elif mode == 'exp':
+        defaults = dict(edge=2, growth=2)  # default dissipative edge of 2um
+        boundary_params = {**defaults, **boundary_params}
+
+        edge_right = x_ax.max() - boundary_params['edge']
+        edge_left = x_ax.min() + boundary_params['edge']
+        factor_right = 1 + np.exp(boundary_params['growth'] * (x_ax - edge_right))
+        factor_left = 1 + np.exp(-boundary_params['growth'] * (x_ax - edge_left))
+        return loss * factor_right * factor_left
+    else:
+        raise ValueError('Mode must be one of: %s' % ['butter', 'exp'])
+
+
 def rk_timestep(psi, hamiltonian, t, dt):
     """Runge-Kutta 4th order time step
     :param psi: vector
