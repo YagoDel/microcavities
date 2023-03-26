@@ -391,13 +391,13 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     if res.success:
         final_params = [dispersion_parameters[key] for key in parameter_names]
     else:
-        print('Failed fit')
+        LOGGER.warn('Failed fit %s' % starting_fit_parameters)
         final_params = []
         for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
             if key in known_sample_parameters:
                 final_params += [known_sample_parameters[key]]
             else:
-                final_params += [st]
+                final_params += [starting_fit_parameters[key]]
 
     final_params = {key: value for key, value in zip(parameter_names, final_params)}
 
@@ -417,17 +417,17 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
         if not res.success:
             ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
-        else:
-            new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
 
-            lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
-            [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
-            [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+        new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
 
-            ax.text(0.5, 0.95,
-                    u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
-                                                                   final_params['exciton_energy']-final_params['photon_energy']),
-                    transform=ax.transAxes, ha='center', va='top')
+        lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
+        [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+        [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+
+        ax.text(0.5, 0.95,
+                u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
+                                                               final_params['exciton_energy']-final_params['photon_energy']),
+                transform=ax.transAxes, ha='center', va='top')
     return final_params, parameter_errors, res
 
 
