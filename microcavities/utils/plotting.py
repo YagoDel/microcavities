@@ -234,6 +234,13 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
     :param offset: float
     :return:
     """
+    try:
+        len(offset)
+    except:
+        if position in ['bottom', 'top']:
+            offset = (0, offset)
+        else:
+            offset = (offset, 0)
     if isinstance(figure_grid, plt.Figure):
         assert len(figure_grid._gridspecs)
         grid = figure_grid._gridspecs[0]
@@ -245,13 +252,13 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         raise ValueError('Unrecognised type for figure_grid: %s' % figure_grid)
     _pos = grid.get_grid_positions(figure)
     if position == 'bottom':
-        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center', **kwargs)
+        figure.text(np.mean(_pos[2:])-offset[0], _pos[0][-1]-offset[1], label, va='top', ha='center', **kwargs)
     elif position == 'top':
-        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center', **kwargs)
+        figure.text(np.mean(_pos[2:])-offset[0], _pos[1][0]+offset[1], label, va='bottom', ha='center', **kwargs)
     elif position == 'left':
-        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90, **kwargs)
+        figure.text(_pos[2][0]-offset[0], np.mean(_pos[:2])-offset[1], label, va='center', ha='right', rotation=90, **kwargs)
     elif position == 'right':
-        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
+        figure.text(_pos[3][-1]+offset[0], np.mean(_pos[:2])-offset[1], label, va='center', ha='left', rotation=-90, **kwargs)
     else:
         raise ValueError()
 
@@ -373,9 +380,17 @@ def colour_axes(ax, colour, axis='both', which='both'):
             ax.spines[which].set_edgecolor(colour)
 
 
-def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arrow_props=None):
-    if arrow_props is None:
-        arrow_props = dict(arrowstyle="-|>", shrinkA=0, shrinkB=0, color='black', connectionstyle="arc3")
+def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, roi=None, offsets=(0.1, 0.2), arrow_props=None, rectangle_props=None):
+    """Connects two axes, either a single y/x value expanding into a new set of axes, or connecting a full ROI from
+    one axes to the next.
+
+    The ROI code follows https://stackoverflow.com/questions/24477220/use-subplots-to-zoom-into-timeseries-or-how-i-can-draw-lines-outside-of-axis-bor
+    """
+    if arrow_props is None: arrow_props = dict()
+    if rectangle_props is None: rectangle_props = dict()
+    arrow_props = {**arrow_props, **dict(arrowstyle="-|>", shrinkA=0, shrinkB=0, color='black', connectionstyle="arc3")}
+    rectangle_props = {**rectangle_props, **dict(fill=False, linestyle='dashed', color='black')}
+
     if ax2_ypos is not None:
         for _yaxis in ax.get_ylim():
             ax.annotate("",
@@ -408,6 +423,39 @@ def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arro
                     xytext=(ax2_xpos, ax2.get_ylim()[0] - offsets[1]), textcoords=ax2.transData,
                     xy=(ax2_xpos, ax2.get_ylim()[0]), xycoords=ax2.transData,
                     arrowprops=arrow_props)
+    elif roi is not None:
+        # defaults = dict(fill=False, linestyle='dashed', )
+        # # roiKwargs = dict(
+        #     [('fill', False), ('linestyle', 'dashed'), ('color', arrow_props['color']), ('linewidth', linewidth)] + roiKwargs.items())
+        ax.add_patch(mpatches.Rectangle([roi[0], roi[2]], roi[1] - roi[0], roi[3] - roi[2], **rectangle_props))
+        # arrowKwargs = dict([('arrowstyle', '-'), ('color', color), ('linewidth', linewidth)] + arrowKwargs.items())
+        srcCorners = [[roi[0], roi[2]], [roi[0], roi[3]], [roi[1], roi[2]], [roi[1], roi[3]]]
+        dstCorners = ax2.get_position().corners()
+        srcBB = ax.get_position()
+        dstBB = ax2.get_position()
+        if (dstBB.min[0] > srcBB.max[0] and dstBB.max[1] < srcBB.min[1]) or (
+                dstBB.max[0] < srcBB.min[0] and dstBB.min[1] > srcBB.max[1]):
+            src = [0, 3]
+            dst = [0, 3]
+        elif (dstBB.max[0] < srcBB.min[0] and dstBB.max[1] < srcBB.min[1]) or (
+                dstBB.min[0] > srcBB.max[0] and dstBB.min[1] > srcBB.max[1]):
+            src = [1, 2]
+            dst = [1, 2]
+        elif dstBB.max[1] < srcBB.min[1]:
+            src = [0, 2]
+            dst = [1, 3]
+        elif dstBB.min[1] > srcBB.max[1]:
+            src = [1, 3]
+            dst = [0, 2]
+        elif dstBB.max[0] < srcBB.min[0]:
+            src = [0, 1]
+            dst = [2, 3]
+        elif dstBB.min[0] > srcBB.max[0]:
+            src = [2, 3]
+            dst = [0, 1]
+        for k in range(2):
+            ax.annotate('', xy=dstCorners[dst[k]], xytext=srcCorners[src[k]],
+                        xycoords='figure fraction', textcoords='data', arrowprops=arrow_props)
     else:
         raise ValueError('Need to provide ax2_ypos or ax2_xpos')
 
