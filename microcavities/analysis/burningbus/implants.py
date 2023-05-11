@@ -6,6 +6,7 @@ from microcavities.analysis.phase_maps import low_pass
 import h5py
 from microcavities.analysis.utils import remove_cosmicrays
 from tqdm import tqdm
+from microcavities.analysis.utils import guess_peak
 
 
 def cavity_energy(lp_energy, exciton_energy=1478, rabi=3):
@@ -440,3 +441,82 @@ def implanted_polygonal_image(sample_name, parameters=None, ax=None, text_kwargs
 
     return rtrn
 
+
+"""SRIM simulations"""
+
+
+def import_SRIM_3D_datafile(file_name):
+    """ Imports an SRIM 3D dataset
+    The dimensions are depth, position, and number of vacancies/ions/damage events/etc.
+
+    :param file_name: str
+    :return:
+    """
+    with open(file_name, 'r') as dfile:
+        header_break = '----------- -------------------------------------------------------------------\n'
+        header = []
+        while True:
+            # Get next line from file
+            line = dfile.readline()
+
+            if not line:  # if we reach the end of the file without finding the header end
+                raise ValueError('Header end not found')
+            elif line == header_break:  # if we reach the end of the header
+                header += [line]
+                break
+            else:
+                header += [line]
+
+    array = np.loadtxt(file_name, skiprows=len(header))  # load all the data after the header
+    depths = array[:, 0]  # first column is depths
+    x_axis = depths - depths[-2] // 2
+    data = array[:, 1:]
+    return data, depths, x_axis, header
+
+
+def analyse_SRIM_3D_data(filename=None, *args, straggle_averaging_depth=200):
+    if filename is None:
+        img, depth, _x, h = args
+    else:
+        img, depth, _x, h = import_SRIM_3D_datafile(filename)
+
+    total_vacancies = np.sum(img, 1)
+
+    maximum_idx = np.argmax(np.sum(img, 1))
+    maximum_depth = depth[maximum_idx]
+
+    min_idx = np.argmin(np.abs(depth - (maximum_depth - straggle_averaging_depth)))
+    max_idx = np.argmin(np.abs(depth - (maximum_depth + straggle_averaging_depth)))
+    straggle = np.sum(img[min_idx:max_idx], 0)
+    peak_params = guess_peak(straggle, _x, background_percentile=0)
+
+    return total_vacancies, maximum_depth, straggle, peak_params
+
+
+def plot_SRIM_3D_data(filename=None, *args):
+    if filename is None:
+        img, depth, _x, h = args
+        total_vacancies, maximum_depth, straggle, peak_params = analyse_SRIM_3D_data(None, img, depth, h)
+    else:
+        img, depth, _x, h = import_SRIM_3D_datafile(filename)
+        total_vacancies, maximum_depth, straggle, peak_params = analyse_SRIM_3D_data(filename)
+    fig = figure(figsize=(16, 4))
+    gs = gridspec.GridSpec(1, 3, fig, wspace=0.3)
+    axs = gs.subplots()
+    imshow(img, axs[0], yaxis=depth, xaxis=_x, diverging=False)
+    axs[1].plot(depth, total_vacancies, color='xkcd:navy')
+    axs[1].axvline(maximum_depth, color='xkcd:brick red')
+    axs[1].text(maximum_depth, np.max(total_vacancies), 'd$_{\mathrm{max}}$ ~ %dnm' % (maximum_depth / 10),
+                transform=axs[1].transData)
+    axs[2].plot(_x, straggle, color='xkcd:brick red')
+    axs[2].hlines(np.max(straggle) / 2, -peak_params['sigma'], peak_params['sigma'], color='xkcd:leaf green')
+    axs[2].text(peak_params['sigma'], np.max(straggle) / 2, 'Straggle ~ %dnm' % (peak_params['sigma'] / 10),
+                transform=axs[2].transData)
+
+    label_axes(axs[0], 'x [\u212B]', 'y [\u212B]', 'Spatial distribution')
+    label_axes(axs[1], 'x [\u212B]', 'Vacancies [?]', 'Depth distribution')
+    label_axes(axs[2], 'x [\u212B]', 'Vacancies [?]', 'Straggle at depth maxima')
+
+    fig.suptitle(h[0].rstrip('\n').strip('=').strip(' '))
+
+    return fig, axs

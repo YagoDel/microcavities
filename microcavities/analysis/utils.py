@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-
 from microcavities.utils.plotting import *
+from nplab.utils.log import create_logger
 from scipy.ndimage import gaussian_filter
 from scipy.stats import zscore
 from microcavities.utils import around_step
 from microcavities.utils.functools import lorentzianNd, gaussianNd
 import collections
+
+LOGGER = create_logger('analysis.utils')
 
 
 def centroids(array, axis=-1):
@@ -247,15 +249,23 @@ def guess_peak(data, xaxis=None, width_lims=None, background_percentile=5):
 
     # Finds the peak FWHM
     if width_lims is None:
-        # Default width limits is that the peak cannot be sharper than 5 xaxis steps, and it cannot be wider than half
+        # Default width limits is that the peak cannot be sharper than 3 xaxis steps, and it cannot be wider than half
         # the xaxis range
-        width_lims = (5 * np.abs(np.mean(np.diff(xaxis))), 0.5 * (np.max(xaxis)-np.min(xaxis)))
+        width_lims = (3 * np.abs(np.mean(np.diff(xaxis))), 0.5 * (np.max(xaxis)-np.min(xaxis)))
     assert len(width_lims) == 2
     minima_indices = np.argsort(np.abs(data - data[center_idx] / 2))  # finds the indices closest to half maximum
+    assert len(minima_indices) > 1  # there need to be more than two minima
     first_minimum = minima_indices[0]  # first index is arbitrarily chosen
     widths = np.abs((xaxis[minima_indices]-xaxis[first_minimum]))/2  # peak widths from that first index
-    _indices = widths > width_lims[0]  # select minimum peak width larger than the given limit
-    width = np.min(list(widths[_indices]) + [width_lims[1]])
+    for width in widths:  # find the first peak that is larger than the minima
+        if width > width_lims[0]:
+            break
+    if width < width_lims[0]:
+        LOGGER.warn('Peak FWHM is smaller than the limit')
+        width = width_lims[0]
+    if width > width_lims[1]:
+        LOGGER.warn('Peak FWHM is larger than the limit')
+        width = width_lims[1]
 
     # Finds the peak amplitude (assuming a Lorentzian shape)
     ampl = np.pi * width * data[center_idx]
