@@ -263,7 +263,7 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         raise ValueError()
 
 
-def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
+def unique_legend(ax, sort=False, multi_artist=False, return_handles=False, *args, **kwargs):
     """Removes repeated labels in a legend"""
 
     # Simple extension of maptlotlib.legend_handler.HandlerTuple to stack artists vertically instead of horizontally
@@ -354,7 +354,22 @@ def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
 
     if multi_artist:
         kwargs = {**dict(handler_map={tuple: HandlerTuple2(ndivide=None)}), **kwargs}
-    ax.legend(values, keys, *args, **kwargs)
+
+    if return_handles:
+        return values, keys, args, kwargs
+    else:
+        ax.legend(values, keys, *args, **kwargs)
+
+
+def multi_axis_legend(axes, *args, **kwargs):
+    """Joins the labels from multiple axes (e.g. from axes with sharex/sharey)"""
+    values = []
+    keys = []
+    for ax in axes:
+        v, k, _args, _kwargs = unique_legend(ax, return_handles=True, *args, **kwargs)
+        values += v
+        keys += list(k)
+    axes[0].legend(values, keys, *args, **_kwargs)
 
 
 def colour_axes(ax, colour, axis='both', which='both'):
