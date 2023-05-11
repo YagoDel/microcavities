@@ -7,6 +7,7 @@ import h5py
 from microcavities.analysis.utils import remove_cosmicrays
 from tqdm import tqdm
 from microcavities.analysis.utils import guess_peak
+from microcavities.utils import interpolated_array
 
 
 def cavity_energy(lp_energy, exciton_energy=1478, rabi=3):
@@ -494,6 +495,15 @@ def analyse_SRIM_3D_data(filename=None, *args, straggle_averaging_depth=200):
 
 
 def plot_SRIM_3D_data(filename=None, *args):
+    """ Default plotting for characterising 3D SRIM data
+
+    Plots the 2D (x, depth) distribution of vacancies/ions/damage/etc., plots the total dose vs depth, and the straggle
+    at the depth of maximum total dose
+
+    :param filename:
+    :param args:
+    :return:
+    """
     if filename is None:
         img, depth, _x, h = args
         total_vacancies, maximum_depth, straggle, peak_params = analyse_SRIM_3D_data(None, img, depth, h)
@@ -520,3 +530,34 @@ def plot_SRIM_3D_data(filename=None, *args):
     fig.suptitle(h[0].rstrip('\n').strip('=').strip(' '))
 
     return fig, axs
+
+
+def implant_mask(vacancy_file, width_in_angs=100, n_points=(201, 151)):
+    """Returns the array that would result from implanting an area of a given width with the SRIM parameters in the
+    given file
+
+    :param vacancy_file: str. Path
+    :param width_in_angs: float
+    :param n_points: 2-tuple
+    :return:
+    """
+    img, depth, x_axis, h = import_SRIM_3D_datafile(vacancy_file)
+    interpolated_vacancies = interpolated_array(img, [depth, x_axis], fill_value=0)
+
+    # Making a new depth array
+    new_depth = np.linspace(np.min(depth), np.max(depth), n_points[0])
+
+    # Making a new x array
+    min_x = np.min([np.min(x_axis), -width_in_angs])
+    max_x = np.max([np.max(x_axis), width_in_angs])
+    new_xaxis = np.linspace(min_x, max_x, n_points[1])
+
+    # Making a boolean mask
+    mask = np.abs(new_xaxis) < width_in_angs / 2
+
+    # Masked implants
+    final_implants = np.zeros((len(new_depth), len(new_xaxis)))
+    for _x, _bool in zip(new_xaxis, mask):
+        if _bool:
+            final_implants += np.array([interpolated_vacancies(_d, new_xaxis - _x) for _d in new_depth])
+    return final_implants, new_depth, new_xaxis
