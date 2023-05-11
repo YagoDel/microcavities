@@ -219,6 +219,58 @@ def find_smooth_region(data, threshold=0.1):
     return boundaries, data[boundaries[0]:boundaries[1]]
 
 
+def guess_peak(data, xaxis=None, width_lims=None, background_percentile=5):
+    """Peak property guessing
+
+    Guesses the background, peak height, peak position and FHWM. Typically used to initialise a fitting procedure
+    This will get confused if there's more than one peak with maxima above half the maximum in the data.
+
+    :param data: 1D array
+    :param xaxis: None or 1D array
+    :param width_lims: None or two tuple of (min, max) width limits
+    :param background_percentile: float. To be passed to np.percentile
+    :return:
+    """
+    DEBUG = False  # simply used for plotting the results, in case needed in the future
+
+    data = np.copy(data)
+    if xaxis is None:
+        xaxis = list(range(len(data)))
+
+    # Finds the peak position
+    center_idx = np.argmax(data)
+    center = xaxis[center_idx]
+
+    # Finds and removes the background
+    bkg = np.percentile(data, background_percentile)
+    data -= bkg
+
+    # Finds the peak FWHM
+    if width_lims is None:
+        # Default width limits is that the peak cannot be sharper than 5 xaxis steps, and it cannot be wider than half
+        # the xaxis range
+        width_lims = (5 * np.abs(np.mean(np.diff(xaxis))), 0.5 * (np.max(xaxis)-np.min(xaxis)))
+    assert len(width_lims) == 2
+    minima_indices = np.argsort(np.abs(data - data[center_idx] / 2))  # finds the indices closest to half maximum
+    first_minimum = minima_indices[0]  # first index is arbitrarily chosen
+    widths = np.abs((xaxis[minima_indices]-xaxis[first_minimum]))/2  # peak widths from that first index
+    _indices = widths > width_lims[0]  # select minimum peak width larger than the given limit
+    width = np.min(list(widths[_indices]) + [width_lims[1]])
+
+    # Finds the peak amplitude (assuming a Lorentzian shape)
+    ampl = np.pi * width * data[center_idx]
+
+    if DEBUG:
+        print(width_lims)
+        fig, ax = create_axes()
+        _y = np.abs(data - data[center_idx] / 2)
+        ax.plot(xaxis, _y)
+        ax.vlines([xaxis[first_minimum], xaxis[first_minimum]+width, xaxis[first_minimum]-width],
+                  np.min(_y), np.max(_y), 'r')
+        plt.figure()
+    return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
+
+
 # Tests
 def test_remove_spikes():
     _x, _y = [np.linspace(-10, 10, idx) for idx in [100, 200]]

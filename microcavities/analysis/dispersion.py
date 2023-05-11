@@ -2,6 +2,7 @@
 """Utility functions to analyse low power dispersion images"""
 
 from microcavities.analysis import *
+from microcavities.analysis.utils import guess_peak
 from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 from scipy.ndimage import gaussian_filter
@@ -58,35 +59,6 @@ def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mas
 
 
 # Low-energy k~0 dispersion fitting
-def guess_peak(data, xaxis=None, width_lims=(5, 0.001)):
-    """Peak property guessing
-
-    Guesses the background, peak height, peak position and FHWM. Used to initialise a fitting procedure
-
-    :param data:
-    :param xaxis:
-    :param width_lims:
-    :return:
-    """
-    # Guessing initial parameters for a fit
-    if xaxis is None:
-        xaxis = list(range(len(data)))
-    center_idx = np.argmax(data)
-    center = xaxis[center_idx]
-    bkg = np.percentile(data, 10)  # np.mean(data[10:100])
-
-    minima = np.argsort(np.abs(data - bkg - (data[center_idx] - bkg) / 2))
-    minimum_1 = minima[0]
-    minimum_2 = -1
-    for dum in minima[1:]:
-        if np.abs(dum - minimum_1) > width_lims[0]:
-            minimum_2 = dum
-            break
-    width = np.min([np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2, width_lims[1]])
-    ampl = np.pi * width * (data[center_idx] - bkg)
-
-    return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
-
 
 def fit_energy(spectra, energy_axis, model=None, guess_kwargs=None):
     """
