@@ -73,6 +73,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
 
     # Extracting the data and removing the background. Can give different backgrounds for each series
     photolum, powers = get_data_from_yamls(yaml_paths, series_names)
+    key = list(powers[0].keys())[0]
     try:
         if len(bkg) == len(series_names):
             pass
@@ -83,7 +84,7 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     except:
         bkg = [bkg] * len(photolum)
     photolum = [p - b for p, b in zip(photolum, bkg)]
-    powers = [p['power_wheel_power'] for p in powers]
+    powers = [p[key] for p in powers]
     dispersion_imgs = np.copy(photolum[0][0])
     if len(dispersion_imgs.shape) == 2:
         dispersion_imgs = dispersion_imgs[np.newaxis]
