@@ -2,6 +2,7 @@
 """Utility functions to analyse low power dispersion images"""
 
 from microcavities.analysis import *
+from microcavities.analysis.utils import guess_peak
 from microcavities.utils import depth
 from microcavities.experiment.utils import spectrometer_calibration, magnification
 from scipy.ndimage import gaussian_filter
@@ -58,35 +59,6 @@ def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mas
 
 
 # Low-energy k~0 dispersion fitting
-def guess_peak(data, xaxis=None, width_lims=(5, 0.001)):
-    """Peak property guessing
-
-    Guesses the background, peak height, peak position and FHWM. Used to initialise a fitting procedure
-
-    :param data:
-    :param xaxis:
-    :param width_lims:
-    :return:
-    """
-    # Guessing initial parameters for a fit
-    if xaxis is None:
-        xaxis = list(range(len(data)))
-    center_idx = np.argmax(data)
-    center = xaxis[center_idx]
-    bkg = np.percentile(data, 10)  # np.mean(data[10:100])
-
-    minima = np.argsort(np.abs(data - bkg - (data[center_idx] - bkg) / 2))
-    minimum_1 = minima[0]
-    minimum_2 = -1
-    for dum in minima[1:]:
-        if np.abs(dum - minimum_1) > width_lims[0]:
-            minimum_2 = dum
-            break
-    width = np.min([np.abs(xaxis[minimum_1] - xaxis[minimum_2]) / 2, width_lims[1]])
-    ampl = np.pi * width * (data[center_idx] - bkg)
-
-    return dict(amplitude=ampl, sigma=width, center=center, background=bkg)
-
 
 def fit_energy(spectra, energy_axis, model=None, guess_kwargs=None):
     """
@@ -269,34 +241,26 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=N
         plotting = (fig, (axs[0]))  # to pass axes to find_mass
 
     # Fitting the mass
-    mass = find_mass(image, energy_axis, k_axis, plotting)
+    mass = find_mass(image, energy_axis, k_axis, False)
 
     # Fitting the Rabi splitting and detuning
     if fit_kwargs is None: fit_kwargs = dict()
-    defaults = dict(mode='lp',
-                    # starting_fit_parameters=(np.mean(energy_axis),  # photon energy
-                    #                          (np.max(energy_axis)-np.min(energy_axis))/4,  # rabi
-                    #                          mass,  # photon mass
-                    #                          np.mean(energy_axis),  # exciton energy
-                    #                          mass * 1e5,  # exciton mass
-                    #                          0),  # k_0 offset
-                    least_squares_kw=dict(max_nfev=5e4)
-                    )
+    defaults = dict(mode='lp', least_squares_kw=dict(max_nfev=5e4))
     fit_kwargs = {**defaults, **fit_kwargs}
     final_params, parameter_errors, res = fit_dispersion(image, k_axis, energy_axis, plotting, **fit_kwargs)
     LOGGER.debug('Final fit parameters: %s' % final_params)
 
-    exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
-                                                final_params['photon_energy'] - final_params['exciton_energy'])
+    if res.success:
+        exciton_fraction, _ = hopfield_coefficients(final_params['rabi_splitting'],
+                                                    final_params['photon_energy'] - final_params['exciton_energy'])
+        # Getting return values in physically useful units
+        energy = result.best_values['center']
+        lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
 
-    # Getting return values in physically useful units
-    energy = result.best_values['center']
-    lifetime = 2 * np.pi * hbar / (2 * result.best_values['sigma'])  # in ps
-
-    final_params['polariton_energy'] = energy
-    final_params['polariton_lifetime'] = lifetime
-    final_params['polariton_mass'] = mass
-    final_params['exciton_fraction'] = exciton_fraction
+        final_params['polariton_energy'] = energy
+        final_params['polariton_lifetime'] = lifetime
+        final_params['polariton_mass'] = mass
+        final_params['exciton_fraction'] = exciton_fraction
 
     return final_params
 
@@ -324,6 +288,8 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
     :return:
     """
+    LOGGER.debug('Call fit_dispersion: \n\t%s' % find_bands_kwargs)
+
     if find_bands_kwargs is None: find_bands_kwargs = dict()
     if least_squares_kw is None: least_squares_kw = dict()
     if known_sample_parameters is None: known_sample_parameters = dict()
@@ -338,7 +304,12 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
                     clustering_kwargs=dict(min_cluster_size=40, min_cluster_distance=10,
                                            agglom_kwargs=dict(n_clusters=n_clusters, linkage='single')),
                     xaxis=k_axis, yaxis=energy_axis)
-    find_bands_kwargs = {**defaults, **find_bands_kwargs}
+    for key, value in defaults.items():
+        if key in find_bands_kwargs:
+            find_bands_kwargs[key] = {**value, **find_bands_kwargs[key]}
+        else:
+            find_bands_kwargs[key] = value
+    # find_bands_kwargs = {**defaults, **find_bands_kwargs}
     bands = find_bands(image, **find_bands_kwargs)
 
     lp_energy_guess = np.percentile(bands[0][:, 1], 5)
@@ -399,13 +370,14 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     if res.success:
         final_params = [dispersion_parameters[key] for key in parameter_names]
     else:
-        print('Failed fit')
+        LOGGER.warn('Failed fit %s' % starting_fit_parameters)
         final_params = []
         for key, sc, st in zip(parameter_names, scales, starting_fit_parameters):
             if key in known_sample_parameters:
                 final_params += [known_sample_parameters[key]]
             else:
-                final_params += [st]
+                final_params += [starting_fit_parameters[key]]
+
     final_params = {key: value for key, value in zip(parameter_names, final_params)}
 
     # parsing fit errors, copying from scipy.optimize.curve_fit
@@ -422,18 +394,19 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
         imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm(), cmap='Greys')
         [ax.plot(*band.transpose()) for band in bands]
 
+        if not res.success:
+            ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
+
         new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
+
         lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
         [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
         [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
 
-        if not res.success:
-            ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
-        else:
-            ax.text(0.5, 0.95,
-                    u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
-                                                                   final_params['exciton_energy']-final_params['photon_energy']),
-                    transform=ax.transAxes, ha='center', va='top')
+        ax.text(0.5, 0.95,
+                u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
+                                                               final_params['exciton_energy']-final_params['photon_energy']),
+                transform=ax.transAxes, ha='center', va='top')
     return final_params, parameter_errors, res
 
 
@@ -453,6 +426,8 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
     :param min_cluster_size:
     :return:
     """
+    LOGGER.debug('Call cluster_points: \n\t%s\n\t%s\n\t%s\n\t%s' % (agglom_kwargs, noise_cluster_size, min_cluster_distance, min_cluster_size))
+
     if axis_limits is not None:  # Removing points outside the desired axis_limits
         if depth(axis_limits) == 1:  # If only one tuple, apply to y-direction
             mask = np.logical_and(points[:, 1] < axis_limits[1],
@@ -537,6 +512,7 @@ def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, cl
     :return:
     """
     assert direction in ['both', 'x', 'y']
+    LOGGER.debug('Call find_bands: \n\t%s\n\t%s\n\t%s\n\t%s\n\t%s\n\t%s\n\t%s' % (plotting, direction, find_peak_kwargs, clustering_kwargs, xaxis, yaxis, max_number_of_peaks))
 
     # Smoothened find_peaks
     def _find_peaks(x, savgol_kwargs=None, *args, **kwargs):

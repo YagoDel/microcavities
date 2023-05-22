@@ -17,8 +17,8 @@ import matplotlib.patches as mpatches
 from shapely.geometry import MultiLineString
 
 plt.style.use(os.path.join(os.path.dirname(__file__), 'default_style.mplstyle'))
-plt.rcParams['pdf.fonttype'] = 'truetype'
-plt.rcParams['svg.fonttype'] = 'none'
+# plt.rcParams['pdf.fonttype'] = 'truetype'
+plt.rcParams['svg.fonttype'] = 'path'
 
 
 # Colormaps
@@ -235,6 +235,13 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
     :param offset: float
     :return:
     """
+    try:
+        len(offset)
+    except:
+        if position in ['bottom', 'top']:
+            offset = (0, offset)
+        else:
+            offset = (offset, 0)
     if isinstance(figure_grid, plt.Figure):
         assert len(figure_grid._gridspecs)
         grid = figure_grid._gridspecs[0]
@@ -246,18 +253,18 @@ def label_grid(figure_grid, label, position, offset=0.07, **kwargs):
         raise ValueError('Unrecognised type for figure_grid: %s' % figure_grid)
     _pos = grid.get_grid_positions(figure)
     if position == 'bottom':
-        figure.text(np.mean(_pos[2:]), _pos[0][-1]-offset, label, va='top', ha='center', **kwargs)
+        figure.text(np.mean(_pos[2:])-offset[0], _pos[0][-1]-offset[1], label, va='top', ha='center', **kwargs)
     elif position == 'top':
-        figure.text(np.mean(_pos[2:]), _pos[1][0]+offset, label, va='bottom', ha='center', **kwargs)
+        figure.text(np.mean(_pos[2:])-offset[0], _pos[1][0]+offset[1], label, va='bottom', ha='center', **kwargs)
     elif position == 'left':
-        figure.text(_pos[2][0]-offset, np.mean(_pos[:2]), label, va='center', ha='right', rotation=90, **kwargs)
+        figure.text(_pos[2][0]-offset[0], np.mean(_pos[:2])-offset[1], label, va='center', ha='right', rotation=90, **kwargs)
     elif position == 'right':
-        figure.text(_pos[3][-1]+offset, np.mean(_pos[:2]), label, va='center', ha='left', rotation=-90, **kwargs)
+        figure.text(_pos[3][-1]+offset[0], np.mean(_pos[:2])-offset[1], label, va='center', ha='left', rotation=-90, **kwargs)
     else:
         raise ValueError()
 
 
-def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
+def unique_legend(ax, sort=False, multi_artist=False, return_handles=False, *args, **kwargs):
     """Removes repeated labels in a legend"""
 
     # Simple extension of maptlotlib.legend_handler.HandlerTuple to stack artists vertically instead of horizontally
@@ -348,7 +355,22 @@ def unique_legend(ax, sort=False, multi_artist=False, *args, **kwargs):
 
     if multi_artist:
         kwargs = {**dict(handler_map={tuple: HandlerTuple2(ndivide=None)}), **kwargs}
-    ax.legend(values, keys, *args, **kwargs)
+
+    if return_handles:
+        return values, keys, args, kwargs
+    else:
+        ax.legend(values, keys, *args, **kwargs)
+
+
+def multi_axis_legend(axes, *args, **kwargs):
+    """Joins the labels from multiple axes (e.g. from axes with sharex/sharey)"""
+    values = []
+    keys = []
+    for ax in axes:
+        v, k, _args, _kwargs = unique_legend(ax, return_handles=True, *args, **kwargs)
+        values += v
+        keys += list(k)
+    axes[0].legend(values, keys, *args, **_kwargs)
 
 
 def colour_axes(ax, colour, axis='both', which='both'):
@@ -374,9 +396,17 @@ def colour_axes(ax, colour, axis='both', which='both'):
             ax.spines[which].set_edgecolor(colour)
 
 
-def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arrow_props=None):
-    if arrow_props is None:
-        arrow_props = dict(arrowstyle="-|>", shrinkA=0, shrinkB=0, color='black', connectionstyle="arc3")
+def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, roi=None, offsets=(0.1, 0.2), arrow_props=None, rectangle_props=None):
+    """Connects two axes, either a single y/x value expanding into a new set of axes, or connecting a full ROI from
+    one axes to the next.
+
+    The ROI code follows https://stackoverflow.com/questions/24477220/use-subplots-to-zoom-into-timeseries-or-how-i-can-draw-lines-outside-of-axis-bor
+    """
+    if arrow_props is None: arrow_props = dict()
+    if rectangle_props is None: rectangle_props = dict()
+    arrow_props = {**arrow_props, **dict(arrowstyle="-|>", shrinkA=0, shrinkB=0, color='black', connectionstyle="arc3")}
+    rectangle_props = {**rectangle_props, **dict(fill=False, linestyle='dashed', color='black')}
+
     if ax2_ypos is not None:
         for _yaxis in ax.get_ylim():
             ax.annotate("",
@@ -409,6 +439,39 @@ def connect_axes(ax, ax2, ax2_ypos=None, ax2_xpos=None, offsets=(0.1, 0.2), arro
                     xytext=(ax2_xpos, ax2.get_ylim()[0] - offsets[1]), textcoords=ax2.transData,
                     xy=(ax2_xpos, ax2.get_ylim()[0]), xycoords=ax2.transData,
                     arrowprops=arrow_props)
+    elif roi is not None:
+        # defaults = dict(fill=False, linestyle='dashed', )
+        # # roiKwargs = dict(
+        #     [('fill', False), ('linestyle', 'dashed'), ('color', arrow_props['color']), ('linewidth', linewidth)] + roiKwargs.items())
+        ax.add_patch(mpatches.Rectangle([roi[0], roi[2]], roi[1] - roi[0], roi[3] - roi[2], **rectangle_props))
+        # arrowKwargs = dict([('arrowstyle', '-'), ('color', color), ('linewidth', linewidth)] + arrowKwargs.items())
+        srcCorners = [[roi[0], roi[2]], [roi[0], roi[3]], [roi[1], roi[2]], [roi[1], roi[3]]]
+        dstCorners = ax2.get_position().corners()
+        srcBB = ax.get_position()
+        dstBB = ax2.get_position()
+        if (dstBB.min[0] > srcBB.max[0] and dstBB.max[1] < srcBB.min[1]) or (
+                dstBB.max[0] < srcBB.min[0] and dstBB.min[1] > srcBB.max[1]):
+            src = [0, 3]
+            dst = [0, 3]
+        elif (dstBB.max[0] < srcBB.min[0] and dstBB.max[1] < srcBB.min[1]) or (
+                dstBB.min[0] > srcBB.max[0] and dstBB.min[1] > srcBB.max[1]):
+            src = [1, 2]
+            dst = [1, 2]
+        elif dstBB.max[1] < srcBB.min[1]:
+            src = [0, 2]
+            dst = [1, 3]
+        elif dstBB.min[1] > srcBB.max[1]:
+            src = [1, 3]
+            dst = [0, 2]
+        elif dstBB.max[0] < srcBB.min[0]:
+            src = [0, 1]
+            dst = [2, 3]
+        elif dstBB.min[0] > srcBB.max[0]:
+            src = [2, 3]
+            dst = [0, 1]
+        for k in range(2):
+            ax.annotate('', xy=dstCorners[dst[k]], xytext=srcCorners[src[k]],
+                        xycoords='figure fraction', textcoords='data', arrowprops=arrow_props)
     else:
         raise ValueError('Need to provide ax2_ypos or ax2_xpos')
 
@@ -1032,7 +1095,8 @@ def contour_intersections(images, contour_levels, ax=None, xs=None, ys=None, col
     return fig, ax, np.squeeze(intersections), lines
 
 
-def polygonal_image(points, z_scale=None, margins=(0.1, 0.1), min_points=(101, 101), plot_kwargs=None, *args, **kwargs):
+def polygonal_image(points, z_scale=None, ax=None, margins=(0.1, 0.1), min_points=(101, 101), position_limits=None,
+                    plot_kwargs=None, *args, **kwargs):
     """Creates skimage.segmentation.watershed labelled image from a series of points
 
     Example:
@@ -1044,21 +1108,29 @@ def polygonal_image(points, z_scale=None, margins=(0.1, 0.1), min_points=(101, 1
 
     :param points: (Nx2) ndarray. (x, y) positions defining the position of each watershed-defined region
     :param z_scale: (N, ) ndarray. Values to evaluate the colormap of each region
+    :param ax: pyplot.Axes or pyplot.Figure
     :param margins: 2-tuple of floats. Percentage of spatial range to add as margins on the edges
     :param min_points: 2-tuple of int. Minimum number of grid points to use in the boundary image
+    :param position_limits: 4-tuple of min_x, max_x, min_y, max_y
     :param plot_kwargs: dict or None. To be passed to pyplot.plot
-    :param args: to be passed to imshow
-    :param kwargs: to be passed to imshow
+    :param args: to be passed to microcavities.utils.plotting.imshow
+    :param kwargs: to be passed to microcavities.utils.plotting.imshow
     :return:
     """
+
+    fig, ax = create_axes(ax)
+
     if z_scale is None:
         z_scale = np.arange(len(points))
-    normalized_z = -normalize(z_scale)  # Setting the zscale to go from -1 to 0 so that watershed segments correctly
+    normalized_z = normalize(z_scale)-1  # Setting the zscale to go from -1 to 0 so that watershed segments correctly
     z_scale = np.append(z_scale, np.nan)  # Adding a np.nan for the boundary pixels
 
     # Edges of the spatial grid
-    min_x, min_y = np.min(points, 0)
-    max_x, max_y = np.max(points, 0)
+    if position_limits is None:
+        min_x, min_y = np.min(points, 0)
+        max_x, max_y = np.max(points, 0)
+    else:
+        min_x, max_x, min_y, max_y = position_limits
 
     # Adding margins
     range_x = (max_x - min_x)
@@ -1090,16 +1162,21 @@ def polygonal_image(points, z_scale=None, margins=(0.1, 0.1), min_points=(101, 1
 
     # Finding the boundaries using skimage.segmentation.watershed
     boundaries = watershed(data, watershed_line=True)  # nx by ny array with region indices
-    scaled = z_scale[boundaries-1]  # nx by ny array with region z-values
+    scaled = np.asarray(boundaries, dtype=float)
+    for indx, (z, point) in enumerate(zip(z_scale, points)):
+        idx = np.argmin(np.abs(x - point[0]))
+        idy = np.argmin(np.abs(y - point[1]))
+        value = boundaries[idx, idy]
+        scaled[scaled == value] = z
 
     # Plotting
-    fig, ax, cax = imshow(scaled.transpose(), xaxis=x, yaxis=y, *args, **kwargs)
+    fig, ax, cax = imshow(scaled, ax, xaxis=y, yaxis=x, *args, **kwargs)
     if plot_kwargs is not False:
         defaults = dict(color='k', marker='x', ls='none')
         if plot_kwargs is None:
             plot_kwargs = dict()
         plot_kwargs = {**defaults, **plot_kwargs}
-        ax.plot(*points.transpose(), **plot_kwargs)
+        ax.plot(points[:, 1], points[:, 0], **plot_kwargs)
     return fig, ax, cax
 
 
@@ -1146,6 +1223,15 @@ def test_2D():
     imshow(img, axs[1], xaxis=_x, yaxis=_y)
 
     pcolormesh(img, xaxis=np.exp(_x), yaxis=_y)
+
+    _x = np.random.random(7)
+    _y = np.random.random(7)
+    z = np.random.random(7)
+    points = np.array([(x, y) for x,y in zip(_x, _y)])
+    fig, ax = plt.subplots(1, 1)
+    norm = colors.Normalize(vmin=0, vmax=1)
+    [ax.plot(x, y, 'o', color=c, ms=5) for x, y, c in zip(_x, _y, cm.RdBu(norm(z)))]
+    polygonal_image(points, z, ax, vmin=0, vmax=1, cmap='RdBu')
 
 
 if __name__ == '__main__':

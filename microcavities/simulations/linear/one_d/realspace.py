@@ -19,7 +19,7 @@ def _kinetic_matrix(mass, size, x_spacing=1):
     :return:
     """
     diag = -2 * np.diag(np.ones((size,))) + np.diag(np.ones((size-1,)), 1) + np.diag(np.ones((size-1,)), -1)
-    return (-1/2) * diag * (hbar**2) / (mass*electron_mass*x_spacing)
+    return (-1/2) * diag * (hbar**2) / (mass*electron_mass*x_spacing**2)
 
 
 def kinetic_matrix(size, rabi, mass_photon=1e-5, mass_exciton=0.35, x_spacing=1):
@@ -167,3 +167,31 @@ def test_farfield_conveyor_belt():
         ax.set_ylim(-6, 6)
         ax.set_xlim(-1.5, 1.5)
         label_axes(ax, '$k$ [um]', 'Energy [meV]', 'f=%dGHz' % (frequency * 1e3))
+
+
+def test_farfield_free_space():
+    from microcavities.analysis.dispersion import exciton_photon_dispersions
+    mass_photon = 5e-5
+    mass_exciton = 0.35
+    detuning = -5
+    rabi = 5
+    n_points = 501
+    xax = np.linspace(-80, 80, n_points)
+    kax = make_k_ax(xax)
+
+    T = kinetic_matrix(len(xax), rabi, mass_photon, mass_exciton, np.diff(xax)[0])
+    U = potential_matrix(0*xax, 0*xax, detuning)
+    H = T + U
+
+    ham = lambda t: H
+    times = np.linspace(-100, 100, 5001)
+
+    ff = farfield(ham, times, 1)
+
+    fig, ax = plt.subplots(1, 1)
+    imshow(ff[0].transpose(), ax, diverging=False, norm=LogNorm(), xaxis=kax, yaxis=ff[1], interpolation='none')
+    lower, upper, exciton, photon = exciton_photon_dispersions(kax, detuning / 2, rabi, mass_photon, -detuning / 2,
+                                                               mass_exciton, for_fit=False)
+    [ax.plot(kax, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+    [ax.plot(kax, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+    ax.set_ylim(-10, 10)

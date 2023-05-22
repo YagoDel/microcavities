@@ -5,6 +5,8 @@ Two different approaches:
 what the correspond to in the known emission by doing ratios of energy differences (not implemented yet)
 - If only few peaks appear in the same frame, then you need to have an idea of what the central wavelength is and of
 what the range of wavelengths is in the frame
+
+# TODO: extend using https://github.com/jveitchmichaelis/rascal
 """
 
 
