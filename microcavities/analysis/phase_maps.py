@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from microcavities.utils.plotting import *
+from microcavities.analysis import *
 from scipy.signal import convolve, fftconvolve
 from skimage.restoration import unwrap_phase
 from skimage.feature import peak_local_max
 from nplab.instrument.electronics.SLM import zernike_polynomial
+
+
+LOGGER = create_logger('microcavities.analysis.phase_maps')
 
 
 def zernike_decomposition(image, order=10, beam_size=1, unit_circle=True):
@@ -189,6 +192,7 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         idxs = np.argsort(peak_intensities)[::-1]
         sorted_peaks = peaks[idxs]
         offset = sorted_peaks[1] - sorted_peaks[0]
+        LOGGER.info('analyse_fringes offset = %s' % offset)
     rolled = np.roll(fourier, offset, (0, 1))
 
     # Defining a centered circular hard mask
