@@ -241,7 +241,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=N
         plotting = (fig, (axs[0]))  # to pass axes to find_mass
 
     # Fitting the mass
-    mass = find_mass(image, energy_axis, k_axis, plotting)
+    mass = find_mass(image, energy_axis, k_axis, False)
 
     # Fitting the Rabi splitting and detuning
     if fit_kwargs is None: fit_kwargs = dict()
@@ -288,6 +288,8 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
     :return:
     """
+    LOGGER.debug('Call fit_dispersion: \n\t%s' % find_bands_kwargs)
+
     if find_bands_kwargs is None: find_bands_kwargs = dict()
     if least_squares_kw is None: least_squares_kw = dict()
     if known_sample_parameters is None: known_sample_parameters = dict()
@@ -302,7 +304,12 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
                     clustering_kwargs=dict(min_cluster_size=40, min_cluster_distance=10,
                                            agglom_kwargs=dict(n_clusters=n_clusters, linkage='single')),
                     xaxis=k_axis, yaxis=energy_axis)
-    find_bands_kwargs = {**defaults, **find_bands_kwargs}
+    for key, value in defaults.items():
+        if key in find_bands_kwargs:
+            find_bands_kwargs[key] = {**value, **find_bands_kwargs[key]}
+        else:
+            find_bands_kwargs[key] = value
+    # find_bands_kwargs = {**defaults, **find_bands_kwargs}
     bands = find_bands(image, **find_bands_kwargs)
 
     lp_energy_guess = np.percentile(bands[0][:, 1], 5)
@@ -419,6 +426,8 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
     :param min_cluster_size:
     :return:
     """
+    LOGGER.debug('Call cluster_points: \n\t%s\n\t%s\n\t%s\n\t%s' % (agglom_kwargs, noise_cluster_size, min_cluster_distance, min_cluster_size))
+
     if axis_limits is not None:  # Removing points outside the desired axis_limits
         if depth(axis_limits) == 1:  # If only one tuple, apply to y-direction
             mask = np.logical_and(points[:, 1] < axis_limits[1],
@@ -503,6 +512,7 @@ def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, cl
     :return:
     """
     assert direction in ['both', 'x', 'y']
+    LOGGER.debug('Call find_bands: \n\t%s\n\t%s\n\t%s\n\t%s\n\t%s\n\t%s\n\t%s' % (plotting, direction, find_peak_kwargs, clustering_kwargs, xaxis, yaxis, max_number_of_peaks))
 
     # Smoothened find_peaks
     def _find_peaks(x, savgol_kwargs=None, *args, **kwargs):
