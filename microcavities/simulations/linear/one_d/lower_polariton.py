@@ -21,12 +21,13 @@ def polariton_mass(detuning, rabi_splitting, photon_mass=1e-5, exciton_mass=0.35
     return 1 / (hopfield / exciton_mass + (1-hopfield) / photon_mass)
 
 
-def kinetic_matrix(size=101, mass=1e-3, x_spacing=1.0):
+def kinetic_matrix(size=101, mass=1e-3, x_spacing=1.0, boundary_conditions='closed'):
     """
 
     :param size: int. Size of the square array to be returned
     :param mass: ratio to free electron mass
     :param x_spacing: in microns
+    :param boundary_conditions: str. One of 'closed' or 'periodic'
     :return:
     """
     try:
@@ -41,28 +42,13 @@ def kinetic_matrix(size=101, mass=1e-3, x_spacing=1.0):
     down = 1/mass_backward[2:-1]  # 1 / (mass + np.roll(mass, -1))
     # print(mass, mass_forward, mass_backward, np.mean([mass_forward, mass_backward], 0))
     matrix = np.diag(diag) + np.diag(up, 1) + np.diag(down, -1)
+    if boundary_conditions == 'periodic':
+        matrix[-1, 0] = down[0]
+        matrix[0, -1] = up[0]
+    elif boundary_conditions != 'closed':
+        raise ValueError('boundary_conditions must be one of: %s' % ['periodic', 'closed'])
     diff = matrix / (x_spacing**2)
     return - hbar**2 * diff / (2 * electron_mass)
-
-    #
-    # # try:
-    # #     assert len(mass) == size
-    # #     # print(mass[:10])
-    # #     mass = np.array(mass)
-    # #     mass_diag = 1 / mass
-    # #     mass_offset = 1 / np.mean([mass[1:], mass[:-1]], 0)
-    # #     diff = (-2 * np.diag(mass_diag) + np.diag(mass_offset, 1) + np.diag(mass_offset, -1)) / (x_spacing**2)
-    # #     # diff = (-2 * np.diag(np.ones(size)/mass) + np.diag(np.ones(size-1)/mass[:-1], 1) + np.diag(np.ones(size-1)/mass[:-1], -1)) / (x_spacing**2)
-    # #     # print("Yep")
-    # # except Exception as e:
-    # #     # print(e)
-    # #     diff = (-2 * np.diag(np.ones(size)) + np.diag(np.ones(size-1), 1) + np.diag(np.ones(size-1), -1)) / (x_spacing**2)
-    # #     diff = diff / mass
-    # # # print(np.diag(diff)[:10])
-    # diff = (-2 * np.diag(np.ones(size)) + np.diag(np.ones(size - 1), 1) + np.diag(np.ones(size - 1), -1)) / (
-    #             x_spacing ** 2)
-    # diff = diff / mass
-    # return - hbar**2 * diff / (2 * electron_mass)
 
 
 def single_trap(depth, width, size=101, bkg_value=0, mass=1e-3, mass_landscape=False):
