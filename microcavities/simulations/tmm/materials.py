@@ -141,3 +141,48 @@ def dispersive_AlGaAs(fraction, wavelength, source='batop'):
         permitivitty += a(fraction) * (f(chi(wavelength, e0(fraction))) +
                                        0.5*f(chi(wavelength, e0d0(fraction)))*(e0(fraction)/e0d0(fraction))**1.5)
         return np.sqrt(permitivitty)
+
+
+def dispersive_InGaAs(fraction, wavelength=800, source='batop'):
+    """Dispersive refractive index of AlGaAs alloys
+
+
+    :param fraction: of aluminium. From 0 to 100
+    :param wavelength:
+    :param source: str.
+        batop  -  https://www.batop.de/information/n_InGaAs.html
+    :return:
+    """
+    fraction = np.asarray(fraction) / 100
+    h = 4.135667696e-15  # eV * s
+    c = 299792458 * 1e9  # nm / s
+    energy = h * c / wavelength
+
+    if source == 'batop':
+        # spin_orbit_splitting = 1.765-1.425
+        #
+        # def chi(wvl, energy):
+        #     return h * c / (wvl * energy)
+        #
+        # def f(_chi):
+        #     return (2 - np.sqrt(1+_chi) - np.sqrt(1-_chi)) / (_chi**2)
+        #
+        # def A(x):
+        #     return 6.3 + 19 * x
+        #
+        # def B(x):
+        #     return 9.4 - 10.2 * x
+
+        def bandgap_gamma(x):
+            return 1.424 - 1.501 * x + 0.436 * x**2
+
+        A = 8.950
+        B = 2.054
+        C = 0.6245
+
+        E0 = bandgap_gamma(fraction)
+        # ED0 = bandgap_gamma(fraction) + spin_orbit_splitting
+        # f_chi = f(chi(wavelength, E0))
+        # f_chi_s0 = f(chi(wavelength, ED0))
+        return np.sqrt(A + B / (1 - (C*1.424/(wavelength*E0))**2))
+
