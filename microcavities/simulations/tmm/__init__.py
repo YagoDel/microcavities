@@ -188,16 +188,16 @@ class Microcavity(Structure):
         dbr2 = DBR(**dbr2_kwargs)
 
         cavity = full_yaml['cavity']
-        cavity_index = cavity['refractive_index']
-        if 'thickness' not in cavity:
+        cavity_indices = [self._refractive_index(c) for c in cavity['refractive_indices']]
+        if 'thicknesses' not in cavity:
             if 'center_wavelength' not in cavity:
                 cavity['center_wavelength'] = full_yaml['center_wavelength']
             n1, n2 = [self._refractive_index(x) for x in dbr1_kwargs['refractive_indices']]
-            n3 = self._refractive_index(cavity['refractive_index'])
+            n3 = np.mean(cavity_indices)
             l_dbr = (cavity['center_wavelength'] * n1 * n2) / (2 * n3 * (n1 - n2))
-            cavity_thickness = np.abs(cavity['center_wavelength'] * cavity['fraction'] - l_dbr)
+            cavity_thicknesses = np.abs(cavity['center_wavelength'] * cavity['fraction'] - l_dbr)
         else:
-            cavity_thickness = cavity['thickness']
+            cavity_thicknesses = cavity['thicknesses']
 
         if 'incoming' in full_yaml:
             n_in = full_yaml['incoming']['refractive_index']
@@ -212,11 +212,11 @@ class Microcavity(Structure):
         self.n_list = [n_in]
         self.d_list = [np.inf]
         if 'cap' in full_yaml:
-            self.n_list += [full_yaml['cap']['refractive_index']]
-            self.d_list += [full_yaml['cap']['thickness']]
+            self.n_list += [self._refractive_index(c) for c in full_yaml['cap']['refractive_indices']]
+            self.d_list += full_yaml['cap']['thicknesses']
 
-        self.n_list += dbr1.n_list + [cavity_index] + dbr2.n_list + [n_subs]
-        self.d_list += dbr1.d_list + [cavity_thickness] + dbr2.d_list + [np.inf]
+        self.n_list += dbr1.n_list + cavity_indices + dbr2.n_list + [n_subs]
+        self.d_list += dbr1.d_list + cavity_thicknesses + dbr2.d_list + [np.inf]
 
         if 'disorder' in full_yaml:
             self.disorder(**full_yaml['disorder'])
