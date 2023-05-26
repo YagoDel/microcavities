@@ -239,7 +239,7 @@ def analyse_fringes(image, offset=None, mask_radius=None, plot=False, peak_kwarg
         imshow(image, axs[0, 0], diverging=False, cbar=False, cmap='Greys')
         imshow_transparency(visibility, axs[0, 1], cw, cmap="Greys")
         imshow_transparency(angle, axs[0, 2], cw, cmap='coolwarm')
-        colorful_imshow([np.log(np.abs(fourier) + 1e2), mask], axs[1, 0], from_black=False)
+        colorful_imshow([np.log(np.abs(shifted_fourier) + 1e2), mask], axs[1, 0], from_black=False)
         axs[1, 0].text(0.5, 1, offset, ha='center', va='top')
 
         idx = image.shape[0]//2
