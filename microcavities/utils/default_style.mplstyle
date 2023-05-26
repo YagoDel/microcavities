@@ -1,4 +1,7 @@
-pdf.fonttype : truetype
+pdf.fonttype :       truetype
+svg.fonttype :       path
+font.size :          9
+font.family :        sans-serif
 
 xtick.top:           True   # draw ticks on the top side
 xtick.bottom:        True    # draw ticks on the bottom side
@@ -23,7 +26,3 @@ ytick.minor.pad:     3.4     # distance to the minor tick label in points
 ytick.labelsize:     medium  # fontsize of the tick labels
 ytick.direction:     inout     # direction: {in, out, inout}
 ytick.minor.visible: True   # visibility of minor ticks on y-axis
-
-font.size : 9
-font.family : sans-serif
-mathtext.fontset : cm
