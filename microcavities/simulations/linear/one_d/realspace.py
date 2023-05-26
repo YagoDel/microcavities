@@ -109,12 +109,13 @@ def harmonic_potential(omega=1, mass_photon=1e-5, mass_exciton=0.35, detuning=3,
     return T + U, xax
 
 
-def hamiltonian_conveyor_x(t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, xax=None):
+def hamiltonian_conveyor_x(t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35,
+                           xax=None, background=0):
     if xax is None:
         xax = make_ax()
 
     T = kinetic_matrix(len(xax), rabi, mass_photon, mass_exciton, np.diff(xax)[0])
-    pot = potential_depth * np.cos((2 * np.pi / period) * xax - (2 * np.pi * frequency) * t)
+    pot = potential_depth * np.cos((2 * np.pi / period) * xax - (2 * np.pi * frequency) * t) + background
     U = potential_matrix(0*xax, pot, detuning)
     return T + U, xax
 

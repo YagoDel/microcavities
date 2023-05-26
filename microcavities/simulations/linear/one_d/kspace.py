@@ -49,7 +49,7 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
     delta_k = momentum_range / (100*n_points)
     delta_t = time_period / (100*n_points)
 
-    # Defining the Hamiltonian function to that it has only two parameters: k, t
+    # Defining the Hamiltonian function so that it has only two parameters: k, t
     f = np.abs(1/time_period)
     if hamiltonian_kw is None: hamiltonian_kw = dict()
     _hamiltonian = partial(hamiltonian, period=2*np.pi / momentum_range, frequency=f, **hamiltonian_kw)
@@ -89,7 +89,8 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
 
 
 # Example Hamiltonians
-def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35, n_bands=6):
+def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5,
+                           mass_exciton=0.35, n_bands=6, background=0):
     """1D Time-dependent Bloch Hamiltonian for a conveyor belt potential on the exciton component
     :param k:
     :param t:
@@ -101,6 +102,7 @@ def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, r
     :param mass_photon:
     :param mass_exciton:
     :param n_bands:
+    :param background:
     :return:
     """
     G = 2 * np.pi / period
@@ -120,11 +122,31 @@ def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, r
 
     pot = [potential_depth / 2] * (space_size - 1)
     exciton += np.diag(pot, -1) * np.exp(1j * omega * t) + np.diag(pot, 1) * np.exp(-1j * omega * t)
-    exciton -= np.eye(space_size) * detuning / 2
+    exciton -= np.eye(space_size) * (detuning / 2 + background)
 
     # Coupling to exciton
     _rabi = np.eye(space_size) * rabi/2
     return np.bmat([[photon, _rabi], [_rabi, exciton]])
+
+
+def hamiltonian_floquet_conveyor(k, t, period, frequency, floquet_depth, potential_depth, detuning, rabi, mass_photon=1e-5,
+                                 mass_exciton=0.35, n_bands=6, background=0, n_periods=10):
+    h0 = hamiltonian_conveyor_k(k, 0, period, frequency, potential_depth, detuning, rabi, mass_photon,
+                                mass_exciton, n_bands, background)
+    floquet_coupling = np.diag([floquet_depth]*h0.shape[0])
+    blocks = []
+    for idx1 in range(n_periods):
+        floquet_offset = (idx1 - n_periods//2) * hbar * 2 * np.pi * frequency
+        _row = []
+        for idx2 in range(n_periods):
+            if idx2 == idx1:
+                _row += [h0+floquet_offset]
+            elif np.abs(idx2 - idx1) == 1:
+                _row += [floquet_coupling]
+            else:
+                _row += [np.zeros(floquet_coupling.shape)]
+        blocks += [_row]
+    return np.block(blocks)
 
 
 def test_conveyor_chern():
