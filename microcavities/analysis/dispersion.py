@@ -411,7 +411,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
 
 def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, noise_cluster_size=5,
-                   min_cluster_distance=10, min_cluster_size=30):
+                   min_cluster_distance=10, min_cluster_size=30, scale=None, shear=None):
     """
     Currently just a wrapper of sklearn.cluster.AgglomerativeClustering with additional filtering of clusters
 
@@ -441,6 +441,11 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
                     points = points[mask]
 
     """Clustering"""
+    if shear is not None:
+        points = np.dot(points, [[1, shear], [0, 1]])
+    if scale is not None:
+        points = np.dot(points, [[scale, 0], [0, 1]])
+
     if agglom_kwargs is None: agglom_kwargs = dict()
     defaults = dict(n_clusters=2, distance_threshold=None,
                     compute_full_tree=True, linkage='single')
@@ -450,6 +455,11 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
     clusters = model.fit(points)
     label_history = [('first labels', deepcopy(clusters.labels_))]
     labels = clusters.labels_
+
+    if shear is not None:
+        points = np.dot(points, [[1, -shear], [0, 1]])
+    if scale is not None:
+        points = np.dot(points, [[1/scale, 0], [0, 1]])
 
     """Filtering irrelevant clusters"""
     if noise_cluster_size is not None:
