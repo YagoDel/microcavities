@@ -8,6 +8,9 @@ c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light    um/p
 m_e = (0.511 * 1e9) / c**2                              # Electron mass     meV/c**2
 
 
+LOGGER = create_logger('Analysis')
+
+
 def photon_density(camera_count, nd_filter=1, exposure_time=1e-4, lifetime=15e-12, hopfield=0.23, alpha=4,
                    camera_qe=0.4, optical_losses=None):
     """Converting camera counts into photon density

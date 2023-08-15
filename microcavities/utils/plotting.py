@@ -10,7 +10,7 @@ from skimage.segmentation import watershed
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec, colors, cm, collections, transforms
-from matplotlib.colors import LogNorm, LinearSegmentedColormap
+from matplotlib.colors import LogNorm, LinearSegmentedColormap, SymLogNorm
 from matplotlib.legend_handler import HandlerTuple
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 import matplotlib.patches as mpatches
