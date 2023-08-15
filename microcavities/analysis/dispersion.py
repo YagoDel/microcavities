@@ -4,7 +4,7 @@
 from microcavities.analysis import *
 from microcavities.analysis.utils import guess_peak
 from microcavities.utils import depth
-from microcavities.experiment.utils import spectrometer_calibration, magnification
+from microcavities.experiment.utils import spectrometer_calibration, magnification, load_calibration_file
 from scipy.ndimage import gaussian_filter
 from nplab.utils.log import create_logger
 from microcavities.analysis.utils import find_smooth_region
@@ -44,7 +44,7 @@ def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=Non
 
 
 def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass,
-                               k_offset=0, for_fit=True):
+                               k_offset=0, for_fit=True, **kwargs):
     exciton_mass *= m_e
     photon_mass *= m_e
 
@@ -78,34 +78,35 @@ def fit_energy(spectra, energy_axis, model=None, guess_kwargs=None):
     return model.fit(spectra, params_guess, x=energy_axis)
 
 
-def make_dispersion_axes(image, wavevector_axis=('rotation_pvcam', 'k_space'),
+def make_dispersion_axes(image=None, k0=None, wavevector_axis=('rotation_pvcam', 'k_space'),
                          energy_axis=('rotation_acton', 780, '2'), energy_roi=None):
     # Getting energy_axis from calibration files, if not given
-    if energy_roi is None: energy_roi = (0, image.shape[1])
-    if energy_axis is None:
+    if image is not None and energy_axis is None:
+        # This is simply used for situations when we don't care about the axis
         energy_axis = np.arange(image.shape[1])
-    elif image.shape[1] != len(energy_axis):
+    else:
         try:
             wvls = spectrometer_calibration(*energy_axis)
+            energy_axis = 1240000 / wvls  # default units are meV
         except Exception as e:
-            LOGGER.debug('Failed energy_axis: ', energy_axis)
-            raise e
-        energy_axis = 1240000 / wvls  # default units are meV
+            pass
+    if energy_roi is None: energy_roi = (0, len(energy_axis))
     energy_axis = energy_axis[energy_roi[0]:energy_roi[1]]
 
     # Getting wavevector_axis from calibration files, if not given
-    k0 = find_k0(image, plotting=False)
-    if wavevector_axis is None:
+    if k0 is None:
+        assert image is not None
+        k0 = find_k0(image, plotting=False)
+    if image is not None and wavevector_axis is None:
         wavevector_axis = np.arange(image.shape[0]) - k0
-    elif image.shape[0] != len(wavevector_axis):
-        mag = magnification(*wavevector_axis)[0]
-        mag *= 1e-6  # default units are micron
-        wavevector_axis = (np.arange(image.shape[0], dtype=np.float) - k0) * mag
-
-        # Safety check to make sure that the fitted k~0 is near the given k~0
-        if np.abs(k0 - np.argmin(np.abs(wavevector_axis))) > 3:
-            LOGGER.warn("Fitted bottom of the dispersion occurs at k=%g not at k=0" % wavevector_axis[int(k0)])
-
+    else:  # image.shape[0] != len(wavevector_axis):
+        try:
+            calibration = load_calibration_file(wavevector_axis[0])
+            mag = magnification(*wavevector_axis)[0]
+            mag *= 1e-6  # default units are micron
+            wavevector_axis = (np.arange(calibration['detector_shape'][1], dtype=np.float) - k0) * mag
+        except TypeError as e:
+            pass
     return wavevector_axis, energy_axis
 
 
@@ -224,7 +225,7 @@ def dispersion(image, k_axis=None, energy_axis=None, plotting=None, fit_kwargs=N
         Updated kwargs that can be passed to the next function call
 
     """
-    k_axis, energy_axis = make_dispersion_axes(image, k_axis, energy_axis)
+    k_axis, energy_axis = make_dispersion_axes(image, None, k_axis, energy_axis)
 
     # Fitting the linewidth
     k0_spectra = normalize(image[np.argmin(np.abs(k_axis))])
@@ -309,7 +310,6 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
             find_bands_kwargs[key] = {**value, **find_bands_kwargs[key]}
         else:
             find_bands_kwargs[key] = value
-    # find_bands_kwargs = {**defaults, **find_bands_kwargs}
     bands = find_bands(image, **find_bands_kwargs)
 
     lp_energy_guess = np.percentile(bands[0][:, 1], 5)
@@ -320,6 +320,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     default_start_values = dict(photon_energy=lp_energy_guess, exciton_energy=up_energy_guess,
                                 rabi_splitting=10, photon_mass=2e-5, exciton_mass=0.35, k_offset=0)
     starting_fit_parameters = {**default_start_values, **starting_fit_parameters}
+    LOGGER.info('[fit_dispersion] Default start values for fit: %s' % (starting_fit_parameters, ))
 
     # Handling known parameters
     parameter_names = ['photon_energy', 'rabi_splitting', 'photon_mass', 'exciton_energy', 'exciton_mass', 'k_offset']
@@ -331,7 +332,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     least_square_start = []
     for key, sc in zip(parameter_names, scales):
         st = starting_fit_parameters[key]
-        if key in known_sample_parameters:
+        if key in known_sample_parameters.keys():
             exec('%s=%g' % (key, known_sample_parameters[key]), dispersion_parameters)
         else:
             unknown_parameters += [key]
@@ -390,24 +391,29 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
     parameter_errors = np.sqrt(np.diag(pcov))
 
     if plotting:
-        fig, ax = create_axes(plotting)
-        imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm(), cmap='Greys')
-        [ax.plot(*band.transpose()) for band in bands]
-
+        fig, ax = plot_dispersion(plotting, k_axis, energy_axis, image, final_params, bands)
         if not res.success:
             ax.text(0.5, 0.98, 'Failed two-mode fit', va='top', ha='center', transform=ax.transAxes)
+    return final_params, parameter_errors, res
 
+
+def plot_dispersion(axes, k_axis, energy_axis, image=None, fit_params=None, bands=None):
+    fig, ax = create_axes(axes)
+    if image is not None:
+        imshow(image.transpose(), ax, xaxis=k_axis, yaxis=energy_axis, diverging=False, cbar=False, norm=LogNorm())
+    if bands is not None:
+        [ax.plot(*band.transpose()) for band in bands]
+    if fit_params is not None:
         new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
-
-        lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **final_params, for_fit=False)
+        lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **fit_params, for_fit=False)
         [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
         [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
 
         ax.text(0.5, 0.95,
-                u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (final_params['rabi_splitting'],
-                                                               final_params['exciton_energy']-final_params['photon_energy']),
-                transform=ax.transAxes, ha='center', va='top')
-    return final_params, parameter_errors, res
+                u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (fit_params['rabi_splitting'],
+                                                               fit_params['exciton_energy'] - fit_params['photon_energy']),
+                transform=ax.transAxes, ha='center', va='top', backgroundcolor=(1, 1, 1, 0.7))
+    return fig, ax
 
 
 def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, noise_cluster_size=5,
@@ -569,7 +575,7 @@ def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, cl
 
     if plotting is not None:
         fig, ax = create_axes(plotting)
-        imshow(image.transpose(), ax, xaxis=xaxis, yaxis=yaxis, cbar=False, diverging=False)
-        for cluster in clusters: ax.plot(*cluster.transpose(), '.', alpha=1, ms=0.2)
+        imshow(image.transpose(), ax, xaxis=xaxis, yaxis=yaxis, cbar=False, diverging=False, norm=LogNorm())
+        for cluster in clusters: ax.plot(*cluster.transpose(), 'r.', alpha=1, ms=0.2)
     return clusters
 

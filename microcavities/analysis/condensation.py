@@ -6,10 +6,11 @@ The main function is dispersion_power_series, which takes a series of file paths
 take data using the microcavities.utils.HierarchicalScan.ExperimentScan and then extracts the saved data, analyses it
 and plots it
 """
+import numpy as np
 
 from microcavities.analysis import *
 from microcavities.utils.HierarchicalScan import get_data_from_yamls
-from microcavities.analysis.dispersion import find_k0, dispersion, fit_quadratic_dispersion
+from microcavities.analysis.dispersion import *
 from cycler import cycler
 
 
@@ -32,7 +33,13 @@ def powerseries_remove_overlap(images, powers):
 def get_k0_image(photolum, powers):
     """From a sequence of energy-momentum images at different powers, extracts the power-ordered k=0 spectra"""
     # We assume that the lowest power in the lowest power scan is sufficiently low to extract k=0 by quadratic fitting
-    dispersion_img = np.copy(photolum[0][0])
+    if len(photolum[0].shape) == 3:
+        dispersion_img = np.copy(photolum[0][0])
+    elif len(photolum[0].shape) == 4:
+        dispersion_img = np.mean(photolum[0], 0)[0]
+    else:
+        raise ValueError('Unexpected photolum array shape: %s' % photolum.shape)
+
     k0 = int(find_k0(dispersion_img, plotting=False))
     new_images, xaxis = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
 
@@ -85,10 +92,14 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
         bkg = [bkg] * len(photolum)
     photolum = [p - b for p, b in zip(photolum, bkg)]
     powers = [p[key] for p in powers]
-    dispersion_imgs = np.copy(photolum[0][0])
-    if len(dispersion_imgs.shape) == 2:
+
+    if photolum[0].shape[0] != len(powers[0]):
+        dispersion_imgs = np.copy(photolum[0][:, 0])
+    else:
+        dispersion_imgs = np.copy(photolum[0][0])
         dispersion_imgs = dispersion_imgs[np.newaxis]
 
+    k_axis, energy_axis = make_dispersion_axes(dispersion_imgs[0], None, k_axis, energy_axis)
     # Analysing the dispersion images
     results = [dispersion(img, k_axis, energy_axis, False, dispersion_fit_parameters) for img in dispersion_imgs]
     k0_energies = [d['polariton_energy'] for d in results]
@@ -123,12 +134,20 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
     for power in powers_to_imshow:
         section_idx = np.argmin([np.min(np.abs(np.array(x) - power)) for x in powers])
         dset_idx = np.argmin(np.abs(np.array(powers[section_idx]) - power))
-        img = photolum[section_idx][dset_idx, :, lims[0]:lims[1]].transpose()
+        if len(photolum[0].shape) == 3:
+            img = photolum[section_idx][dset_idx, :, lims[0]:lims[1]].transpose()
+        elif len(photolum[0].shape) == 4:
+            img = np.mean(photolum[section_idx][:, dset_idx, :, lims[0]:lims[1]], 0).transpose()
+        else:
+            raise ValueError('Unexpected shape')
         condensate_imgs += [img]
     condensate_imgs = np.array(condensate_imgs)
     dispersion_img = np.mean((dispersion_imgs[..., lims[0]:lims[1]]), 0).transpose()
 
     # Plotting
+    # Adding polariton fit
+    plot_dispersion(axs[0], k_axis, energy_axis, fit_params=results[0], bands=None)
+    # Adding colorful imshow
     joined_images = np.concatenate(([dispersion_img], condensate_imgs))
     _, colours = colorful_imshow(joined_images, ax=axs[0], norm_args=(1, 99.99),
                                  aspect='auto', from_black=False, xaxis=k_axis, yaxis=energy_axis[lims[0]:lims[1]])
@@ -143,10 +162,15 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
                          (r'$\Gamma$=(%.4g $\pm$ %.1g)ps  $|X|^2$=%g' % (np.mean(lifetimes), np.std(lifetimes), np.mean(exciton_fractions)))),
                 ha='center', va='center', color='k', transform=axs[0].transAxes)
 
+
     """subplot(1, 0) line plots of the condensate emission"""
     # Analysing the total emission intensity over all k and the maximum emission at around k~0
-    total_emissions = [np.sum(x, (1, 2)) for x in photolum]
-    max_k0_emissions = [np.max(x[..., k0-5:k0+5, :], (1, 2)) for x in photolum]
+    if len(photolum[0].shape) == 3:
+        total_emissions = [np.sum(x, (1, 2)) for x in photolum]
+        max_k0_emissions = [np.max(x[..., k0-5:k0+5, :], (1, 2)) for x in photolum]
+    elif len(photolum[0].shape) == 4:
+        total_emissions = [np.sum(np.mean(x, 0), (1, 2)) for x in photolum]
+        max_k0_emissions = [np.max(np.mean(x, 0)[..., k0-5:k0+5, :], (1, 2)) for x in photolum]
 
     if intensity_corrections is None:  # if not given, we guess it by making the lines overlap
         # create interpolated arrays that cover all given power values
@@ -188,12 +212,21 @@ def dispersion_power_series(yaml_paths, series_names=None, bkg=0, energy_axis=('
 
     """subplot(1, 1)"""
     # Plotting the momenta vs power
-    new_images, new_powers = powerseries_remove_overlap(photolum, powers)
+    if len(photolum[0].shape) == 3:
+        new_images, new_powers = powerseries_remove_overlap(photolum, powers)
+    elif len(photolum[0].shape) == 4:
+        avg_photolum = [np.mean(x, 0) for x in photolum]
+        new_images, new_powers = powerseries_remove_overlap(avg_photolum, powers)
     img = np.array([normalize(x, (1, 99.9)) for x in np.sum(new_images[..., lims[0]:lims[1]], -1)])
     pcolormesh(img.transpose(), axs[3], new_powers, k_axis, diverging=False, cbar=False, cmap='Greys')
 
     # Plotting the momentum centroid on the same axes
-    summed_energies = [np.sum(x[..., lims[0]:lims[1]], -1) for x in photolum]
+    if len(photolum[0].shape) == 3:
+        summed_energies = [np.sum(x[..., lims[0]:lims[1]], -1) for x in photolum]
+    elif len(photolum[0].shape) == 4:
+        avg_photolum = [np.mean(x, 0) for x in photolum]
+        new_images, new_powers = powerseries_remove_overlap(avg_photolum, powers)
+        summed_energies = [np.sum(np.mean(x, 0)[..., lims[0]:lims[1]], -1) for x in photolum]
     k0s = [[np.average(k_axis, weights=x) for x in summed_energy] for summed_energy in summed_energies]
     legends = [r'$\langle k_y \rangle$'] + ['_nolegend_'] * (len(powers)-1)
     [axs[3].plot(x, y, 'b', label=legend) for x, y, legend in zip(powers, k0s, legends)]
