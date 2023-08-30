@@ -324,7 +324,7 @@ def fit_dispersion(image, k_axis, energy_axis, plotting=False, known_sample_para
 
     # Handling known parameters
     parameter_names = ['photon_energy', 'rabi_splitting', 'photon_mass', 'exciton_energy', 'exciton_mass', 'k_offset']
-    scales = [0.01, 0.1, 1e-7, 0.01, 0.01, 0.01]  # parameters have very different orders of magnitude scaling
+    scales = [0.01, 0.1, 1e-6, 0.01, 0.01, 0.01]  # parameters have very different orders of magnitude scaling
 
     dispersion_parameters = dict()
     unknown_parameters = []
