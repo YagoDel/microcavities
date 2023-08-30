@@ -41,7 +41,14 @@ def get_k0_image(photolum, powers):
         raise ValueError('Unexpected photolum array shape: %s' % photolum.shape)
 
     k0 = int(find_k0(dispersion_img, plotting=False))
-    new_images, xaxis = powerseries_remove_overlap([x[:, k0-5:k0+5] for x in photolum], powers)
+
+    if len(photolum[0].shape) == 3:
+        k0_imgs = [x[:, k0-5:k0+5] for x in photolum]
+    elif len(photolum[0].shape) == 4:
+        k0_imgs = [np.mean(x[:, :, k0-5:k0+5], 0) for x in photolum]
+    else:
+        raise ValueError('Unexpected photolum array shape: %s' % photolum.shape)
+    new_images, xaxis = powerseries_remove_overlap(k0_imgs, powers)
 
     normalised = []
     for dm in np.copy(np.mean(new_images, 1)):
