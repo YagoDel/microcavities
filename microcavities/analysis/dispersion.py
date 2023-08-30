@@ -4,6 +4,7 @@
 from microcavities.analysis import *
 from microcavities.analysis.utils import guess_peak
 from microcavities.utils import depth
+from microcavities.utils.polariton_characterisation import *
 from microcavities.experiment.utils import spectrometer_calibration, magnification, load_calibration_file
 from scipy.ndimage import gaussian_filter
 from nplab.utils.log import create_logger
@@ -27,20 +28,6 @@ def _up_low_polariton(exciton, photon, rabi_splitting):
     up = average_energy + offset
     low = average_energy - offset
     return low, up
-
-
-def hopfield_coefficients(rabi_splitting=None, detuning=None, exciton_energy=None, photon_energy=None,
-                          exciton_mass=None, photon_mass=None, polariton_mass=None):
-    if rabi_splitting is not None:
-        if detuning is None:
-            detuning = exciton_energy - photon_energy
-        exciton_fraction = 0.5 * (1 + detuning / np.sqrt(detuning**2 + rabi_splitting**2))
-    elif exciton_mass is not None:
-        exciton_fraction = (exciton_mass * (photon_mass - polariton_mass)) / (polariton_mass * (photon_mass - exciton_mass))
-    else:
-        raise ValueError('Need to give either energies or masses')
-    photon_fraction = 1 - exciton_fraction
-    return exciton_fraction, photon_fraction
 
 
 def exciton_photon_dispersions(k_axis, photon_energy, rabi_splitting, photon_mass, exciton_energy, exciton_mass,
@@ -411,7 +398,7 @@ def plot_dispersion(axes, k_axis, energy_axis, image=None, fit_params=None, band
 
         ax.text(0.5, 0.95,
                 u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (fit_params['rabi_splitting'],
-                                                               fit_params['exciton_energy'] - fit_params['photon_energy']),
+                                                               fit_params['photon_energy'] - fit_params['exciton_energy']),
                 transform=ax.transAxes, ha='center', va='top', backgroundcolor=(1, 1, 1, 0.7))
     return fig, ax
 
