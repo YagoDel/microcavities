@@ -10,7 +10,9 @@ from microcavities.analysis import *
 from microcavities.analysis.phase_maps import low_pass
 from microcavities.analysis.utils import remove_outliers
 from microcavities.analysis.interactive import InteractiveBase, InteractiveBaseUi
-from microcavities.experiment.utils import magnification
+from microcavities.analysis.dispersion import *
+# from microcavities.experiment.utils import magnification, spectrometer_calibration
+from microcavities.utils.HierarchicalScan import get_data_from_yamls
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 from sklearn.cluster import AgglomerativeClustering
@@ -36,7 +38,7 @@ density_cmap = 'BlueYellowRed'
 LOGGER = create_logger('Fitting')
 LOGGER.setLevel('WARN')
 
-folder_name = '2022_08_conveyorbelt'
+folder_name = '2023_02_conveyorbelt'
 collated_data_path = get_data_path('%s/collated_data.h5' % folder_name)
 collated_analysis = get_data_path('%s/collated_analysis.h5' % folder_name)
 spatial_scale = magnification('rotation_pvcam', 'real_space')[0] * 1e6
@@ -46,9 +48,15 @@ hbar = 6.582119569 * 10 ** (-16) * 10 ** 3 * 10 ** 12   # in meV.ps
 c = 3 * 10 ** 14 * 10 ** -12                            # Speed of Light   um/ps
 me = 511 * 10 ** 6 / c ** 2                             # Free electron mass   meV/c^2
 
-DETUNING = 1550.9923163262479-1546.0828304664699 + 3.2
-RABI = 9.7 / 2
-MASS = 4.6e-05 * me
+# DETUNING = 1550.9923163262479-1546.0828304664699 + 3.2
+# RABI = 9.7 / 2
+# MASS = 4.6e-05 * me
+pe = 1546.259668038101  # 1546.008773859453  #
+px = 1550.741422176952  # 1551.0005482114545  #
+blueshift = 0  # 3.2
+DETUNING = pe - (px + blueshift)
+RABI = 9.652377737843313  #  9.576747050930807  #9.2 / 2
+MASS = 4.384e-5   # 4.6e-05 #  4.384e-5  #* me
 
 with h5py.File(collated_analysis, 'r') as dfile:
     laser_separations = dfile['laser_separations'][...]
@@ -251,7 +259,7 @@ def get_experimental_data(dataset_index):
     return data, bands, config, analysed_bands, variables
 
 
-def get_selected_tilt_data(dataset_index, select=True):
+def get_selected_tilt_data(dataset_index, select='rough'):
     _, _, config, analysis_results, variables = get_experimental_data(dataset_index)
     mode_tilts = -remove_outliers(analysis_results[1])
 
@@ -270,7 +278,7 @@ def get_selected_tilt_data(dataset_index, select=True):
     right_append = np.full((18 - right_index, all_modes.shape[1]), np.nan)
     all_modes = np.concatenate([left_append, all_modes, right_append], 0)
 
-    if select:
+    if select == 'rough':
         if dataset_index == 0:
             selected_modes = mode_tilts[:, :, 2:, 1:4]
         elif dataset_index == 1:
@@ -289,6 +297,34 @@ def get_selected_tilt_data(dataset_index, select=True):
             selected_modes = mode_tilts[:, :, 2:, 1]
         elif dataset_index == 8:
             selected_modes = mode_tilts[:, :, 2:, :2]
+
+        _shape = selected_modes.shape
+        selected_modes = np.reshape(selected_modes, (_shape[0], np.prod(_shape[1:])))
+        left_append = np.full((left_index, selected_modes.shape[1]), np.nan)
+        right_append = np.full((18 - right_index, selected_modes.shape[1]), np.nan)
+        selected_modes = np.concatenate([left_append, selected_modes, right_append], 0)
+    elif select == 'fine':
+
+        if dataset_index == 0:
+            selected_modes = mode_tilts[:, :, -2:, 1:4]
+        elif dataset_index == 1:
+            selected_modes = mode_tilts[:, -2:]
+        elif dataset_index == 2:
+            selected_modes = mode_tilts[:, -2:, 0]
+        elif dataset_index == 3:
+            selected_modes = mode_tilts[:, -2:]
+        elif dataset_index == 4:
+            selected_modes = mode_tilts[:, :, -2:, 1]
+        elif dataset_index == 5:
+            selected_modes = mode_tilts[:, :, -2:, :2]
+        elif dataset_index == 6:
+            selected_modes = mode_tilts[:, :, -2:, 1:4]
+        elif dataset_index == 7:
+            selected_modes = mode_tilts[:, :, -2:, 1]
+        elif dataset_index == 8:
+            selected_modes = mode_tilts[:, :, -2:, :2]
+        else:
+            raise ValueError
 
         _shape = selected_modes.shape
         selected_modes = np.reshape(selected_modes, (_shape[0], np.prod(_shape[1:])))
@@ -1085,79 +1121,6 @@ def analytical_coupling_strength(potential_depth, lattice_period, mass=MASS):
     return 4 * potential_depth * np.exp(-np.sqrt(2*mass*potential_depth)*lattice_period/hbar)
 
 
-def Hamiltonian_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
-    G = delta_k
-
-    # TODO  compare to a model where the photon and the exciton are fully separated (mass)
-    space_size = 2*n_bands + 1
-
-    # Kinetic energy
-    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
-    Hk0 -= np.eye(space_size) * detuning / 2
-
-    # Potential energy
-    pot = [potential / 2] * (space_size - 1)
-    Hv = np.diag(pot, -1) + np.diag(pot, 1)
-    Hv += np.eye(space_size) * detuning / 2
-
-    # Coupling to exciton
-    H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
-    H2row = np.hstack([rabi * np.eye(space_size), Hv])
-    return np.vstack([H1row, H2row])
-
-
-def Hamiltonian_x(t, potential, delta_k, frequency, periods=6, n_points=32, mass=MASS, detuning=DETUNING, rabi=RABI):
-    single_period = 2 * np.pi / np.abs(delta_k)
-
-    if periods is None:
-        x = np.linspace(-21, 20, n_points)
-    else:
-        x = np.linspace(-single_period * periods/2 - 0.1*single_period, single_period*periods/2, n_points)
-    D2 = np.diag(-2*np.ones(n_points)) + np.diag(np.ones(n_points-1), 1) + np.diag(np.ones(n_points-1), -1)
-    dx = np.diff(x)[0]
-    D2 /= dx**2
-    Hk0 = -D2 * hbar ** 2 / (2 * mass)
-    Hk0 -= np.eye(n_points) * detuning / 2
-    Hv = (potential * np.cos(delta_k * x - 2*np.pi*frequency * t) + detuning / 2) * np.eye(n_points)
-    H1row = np.hstack([Hk0, rabi * np.eye(n_points)])
-    H2row = np.hstack([rabi * np.eye(n_points), Hv])
-    return np.vstack([H1row, H2row])
-
-
-def Hamiltonian_kt(k, t, delta_k, frequency, potential, mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
-    """ Floquet-Bloch Hamiltonian
-
-    :param k: float. Momentum
-    :param t: float. Time
-    :param delta_k: float. Reciprocal vector
-    :param frequency: float
-    :param potential: float
-    :param mass: float
-    :param detuning: float
-    :param rabi: float
-    :param n_bands: int
-    :return:
-    """
-    G = delta_k
-    space_size = 2*n_bands + 1
-    omega = 2 * np.pi * frequency
-
-    # Kinetic energy
-    Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)]) #, dtype=complex)
-    Hk0 -= np.eye(space_size) * detuning / 2
-
-    # Potential energy
-    pot = [potential / 2] * (space_size - 1)
-    Hv = np.diag(pot, -1) * np.exp(1j * omega * t) + \
-         np.diag(pot, 1) * np.exp(-1j * omega * t)
-    Hv += np.eye(space_size) * detuning / 2
-
-    # Coupling to exciton
-    H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
-    H2row = np.hstack([rabi * np.eye(space_size), Hv])
-    return np.vstack([H1row, H2row])
-
-
 def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=100, band_number=3, hamiltonian_kw=None):
     """Calculates the Chern number
 
@@ -1215,48 +1178,9 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
     return chern_number, np.array(berry_curvature)
 
 
-def rk_timestep(psi, hamiltonian, t, dt, noise_level=0.2):
-    K11 = -1j * np.matmul(hamiltonian(t), psi) / hbar
-    K21 = -1j * np.matmul(hamiltonian(t + dt / 2), psi + K11 * dt / 2) / hbar
-    K31 = -1j * np.matmul(hamiltonian(t + dt / 2), psi + K21 * dt / 2) / hbar
-    K41 = -1j * np.matmul(hamiltonian(t + dt), psi + dt * K31) / hbar
-
-    return psi + (K11 + 2 * K21 + 2 * K31 + K41) * dt / 6 + noise_level*np.random.rand(len(psi))
-
-
-def solve_timerange(psi0, hamiltonian, timerange):
-    full_psi = np.zeros((len(psi0), len(timerange)), dtype=complex)
-    for idx_t, t in enumerate(timerange):
-        full_psi[:, idx_t] = psi0
-        psi0 = rk_timestep(psi0, hamiltonian, t, np.diff(timerange)[0])
-    return full_psi
-
-
-def solve_for_krange(krange, hamiltonian):
-    bands = []
-    modes = []
-    for k in krange:
-        H = hamiltonian(k)
-        E, eig_vectors = np.linalg.eig(H)
-        idx_sort = np.argsort(E.real)
-        bands += [E[idx_sort]]
-        modes += [eig_vectors[:, idx_sort]]
-    return np.array(bands), np.array(modes)
-
-
-def farfield(hamiltonian, starting_vectors, timerange):
-    N = len(starting_vectors) // 2
-    rho = np.zeros((N, len(timerange)))
-    for vec in tqdm(starting_vectors, 'farfield'):
-        psi = solve_timerange(vec, hamiltonian, timerange)
-        psikw = np.fft.fftshift(np.fft.fft2(psi[:N, :]))
-        rho += np.abs(psikw) ** 2
-        if np.isnan(rho).any():
-            break
-    return rho
-
-
 """SIMULATIONS FOR EXPERIMENT"""
+from microcavities.simulations.linear.one_d.realspace import *
+from microcavities.simulations.linear.one_d.kspace import *
 
 
 def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
@@ -1293,8 +1217,9 @@ def run_simulations(depths, periods, backgrounds=0, masses=MASS, n_bands=20,
             _valss = []
             for mass in masses:
                 bands, _ = solve_for_krange(k_axis,
-                                            partial(Hamiltonian_k, n_bands=n_bands, mass=mass, detuning=detuning,
-                                                    rabi=rabi, potential=depth, delta_k=2*np.pi/period))
+                                            partial(hamiltonian_conveyor_k, t=0, frequency=0, n_bands=n_bands,
+                                                    mass_photon=mass, detuning=detuning,
+                                                    rabi=rabi, potential_depth=depth, period=period))
                 _values = []
                 for background in backgrounds:
                     _eig = bands + background
@@ -1349,7 +1274,7 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
     if len(exper_energy_array.shape) > 1:
         initial_shape = exper_energy_array.shape[:-1]
     else:  # ensures that the first axis is always cw power, even if the dataset doesn't have that variable
-        initial_shape = (1,)
+        initial_shape = (1, )
         exper_energy_array = np.array([exper_energy_array])
     exper_split = np.diff(exper_energy_array*1e3, axis=-1)[..., 0]
 
@@ -1410,7 +1335,7 @@ def fit_theory(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=
 
 
 def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=False, axis_offsets=(0, 0),
-                    ax=None, imshow_kw=None, plot_kw=None, fill_kw=None, plotting_kw=None, label_kw=None):
+                    ax=None, imshow_kw=None, plot_kw=None, fill_kw=None, plotting_kw=None, label_kw=None, v_shift=0):
     """
 
     :param dataset_index:
@@ -1493,7 +1418,7 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
             if not np.isnan(depth):
                 theory_bands = theory_bands.real
                 theory_bands -= np.min(theory_bands)
-                theory_bands += axis_offsets[1]
+                theory_bands += axis_offsets[1] + v_shift
                 min_idx, max_idx = [np.argmin(np.abs(theory_kaxis-x)) for x in [xaxis.min(), xaxis.max()]]
                 if 'n_bands' in plotting_kw:
                     ax.plot(theory_kaxis[min_idx:max_idx], theory_bands[min_idx:max_idx, :plotting_kw['n_bands']], **fill_kw)
@@ -1521,8 +1446,10 @@ def plot_theory_fit(dataset_index, selected_indices, run_fit=False, run_sims=Fal
         _formatter = dummy_formatter(axis_offsets[1], True, None, True)
         ax.yaxis.set_major_formatter(_formatter)
 
+    return theory_bands, theory_kaxis, depths
 
-def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=False,
+
+def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=False, n_points_farfield=10,
                         ground_state_pixel=None, ground_state_energy=None, imshow_kwargs=None):
     if imshow_kwargs is None: imshow_kwargs = dict()
 
@@ -1556,15 +1483,16 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     # Getting (or simulating, if not available) all the data
     with h5py.File(path, 'a') as dfile:
         # Simulation parameters
-        # n_points = 151
-        # periods = 8
-        # times = np.linspace(-100, 100, 4001)
         n_points = 101
         periods = 8
-        # times = np.linspace(-50, 50, 2001)
-        # times = np.linspace(-75, 75, 2001)
         times = np.linspace(-100, 100, 2001)
-        kwargs = dict(potential=fit_veff, periods=periods, n_points=n_points, delta_k=config['laser_angle'])
+        # n_points = 151
+        # periods = 6
+        # # times = np.linspace(-50, 50, 2001)
+        # # times = np.linspace(-75, 75, 2001)
+        # times = np.linspace(-130, 130, 2001)
+        # # times = np.linspace(-70, 70, 1001)
+        # kwargs = dict(potential=fit_veff, periods=periods, n_points=n_points, delta_k=config['laser_angle'])
 
         # Calculating momentum axis
         single_period = 2 * np.pi / np.abs(config['laser_angle'])
@@ -1577,14 +1505,18 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
 
         # Calculating static eigenvalues and eigenvectors, which are used as starting points in the temporal evolution
         # of the Floquet Hamiltonian
-        static_hamiltonian = Hamiltonian_x(0, frequency=0, **kwargs)
+        kwargs = dict(potential_depth=fit_veff, xax=x, period=2*np.pi/config['laser_angle'], detuning=DETUNING, rabi=RABI, mass_photon=MASS)
+        static_hamiltonian, _ = hamiltonian_conveyor_x(0, frequency=0, **kwargs)
         values, vectors = np.linalg.eig(static_hamiltonian)
 
         if rerun or (h5pylabel not in dfile):
-            floquet_hamiltonian = partial(Hamiltonian_x, frequency=freq * 1e-3, **kwargs)
+            _floquet_hamiltonian = partial(hamiltonian_conveyor_x, frequency=freq * 1e-3, **kwargs)
+            floquet_hamiltonian = lambda t: _floquet_hamiltonian(t)[0]
             idx = np.argsort(values)
-            vectors = vectors[:, idx]
-            theory_density = farfield(floquet_hamiltonian, vectors, times)
+            # vectors = vectors[:, idx]
+            # theory_density = farfield(floquet_hamiltonian, vectors, times)
+            theory_density, eax = farfield(floquet_hamiltonian, times, n_points_farfield)
+
             if rerun:
                 try:
                     del dfile[h5pylabel]
@@ -1603,7 +1535,7 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     # Cropping the data to the physically relevant area
     if ground_state_pixel is None:
         k0 = theory_density[theory_density.shape[0]//2]
-        idxs = find_peaks(normalize(k0), 0.01)[0]
+        idxs = find_peaks(normalize(k0), 0.001)[0]
         try:
             ground_state_pixel = np.max(idxs)
             print('Ground state pixel: ', ground_state_pixel)
@@ -1622,8 +1554,11 @@ def plot_theory_density(dataset_index, selected_indices, fig_ax=None, rerun=Fals
     fig, ax = create_axes(fig_ax)
     _kwargs = dict(cbar=False, diverging=False, norm=LogNorm(1e-5, 1), cmap='Greys')
     imshow_kwargs = {**_kwargs, **imshow_kwargs}
+    # imshow(normalize(np.fliplr(theory_density.transpose())), ax,
+    #        xaxis=theory_kax, yaxis=theory_eax, **imshow_kwargs)
     imshow(normalize(np.fliplr(theory_density.transpose()[min_idx:max_idx])), ax,
            xaxis=theory_kax, yaxis=theory_eax[min_idx:max_idx], **imshow_kwargs)
+    # ax.set_ylim((config['energy_axis'][-1] * 1e3), (config['energy_axis'][0] * 1e3))
     ax.set_xlim(config['k_axis'][0], config['k_axis'][-1])
     _formatter = dummy_formatter(ground_state_energy, True, None, True)
     _formatter._offset_threshold = 2
@@ -1648,152 +1583,245 @@ def compare_to_experiment(dataset_index, selected_indices, ground_state_energy=0
     return fig, axs
 
 
-if __name__ == '__main__':
-    def sinusoidal_k(k, potential, delta_k=10., mass=MASS, n_bands=6):
-        G = delta_k
-
-        # TODO  compare to a model where the photon and the exciton are fully separated (mass)
-        space_size = 2 * n_bands + 1
-
-        # Kinetic energy
-        Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
-
-        # Potential energy
-        pot = [potential / 2] * (space_size - 1)
-        Hv = np.diag(pot, -1) + np.diag(pot, 1)
-
-        return Hk0 + Hv
+# Lower polariton simulations
+MASS_POLARITON = 6.167686362525278e-05
 
 
-    def Hamiltonian_delta_k(k, potential, delta_k=10., mass=MASS, detuning=DETUNING, rabi=RABI, n_bands=6):
-        G = delta_k
-
-        # TODO  compare to a model where the photon and the exciton are fully separated (mass)
-        space_size = 2 * n_bands + 1
-
-        # Kinetic energy
-        Hk0 = np.diag([hbar ** 2 * (k - x * G) ** 2 / (2 * mass) for x in range(-n_bands, n_bands + 1)])
-        Hk0 -= np.eye(space_size) * detuning / 2
-
-        # Potential energy
-        Hv = potential * np.ones((space_size, space_size))
-        Hv += np.eye(space_size) * detuning / 2
-
-        # Coupling to exciton
-        H1row = np.hstack([Hk0, rabi * np.eye(space_size)])
-        H2row = np.hstack([rabi * np.eye(space_size), Hv])
-        return np.vstack([H1row, H2row])
+def hamiltonian_polariton_conveyor(k, t, period, frequency, potential_depth, mass=MASS_POLARITON, n_bands=6):
+    """1D Time-dependent Bloch Hamiltonian for a conveyor belt potential on the lower polariton"""
+    G = 2 * np.pi / period
+    space_size = 2 * n_bands + 1
+    omega = 2 * np.pi * frequency
+    photon = np.diag(
+        [hbar ** 2 * (k - x * G) ** 2 / (2 * mass * electron_mass) for x in range(-n_bands, n_bands + 1)])
+    photon = np.asarray(photon, dtype=complex)
+    pot = [potential_depth / 2] * (space_size - 1)
+    photon += np.diag(pot, -1) * np.exp(1j * omega * t) + np.diag(pot, 1) * np.exp(-1j * omega * t)
+    return photon
 
 
-    def test_hamiltonians():
-        potential = 0
-        deltak = 0.43
-        vals = []
+def run_simulations2(depths, periods, backgrounds=0, masses=MASS_POLARITON, n_bands=20,
+                     disable_output=False, detuning=DETUNING, rabi=RABI, k_axis=None):
+    """Run simulations for a grid of depths, periods, backgrounds, and/or masses"""
+    try:
+        len(depths)
+    except:
+        depths = [depths]
+    try:
+        len(periods)
+    except:
+        periods = [periods]
+    try:
+        len(backgrounds)
+    except:
+        backgrounds = [backgrounds]
+    try:
+        len(masses)
+    except:
+        masses = [masses]
 
-        for period in [3, 5, 7]:
-            hx = Hamiltonian_x(0, potential, deltak, 0, period, n_points=101)
-            val1, vec1 = np.linalg.eig(hx)
-            _sort_idx = np.argsort(val1)
-            val1 = val1[_sort_idx]
-            vec1 = vec1[:, _sort_idx]
-            vals += [val1]
+    if k_axis is None:
+        k_axis = np.linspace(-3, 3, 301)
 
-        ks = np.linspace(-2, 2, 101)
-        hk = partial(Hamiltonian_k, potential=potential, delta_k=deltak, n_bands=6)
-        bands, modes = solve_for_krange(ks, hk)
+    values = []
+    for depth in tqdm(depths, 'run_simulations2', disable=disable_output):
+        _vals = []
+        for period in periods:
+            _valss = []
+            for mass in masses:
+                bands, _ = solve_for_krange(k_axis,
+                                            partial(hamiltonian_polariton_conveyor, t=0, frequency=0, n_bands=n_bands,
+                                                    mass=mass, potential_depth=depth, period=period))
+                _values = []
+                for background in backgrounds:
+                    _eig = bands + background
+                    _values += [_eig]
+                _valss += [bands]
+            _vals += [_valss]
+        values += [_vals]
+    return np.squeeze(values), k_axis
 
-        fig, ax = plt.subplots(1, 1)
-        ax.plot(ks, bands[:, :])
-        [ax.plot(val[:100], '--') for val in vals]
-        ax2 = ax.twiny()
-        ax2.plot(bands[:, :])
+
+def run_simulations_dataset2(dataset_index, max_iterations=1, depths=None, results=None, _index=0):
+    """Recursive simulations"""
+    with h5py.File(collated_analysis, 'r') as dfile:
+        laser_separations = dfile['laser_separations'][...]
+    period = np.abs(2 * np.pi / laser_separations[dataset_index])
+    if depths is None:
+        depths = np.linspace(0.1, 10.1, 101)
+    theory_bands, theory_kaxis = run_simulations2(depths, [period], 0, MASS)
+
+    if results is None:
+        results = dict(depths=depths, bands=theory_bands, k_axis=theory_kaxis)
+    else:
+        results = dict(depths=np.append(depths, results['depths']),
+                       bands=np.append(theory_bands, results['bands'], axis=0),
+                       k_axis=np.append(theory_kaxis, results['k_axis'], axis=0))
+
+    return results
 
 
-    def testing_nonhermitian():
-        gs_widths = []
-        gaps = []
-        ampl = 1
-        k = np.linspace(-2, 2, 501)
-        thetas = np.linspace(-np.pi / 2, np.pi / 2, 51)
-        for theta in thetas:
-            p = ampl * np.exp(1j * theta)
-            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
-            bands, modes = solve_for_krange(k, hk)
-            gs_widths += [np.max(bands[:, 0]) - np.min(bands[:, 0])]
-            gaps += [np.min(bands[:, 1]) - np.max(bands[:, 0])]
-        gs_widths = np.array(gs_widths)
-        gaps = np.array(gaps)
+def fit_theory2(dataset_index, selected_indices=None, run_sims=True, adjust_tilt=False):
+    if dataset_index == 1:
+        return None
+    with h5py.File(collated_analysis, 'r') as dfile:
+        laser_separations = dfile['laser_separations'][...]
+    period = np.abs(2 * np.pi / laser_separations[dataset_index])
 
-        fig = plt.figure()
-        gs = gridspec.GridSpec(1, 3, fig)
-        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0])
-        ax = plt.subplot(_gs[0])
-        ax.plot(thetas, gs_widths.real, '.-')
-        ax2 = ax.twinx()
-        ax2.plot(thetas, gs_widths.imag, '.-', color='C1')
-        ax = plt.subplot(_gs[1])
-        ax.plot(thetas, gaps.real)
+    # Experiment
+    _, bands, config, analysis_results, variables = get_experimental_data(dataset_index)
+    if selected_indices is None:
+        selected_indices = tuple([slice(x) for x in bands.shape])
+    exper_energy_array = analysis_results[0][selected_indices]
 
-        p = ampl * np.exp(1j * 0)
-        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
-        bands, modes = solve_for_krange(k, hk)
-        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[1])
-        axs = _gs.subplots()
-        axs[0].plot(k, bands[:, :2].real)
-        axs[1].plot(k, bands[:, :2].imag)
+    if len(exper_energy_array.shape) > 1:
+        initial_shape = exper_energy_array.shape[:-1]
+    else:  # ensures that the first axis is always cw power, even if the dataset doesn't have that variable
+        initial_shape = (1,)
+        exper_energy_array = np.array([exper_energy_array])
+    exper_split = np.diff(exper_energy_array * 1e3, axis=-1)[..., 0]
 
-        p = ampl * np.exp(1j * np.pi / 2)
-        hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
-        bands, modes = solve_for_krange(k, hk)
-        _gs = gridspec.GridSpecFromSubplotSpec(2, 1, gs[2])
-        axs = _gs.subplots()
-        axs[0].plot(k, bands[:, :2].real)
-        axs[1].plot(k, bands[:, :2].imag)
+    # Theory
+    if run_sims:
+        results = run_simulations_dataset2(dataset_index)
+        np.save(get_data_path('%s/simulations/dataset%d_simulations2' % (folder_name, dataset_index)), results)
+    else:
+        results = np.load(get_data_path('%s/simulations/dataset%d_simulations2.npy' % (folder_name, dataset_index)),
+                          allow_pickle=True).take(0)
+    theory_depths = results['depths']
+    theory_bands = results['bands']
+    theory_centers = np.amin(theory_bands, 1)
 
-        fig, axs = plt.subplots(2, 4, sharex=True)
-        k = np.linspace(-2, 2, 501)
-        for p, ax in zip([np.sqrt(5) * 1j, 1 + 2j, 2 + 1j, np.sqrt(5)], axs.transpose()):
-            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
-            bands, modes = solve_for_krange(k, hk)
-            ax[0].plot(k, bands[:, :3].real)
-            _bands = bands[:, :3]
-            if p.real < 1e-5:
-                _b2 = _bands[:, -1]
-                _b01 = _bands[:, :-1]
-                mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
-                for idx, msk in enumerate(mask):
-                    if msk:
-                        indxs = np.argsort(_b01[idx].imag)
-                        _b01[idx] = _b01[idx][indxs]
-                # indxs = np.argsort(_b01.imag, axis=-1)
-                # _b01[mask] = _b01[mask][indxs[mask]]
+    all_splittings = np.diff(theory_centers, axis=-1)
+    first_splitting = all_splittings[..., 0]
+    theory_depth_vs_splitting = interp1d(first_splitting, theory_depths, bounds_error=False, fill_value=np.nan)
 
-                _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
-            ax[1].plot(k, _bands.imag)
-        for idx in range(len(axs[0]) - 1):
-            axs[0, idx].sharey(axs[0, idx + 1])
-            axs[1, idx].sharey(axs[1, idx + 1])
+    # Fitting
+    fitted_depths = theory_depth_vs_splitting(exper_split)
 
-        fig, axs = plt.subplots(2, 3, sharex=True)
-        k = np.linspace(-2, 2, 501)
-        for p, ax in zip([2, 2 + 1j, 2 + 2j], axs.transpose()):
-            hk = partial(Hamiltonian_k, potential=p, delta_k=0.6, n_bands=6)
-            bands, modes = solve_for_krange(k, hk)
-            ax[0].plot(k, bands[:, :3].real)
-            _bands = bands[:, :3]
-            if p.real < 1e-5:
-                _b2 = _bands[:, -1]
-                _b01 = _bands[:, :-1]
-                mask = np.diff(_b01.real, axis=-1)[:, 0] < 1e-5
-                for idx, msk in enumerate(mask):
-                    if msk:
-                        indxs = np.argsort(_b01[idx].imag)
-                        _b01[idx] = _b01[idx][indxs]
-                # indxs = np.argsort(_b01.imag, axis=-1)
-                # _b01[mask] = _b01[mask][indxs[mask]]
+    # Re-running simulations for the fitted values
+    fitted_results = dict(depths=[], bands=[], k_axis=[])
+    n_bands = 20
+    for depth in tqdm(fitted_depths.flatten(), 'fit_theory'):
+        if np.isnan(depth):
+            bands = np.full((301, 41), np.nan)
+            k_axis = np.full((301,), np.nan)
+        else:
+            bands, k_axis = run_simulations2([depth], [period], 0, MASS, n_bands=n_bands, disable_output=True)
+        fitted_results['depths'] += [depth]
+        fitted_results['bands'] += [bands]
+        fitted_results['k_axis'] += [k_axis]
+    fitted_results['depths'] = np.reshape(fitted_results['depths'], initial_shape)
+    fitted_results['bands'] = np.reshape(fitted_results['bands'], initial_shape + (301, 41))
+    fitted_results['k_axis'] = np.reshape(fitted_results['k_axis'], initial_shape + (301,))
 
-                _bands = np.concatenate([_b01, _b2[:, np.newaxis]], 1)
-            ax[1].plot(k, _bands.imag)
-        for idx in range(len(axs[0]) - 1):
-            axs[0, idx].sharey(axs[0, idx + 1])
-            axs[1, idx].sharey(axs[1, idx + 1])
+    return fitted_results
+
+
+def plot_theory_fit2(dataset_index, selected_indices, run_fit=False, run_sims=False, axis_offsets=(0, 0),
+                     ax=None, imshow_kw=None, plot_kw=None, fill_kw=None, plotting_kw=None, label_kw=None):
+    if label_kw is None: label_kw = dict()
+
+    data, bands, config, analysis_results, variables = get_experimental_data(dataset_index)
+    if run_fit:
+        fitted_results = fit_theory2(dataset_index, selected_indices, run_sims)
+        theory_bands, theory_kaxis, depths = [fitted_results[x] for x in ['bands', 'k_axis', 'depths']]
+    else:
+        fitted_results = np.load(get_data_path('%s/simulations/dataset%d_fits2.npy' % (folder_name, dataset_index)),
+                                 allow_pickle=True).take(0)
+        theory_bands, theory_kaxis, depths = [fitted_results[x][selected_indices] for x in
+                                              ['bands', 'k_axis', 'depths']]
+        if len(theory_kaxis.shape) == 1:
+            depths = [depths]
+
+    band = bands[selected_indices]
+    image = data[selected_indices]
+    exper_energy_array = analysis_results[0][selected_indices]
+
+    try:
+        shp = band.shape
+        if ax is not None:
+            return None
+        if len(shp) == 1:
+            shape = square(shp[0])
+        elif len(shp) == 2:
+            shape = shp
+        else:
+            return None
+        fig, _axs = plt.subplots(shape[1], shape[0])
+        axs = _axs.flatten()
+
+        flattened_bands = band.flatten()
+        flattened_images = np.reshape(image, (np.prod(shp), image.shape[-2], image.shape[-1]))
+        flattened_exp_energy = np.reshape(exper_energy_array, (np.prod(shp), exper_energy_array.shape[-1]))
+    except Exception as e:
+        shape = (1, 1)
+        flattened_bands = [band]
+        flattened_images = [image]
+        flattened_exp_energy = np.array([exper_energy_array])
+        if ax is None:
+            fig, _axs = plt.subplots(*shape)
+            axs = [_axs]
+        else:
+            fig = ax.figure
+            axs = [ax]
+
+    if imshow_kw is None: imshow_kw = dict()
+    imshow_kw = {**dict(diverging=False, cbar=False, cmap='Greys', norm=LogNorm()), **imshow_kw}
+    if plot_kw is None: plot_kw = dict()
+    if fill_kw is None: fill_kw = dict()
+    if plotting_kw is None: plotting_kw = dict()
+    plotting_kw = {**dict(show_label=True, show_bands=True, show_theory=True), **plotting_kw}
+
+    iterable = (axs, flattened_bands, flattened_images, flattened_exp_energy, depths)
+    for ax, bnd, img, exper_energy, depth in zip(*iterable):
+        xaxis = np.array(config['k_axis']) - axis_offsets[0]
+        yaxis = np.array(config['energy_axis'])
+        yaxis *= 1e3
+        imshow(normalize(img), ax, xaxis=xaxis, yaxis=yaxis, **imshow_kw)
+        if plotting_kw['show_bands']:
+            if 'plot_max_band' in plotting_kw:
+                max_band = plotting_kw['plot_max_band']
+            else:
+                max_band = len(bnd)
+            for idx, _band in enumerate(bnd):
+                if idx < max_band:
+                    if 'k_filtering' in plotting_kw:
+                        mask = np.abs(_band[:, 0] - axis_offsets[0]) < plotting_kw['k_filtering']
+                        _band = _band[mask]
+                    ax.plot(_band[:, 0] - axis_offsets[0], _band[:, 1] * 1e3, **plot_kw)
+        if plotting_kw['show_theory']:
+            if not np.isnan(depth):
+                theory_bands = theory_bands.real
+                theory_bands -= np.min(theory_bands)
+                theory_bands += axis_offsets[1]
+                min_idx, max_idx = [np.argmin(np.abs(theory_kaxis - x)) for x in [xaxis.min(), xaxis.max()]]
+                if 'n_bands' in plotting_kw:
+                    ax.plot(theory_kaxis[min_idx:max_idx], theory_bands[min_idx:max_idx, :plotting_kw['n_bands']],
+                            **fill_kw)
+                else:
+                    print(theory_kaxis.shape, theory_bands.shape)
+                    ax.plot(np.squeeze(theory_kaxis)[min_idx:max_idx],
+                            np.squeeze(theory_bands)[min_idx:max_idx], **fill_kw)
+            else:
+                print('Depth is NaN')
+        if plotting_kw['show_label']:
+            if 'label_string' in plotting_kw:
+                label = ''
+            else:
+                label = '%s$k_{laser}$=%.2g%sm$^{-1}$\n' % (
+                greek_alphabet['delta'], config['laser_angle'], greek_alphabet['mu'])
+                try:
+                    power_label = variables['normalised_power_axis'][selected_indices[-1]] * 1e3
+                    label += '$P_s$=%.1fmW%sm$^{-2}$\n' % (power_label, greek_alphabet['mu'])
+                except:
+                    pass
+                if not np.isnan(depth):
+                    label += '$V_{eff}$=%.2fmeV' % depth
+            ax.text(0.5, 0.99, label, ha='center', va='top', transform=ax.transAxes, **label_kw)
+
+        ax.set_xlim(xaxis.min(), xaxis.max())
+        _formatter = dummy_formatter(axis_offsets[1], True, None, True)
+        ax.yaxis.set_major_formatter(_formatter)
+
+    return theory_bands, theory_kaxis, depths
