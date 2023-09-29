@@ -491,7 +491,7 @@ def analyse_SRIM_3D_data(filename=None, *args, straggle_averaging_depth=200):
     straggle = np.sum(img[min_idx:max_idx], 0)
     peak_params = guess_peak(straggle, _x, background_percentile=0)
 
-    return total_vacancies, maximum_depth, straggle, peak_params
+    return total_vacancies, maximum_depth, straggle, peak_params, depth, _x
 
 
 def plot_SRIM_3D_data(filename=None, *args):
