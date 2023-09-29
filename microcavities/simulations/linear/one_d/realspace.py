@@ -38,7 +38,11 @@ def kinetic_matrix(size, rabi, mass_photon=1e-5, mass_exciton=0.35, x_spacing=1)
     t_exciton = _kinetic_matrix(mass_exciton, size, x_spacing)
 
     # Coupling to exciton
-    r = rabi * np.eye(size)
+    try:
+        assert len(rabi) == size
+        r = np.diag(rabi)
+    except TypeError:
+        r = rabi * np.eye(size)
     return np.bmat([[t_photon, r/2], [r/2, t_exciton]])
 
 

@@ -89,6 +89,15 @@ def calculate_chern_number(hamiltonian, momentum_range, time_period, n_points=10
 
 
 # Example Hamiltonians
+def hamiltonian_free_space_k(k, detuning, rabi, mass_photon=1e-5, mass_exciton=0.35):
+    photon = hbar ** 2 * k ** 2 / (2 * mass_photon * electron_mass)
+    exciton = hbar ** 2 * k ** 2 / (2 * mass_exciton * electron_mass)
+
+    photon += detuning/2
+    exciton -= detuning / 2
+    return np.array([[photon, rabi / 2], [rabi / 2, exciton]])
+
+
 def hamiltonian_conveyor_k(k, t, period, frequency, potential_depth, detuning, rabi, mass_photon=1e-5,
                            mass_exciton=0.35, n_bands=6, background=0):
     """1D Time-dependent Bloch Hamiltonian for a conveyor belt potential on the exciton component
@@ -175,6 +184,7 @@ def test_conveyor_chern():
     [axs[1].plot(frequencies*1e3, c, label='band %d' % x) for x, c in enumerate(chern_numbers)]
     label_axes(axs[1], 'f [GHz]', 'Chern number')
     axs[1].legend()
+    axs[1].set_ylim(-2, 2)
 
 
 def test_farfield_free_space():
