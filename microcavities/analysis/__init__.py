@@ -41,11 +41,12 @@ def photon_density(camera_count, nd_filter=1, exposure_time=1e-4, lifetime=15e-1
 
 def photons_per_mw(power, wavelength=0.805):
     """Returns the number of photons per picosecond, given a power and wavelength
-    :param power: in watts
+    :param power: in miliwatts
     :param wavelength: in micron
     :return:
     """
     single_photon_energy = 2 * np.pi * hbar * c / wavelength  # in meV
+    power *= 1e-3  # mW to Watts
     power *= 6.242e21   # joules to meV
     power /= single_photon_energy  # number of photons / s
     return power * 1e-12  # number of photons / ps

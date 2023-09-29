@@ -393,8 +393,8 @@ def plot_dispersion(axes, k_axis, energy_axis, image=None, fit_params=None, band
     if fit_params is not None:
         new_k = np.linspace(k_axis.min(), k_axis.max(), 101)
         lower, upper, exciton, photon = exciton_photon_dispersions(new_k, **fit_params, for_fit=False)
-        [ax.plot(new_k, y, color=c, alpha=0.3, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
-        [ax.plot(new_k, y, color='k', alpha=0.3, lw=3, ls='--') for y in [exciton, photon]]
+        [ax.plot(new_k, y, color=c, alpha=0.6, lw=3) for y, c in zip([lower, upper], ['darkviolet', 'darkorange'])]
+        [ax.plot(new_k, y, color='k', alpha=0.6, lw=3, ls='--') for y in [exciton, photon]]
 
         ax.text(0.5, 0.95,
                 u'$\Omega$ = %.2g meV\n$\Delta$ = %.2g meV' % (fit_params['rabi_splitting'],
@@ -434,10 +434,11 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
                     points = points[mask]
 
     """Clustering"""
+    points_to_cluster = np.copy(points)
     if shear is not None:
-        points = np.dot(points, [[1, shear], [0, 1]])
+        points_to_cluster = np.dot(points_to_cluster, [[1, shear], [0, 1]])
     if scale is not None:
-        points = np.dot(points, [[scale, 0], [0, 1]])
+        points_to_cluster = np.dot(points_to_cluster, [[scale, 0], [0, 1]])
 
     if agglom_kwargs is None: agglom_kwargs = dict()
     defaults = dict(n_clusters=2, distance_threshold=None,
@@ -445,14 +446,9 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
     kwargs = {**defaults, **agglom_kwargs}
 
     model = AgglomerativeClustering(**kwargs)
-    clusters = model.fit(points)
+    clusters = model.fit(points_to_cluster)
     label_history = [('first labels', deepcopy(clusters.labels_))]
     labels = clusters.labels_
-
-    if shear is not None:
-        points = np.dot(points, [[1, -shear], [0, 1]])
-    if scale is not None:
-        points = np.dot(points, [[1/scale, 0], [0, 1]])
 
     """Filtering irrelevant clusters"""
     if noise_cluster_size is not None:
@@ -493,14 +489,15 @@ def cluster_points(points, fig_ax=None, axis_limits=None, agglom_kwargs=None, no
         a, b = square(len(label_history))
         fig, axs = plt.subplots(a, b, num='clustering')
         for idx, ax in enumerate(axs.flatten()):
-            ax.scatter(*points.transpose(), c=label_history[idx][1])
+            # ax.scatter(*points.transpose(), c=label_history[idx][1])
+            ax.scatter(*points_to_cluster.transpose(), marker='x', c=label_history[idx][1])
             ax.set_title(label_history[idx][0])
 
     return masked_clusters
 
 
 def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, clustering_kwargs=None,
-               xaxis=None, yaxis=None, max_number_of_peaks=5e3):
+               xaxis=None, yaxis=None, max_number_of_peaks=5e3, return_indices=False):
     """Find peaks in image, and cluster them into bands
 
     :param image: 2D array
@@ -552,17 +549,21 @@ def find_bands(image, plotting=None, direction='both', find_peak_kwargs=None, cl
     assert len(peaks) < max_number_of_peaks
 
     # Cluster points as pixels
-    clusters = cluster_points(peaks, plotting, **clustering_kwargs)
+    clusters_indices = cluster_points(peaks, plotting, **clustering_kwargs)
     # Transform pixels to axis units
     if xaxis is None: xaxis = np.arange(image.shape[0])
     if yaxis is None: yaxis = np.arange(image.shape[1])
     xfunc = partial(np.interp, xp=np.arange(len(xaxis)), fp=xaxis)
     yfunc = partial(np.interp, xp=np.arange(len(yaxis)), fp=yaxis)
-    clusters = [np.transpose([xfunc(cluster[:, 0]), yfunc(cluster[:, 1])]) for cluster in clusters]
+    clusters = [np.transpose([xfunc(cluster[:, 0]), yfunc(cluster[:, 1])]) for cluster in clusters_indices]
 
     if plotting is not None:
         fig, ax = create_axes(plotting)
         imshow(image.transpose(), ax, xaxis=xaxis, yaxis=yaxis, cbar=False, diverging=False, norm=LogNorm())
         for cluster in clusters: ax.plot(*cluster.transpose(), 'r.', alpha=1, ms=0.2)
-    return clusters
+
+    if return_indices:
+        return clusters, clusters_indices
+    else:
+        return clusters
 
